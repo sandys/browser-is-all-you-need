@@ -1,4 +1,4 @@
-"""CDP connection pool for the Harbor ChromiumRL service."""
+"""CDP connection pool for the w8-biayn ChromiumRL service."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from w8_rl.browser.cdp_client import CDPClient, CDPConnectionError
+from w8_biayn.browser.cdp_client import CDPClient, CDPConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -595,7 +595,7 @@ class CDPPoolBase:
 
     async def verify_chromiumrl(self) -> None:
         """Verify ChromiumRL CDP domain is available. Raises if not WootzApp."""
-        from w8_rl.rewards.chromiumrl import verify_chromiumrl_available
+        from w8_biayn.rewards.chromiumrl import verify_chromiumrl_available
 
         # Need a session for verification — use shared tab
         tab_info = await self.acquire_shared_tab(url="about:blank", fresh=True)
@@ -631,28 +631,12 @@ class CDPPoolBase:
         if not self._adb_host:
             return False
 
-        from w8_rl.rollout.env_reset import app_reset, start_browser
-
-        self._contexts.clear()  # Sessions die on restart
-
-        success, _ = await app_reset(self._adb_host, package="com.wootzapp.web")
-        if not success:
-            logger.error("CDPPool: ADB app_reset failed")
-            return False
-
-        await start_browser(
+        logger.warning(
+            "CDPPool: browser reset requested for adb_host=%s, but w8-biayn "
+            "does not bundle the SGLang ADB reset helper; continuing without reset",
             self._adb_host,
-            package="com.wootzapp.web",
-            activity="com.wootzapp.web/com.google.android.apps.chrome.Main",
-            url="about:blank",
         )
-
-        await self.disconnect()
-        await asyncio.sleep(3.0)  # Browser needs time to expose CDP
-        await self.connect()
-
-        self._needs_browser_reset = False
-        return self._connected
+        return False
 
     async def evaluate_chromiumrl(
         self,
@@ -733,7 +717,7 @@ class CDPPoolBase:
 
             # Step 1: Navigate + enable ChromiumRL (warmup pattern)
             # Direct CDP calls — no Ray remote hops (we're inside the actor)
-            from w8_rl.rewards.chromiumrl import (
+            from w8_biayn.rewards.chromiumrl import (
                 navigate_and_enable_chromiumrl,
                 _collect_signals_impl,
                 get_main_frame_id,
@@ -793,7 +777,7 @@ class CDPPoolBase:
                     ) from e
 
             # Save DOM state (best-effort) and optionally compare against reference
-            from w8_rl.rewards.chromiumrl import (
+            from w8_biayn.rewards.chromiumrl import (
                 save_dom_state,
                 compare_dom_state,
                 compute_dom_comparison_score,

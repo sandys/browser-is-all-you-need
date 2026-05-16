@@ -3,8 +3,8 @@ ChromiumRL evaluation HTTP service.
 
 A persistent FastAPI server that wraps CDPPool and exposes ChromiumRL
 DOMdiff evaluation as an HTTP API. Runs on the local host alongside the
-Android emulator. The Harbor worker calls this service after the sandbox-side
-verifier reaches `ready_for_chromiumrl`.
+Android emulator. The SkyRL worker calls this service when DOMDiff rewards are
+enabled for browser-use rollouts.
 
 Endpoints:
     POST /evaluate  — Navigate to target_url, collect DOMdiff + quality signals.
@@ -13,7 +13,7 @@ Endpoints:
     GET  /health    — Health check with available tab count.
 
 Usage:
-    uvicorn w8_rl.harbor_env.chromiumrl_service:app --host 0.0.0.0 --port 8080
+    uvicorn w8_biayn.rewards.chromiumrl_service:app --host 0.0.0.0 --port 8080
 """
 
 from __future__ import annotations
@@ -462,7 +462,7 @@ class CDPManager:
     _telemetry: ServiceTelemetry = field(default_factory=ServiceTelemetry, repr=False)
 
     async def initialize(self) -> None:
-        from w8_rl.browser.cdp_pool import CDPPoolBase
+        from w8_biayn.browser.cdp_pool import CDPPoolBase
 
         self._pool = CDPPoolBase(cdp_url=self.cdp_url)
         try:
@@ -741,7 +741,7 @@ class CDPManager:
                 extra_headers=extra_headers,
             )
 
-        from w8_rl.rewards.chromiumrl import (
+        from w8_biayn.rewards.chromiumrl import (
             ChromiumRLScoringConfig,
             _collect_signals_impl,
             compare_dom_state,
@@ -895,7 +895,7 @@ class CDPManager:
     ) -> dict[str, Any]:
         """Degraded evaluation for browser builds without ChromiumRL CDP APIs.
 
-        This is intentionally opt-in and exists to exercise the Harbor/rLLM
+        This is intentionally opt-in and exists to exercise the w8-biayn
         plumbing when the local APK is Chromium-compatible but does not expose
         WootzApp's custom ChromiumRL domain. Real training should run with the
         native domain so performance and visual signals are available.
@@ -1258,7 +1258,7 @@ class CDPManager:
         *,
         session_id: str,
     ) -> dict[str, Any]:
-        from w8_rl.rewards.chromiumrl import save_dom_state
+        from w8_biayn.rewards.chromiumrl import save_dom_state
 
         try:
             dom_state = await save_dom_state(pool, session_id=session_id)

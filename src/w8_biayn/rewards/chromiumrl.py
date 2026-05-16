@@ -1,4 +1,4 @@
-"""Live ChromiumRL CDP helpers used by the Harbor reward service.
+"""Live ChromiumRL CDP helpers used by the w8-biayn reward service.
 
 The current V1 reward path runs DOM/state comparison inside the ChromiumRL
 worker and returns reward facts over HTTP. This module intentionally keeps only

@@ -24,6 +24,7 @@ dev = [
     "pytest>=8.0",
 ]
 domdiff = [
+    "aiohttp>=3.9",
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "websocket-client>=1.7",
