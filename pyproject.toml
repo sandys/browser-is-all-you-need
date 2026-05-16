@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "browser-is-all-you-need"
+version = "0.1.0"
+description = "Command and control CLI for BrowserGym RL pipelines on rLLM, SkyRL, and Google Cloud."
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+    "rich>=13.7",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+browser = [
+    "gymnasium>=0.29",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+w8-biayn = "w8_biayn.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/w8_biayn"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
