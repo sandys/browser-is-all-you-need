@@ -43,3 +43,22 @@ def test_render_webarena_includes_service_provision_hook():
     assert config["envs"]["W8_WEBARENA_ARCHIVES_GCS"] == "gs://proj-w8-biayn/webarena"
     assert "webarena-setup" in config["setup"]
     assert "WA_SHOPPING" in config["run"]
+
+
+def test_render_r3_includes_domdiff_reward_envs():
+    text = render_sky_yaml(
+        RenderOptions(
+            pipeline="r3",
+            project_id="proj",
+            chromiumrl_url="https://reward.trycloudflare.com",
+            cdp_url="wss://cdp.trycloudflare.com",
+            benchmark="webvoyager-domdiff-heldout",
+        )
+    )
+    config = yaml.safe_load(text)
+
+    assert config["envs"]["W8_BIAYN_DOMDIFF_ENABLED"] == "1"
+    assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
+    assert config["envs"]["CDP_URL"] == "wss://cdp.trycloudflare.com"
+    assert config["envs"]["W8_BIAYN_BENCHMARK"] == "webvoyager-domdiff-heldout"
+    assert 'export CHROMIUMRL_API_URL="https://reward.trycloudflare.com"' in config["run"]

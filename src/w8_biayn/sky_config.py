@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import yaml
 
-from .constants import DEFAULT_CREDENTIALS_PATH, SKYRL_PIN, SKYRL_REPO
+from .constants import DEFAULT_CREDENTIALS_PATH, DEFAULT_DOMDIFF_IMAGE, SKYRL_PIN, SKYRL_REPO
 from .secrets import default_bucket_for_project
 
 Pipeline = Literal["miniwob", "webarena", "r3"]
@@ -37,6 +37,10 @@ class RenderOptions:
     logger: str = "console"
     wandb_secret: bool = False
     webarena_archives_gcs: str | None = None
+    chromiumrl_url: str | None = None
+    cdp_url: str | None = None
+    domdiff_reward_image: str = DEFAULT_DOMDIFF_IMAGE
+    benchmark: str | None = None
 
     @property
     def artifact_bucket(self) -> str:
@@ -224,11 +228,18 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
 def run_script(options: RenderOptions) -> LiteralStr:
     overrides = " \\\n  ".join(skyrl_overrides(options))
     webarena_exports = webarena_env_exports() if options.pipeline == "webarena" else ""
+    domdiff_enabled = "1" if options.chromiumrl_url or options.cdp_url else "0"
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_WEBARENA_ARCHIVES_GCS="{options.webarena_archives_gcs or ""}"
+export W8_BIAYN_DOMDIFF_ENABLED="{domdiff_enabled}"
+export W8_BIAYN_DOMDIFF_REWARD_IMAGE="{options.domdiff_reward_image}"
+export W8_BIAYN_BENCHMARK="{options.benchmark or ""}"
+export CHROMIUMRL_URL="{options.chromiumrl_url or ""}"
+export CHROMIUMRL_API_URL="{options.chromiumrl_url or ""}"
+export CDP_URL="{options.cdp_url or ""}"
 {webarena_exports}
 cd "$HOME/.cache/w8-biayn/upstreams/SkyRL"
 source .venv/bin/activate
@@ -267,6 +278,16 @@ def render_sky_yaml(options: RenderOptions) -> str:
         config["secrets"] = secrets
     if options.webarena_archives_gcs:
         config["envs"]["W8_WEBARENA_ARCHIVES_GCS"] = options.webarena_archives_gcs
+    if options.benchmark:
+        config["envs"]["W8_BIAYN_BENCHMARK"] = options.benchmark
+    if options.chromiumrl_url or options.cdp_url:
+        config["envs"]["W8_BIAYN_DOMDIFF_ENABLED"] = "1"
+        config["envs"]["W8_BIAYN_DOMDIFF_REWARD_IMAGE"] = options.domdiff_reward_image
+        if options.chromiumrl_url:
+            config["envs"]["CHROMIUMRL_URL"] = options.chromiumrl_url
+            config["envs"]["CHROMIUMRL_API_URL"] = options.chromiumrl_url
+        if options.cdp_url:
+            config["envs"]["CDP_URL"] = options.cdp_url
     return yaml.safe_dump(config, sort_keys=False)
 
 

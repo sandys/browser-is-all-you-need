@@ -13,6 +13,16 @@ SKYRL_PIN = "bfa4dc338b0db629f6222364bd1d8645f43baaa2"
 DEFAULT_CREDENTIALS_PATH = ".gcp-service-account.json"
 DEFAULT_RENDER_DIR = ".w8-biayn/rendered"
 DEFAULT_CLUSTER_PREFIX = "w8-biayn"
+DEFAULT_DOMDIFF_IMAGE = "ghcr.io/wootzapp/android-world-domdiff:daytona-92000b7"
+DEFAULT_DOMDIFF_LOCAL_IMAGE = "android-world-domdiff:local"
+DEFAULT_DOMDIFF_ARTIFACT_LOCATION = "us-central1"
+DEFAULT_DOMDIFF_ARTIFACT_REPOSITORY = "w8-biayn"
+DEFAULT_DOMDIFF_ARTIFACT_IMAGE = "android-world-domdiff"
+DEFAULT_DOMDIFF_ZONE = "us-central1-a"
+DEFAULT_DOMDIFF_MACHINE_TYPE = "n2-standard-4"
+DEFAULT_DOMDIFF_MIN_CPU_PLATFORM = "Intel Cascade Lake"
+DEFAULT_DOMDIFF_BOOT_DISK_TYPE = "pd-balanced"
+DEFAULT_DOMDIFF_VOLUME_GB = 100
 
 
 @dataclass(frozen=True)
@@ -26,4 +36,3 @@ UPSTREAMS = {
     "rllm": Upstream("rllm", RLLM_REPO, RLLM_PIN),
     "skyrl": Upstream("SkyRL", SKYRL_REPO, SKYRL_PIN),
 }
-

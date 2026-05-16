@@ -23,6 +23,11 @@ browser = [
 dev = [
     "pytest>=8.0",
 ]
+domdiff = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "websocket-client>=1.7",
+]
 
 [project.scripts]
 w8-biayn = "w8_biayn.cli:app"

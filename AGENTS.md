@@ -32,6 +32,13 @@ The real GCP smoke path is:
 uv run w8-biayn launch miniwob
 ```
 
+The real DOMDiff reward-host smoke path is:
+
+```bash
+uv run w8-biayn doctor --cloud --domdiff
+uv run w8-biayn domdiff local smoke --image android-world-domdiff:local
+```
+
 If any development change invalidates those commands, update bootstrap, CLI help, tests, and this file in the same change.
 
 ## Documentation And Diagrams Must Stay Current
@@ -65,7 +72,28 @@ Any command that provisions cloud resources must:
 - Render the SkyPilot YAML into an ignored path.
 - Provide status, logs, and teardown commands through `w8-biayn`.
 
+DOMDiff reward-host workflows must also:
+
+- Use the prebuilt reward image by default: `ghcr.io/wootzapp/android-world-domdiff:daytona-92000b7`.
+- For development and smoke runs, prefer `w8-biayn domdiff local ...` with the local `android-world-domdiff:local` image and Cloudflare quick tunnels. Do not push local DOMDiff images unless the user explicitly asks for a GCP-hosted reward VM.
+- If the reward image must run on a GCP reward VM and exists only in local Docker, upload it with `w8-biayn domdiff push-image` or pass `--local-reward-image`; never copy image tarballs or source into this repo.
+- Use Google Artifact Registry (`<location>-docker.pkg.dev/<project>/w8-biayn/android-world-domdiff:<tag>`) for local DOMDiff image promotion to GCP.
+- Never vendor AndroidWorld, WootzApp, APKs, or browser source into this repository.
+- Copy only the small `w8_biayn.rewards` adapter into the running container.
+- In local DOMDiff mode, run the reward adapter outside the container with `CDP_URL=ws://127.0.0.1:9224`; expose both reward HTTP and CDP through Cloudflare quick tunnels for GCP trainers.
+- Create GCP nested-virtualization hosts with explicit dry-run support and state under `.w8-biayn/domdiff/`.
+- Keep local DOMDiff state under `.w8-biayn/domdiff-local/`.
+- Authenticate the remote VM to Artifact Registry with `.gcp-service-account.json` only for `*.pkg.dev` reward images, and never print credential contents.
+- Expose CDP and reward HTTP through tunnels, not broad direct GCP ingress.
+- Tear down the VM, firewall, tunnels, local SSH key, and container by default. Use `--keep` only for intentional debugging.
+
 For WebArena, do not assume the official archives are bundled. Require an explicit GCS prefix with `--webarena-archives-gcs` or external `WA_*` URLs.
+
+## Benchmark Rules
+
+Infrastructure changes are not sufficient unless they preserve a runnable benchmark ladder. Keep `w8-biayn benchmarks list`, README benchmark guidance, and rendered benchmark metadata current when changing R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld paths.
+
+The default scorecard is MiniWoB smoke, DOMDiff local live smoke, WebVoyager DOMDiff held-out, Harbor DOMDiff browser/SWE tasks, WebArena, and AndroidWorld transfer.
 
 ## Tests And Validation
 
@@ -82,6 +110,9 @@ For bootstrap-affecting changes, also run:
 ./scripts/bootstrap.sh --no-sky
 uv run w8-biayn --help
 uv run w8-biayn config render miniwob --credentials .gcp-service-account.json
+uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
+uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --tag smoke --dry-run
+uv run w8-biayn launch r3 --with-local-domdiff --benchmark webvoyager-domdiff-heldout --dry-run
 python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
 

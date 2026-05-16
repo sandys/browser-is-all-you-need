@@ -6,6 +6,7 @@
 .ruff_cache/
 .mypy_cache/
 .w8-biayn/
+.local/
 
 __pycache__/
 *.py[cod]
