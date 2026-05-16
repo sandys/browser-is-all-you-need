@@ -49,6 +49,12 @@ The README must include Mermaid architecture and workflow diagrams. When impleme
 
 AI-facing skills must also stay current. When repo-specific workflows change, update `.agents/skills/w8-biayn-framework/` and preserve the symlinked skill discovery paths. If the change is generic to skill authoring, update `.agents/skills/agent-skills-framework/` as well.
 
+## Commit Discipline
+
+Prefer many focused commits over one large commit. Commit after each logical change, such as a development-rule update, a CLI behavior change, a docs/diagram update, a dependency/bootstrap change, or a validation/test fix.
+
+Keep each commit internally coherent: include the code, docs, tests, and skill updates needed for that one change, then continue with the next logical change in a new commit.
+
 ## Secrets And Local State
 
 `.env` and `.gcp-service-account.json` are local-only and must never be committed.

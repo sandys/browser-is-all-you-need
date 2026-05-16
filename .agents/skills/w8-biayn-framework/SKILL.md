@@ -34,6 +34,8 @@ Main responsibilities:
 
 Do not assume globally installed tools. If a command needs a tool, bootstrap must install it or `doctor` must diagnose it clearly.
 
+Commit after each logical change. Prefer several focused commits over one large commit, and make each commit include the code, docs, tests, and skill updates required for that specific change before moving to the next one.
+
 Do not commit `.env`, `.gcp-service-account.json`, `.cache/`, `.w8-biayn/`, `.venv/`, `dist/`, generated datasets, or upstream clones.
 
 Do not vendor rLLM or SkyRL. Use:
