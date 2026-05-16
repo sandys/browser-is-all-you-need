@@ -36,12 +36,11 @@ uv run w8-biayn domdiff local up --image android-world-domdiff:local
 
 uv run w8-biayn launch r3 \
   --chromiumrl-url https://<local-domdiff-reward-tunnel> \
-  --cdp-url wss://<local-domdiff-cdp-tunnel> \
   --benchmark webvoyager-domdiff-heldout \
   --credentials .gcp-service-account.json
 ```
 
-`domdiff local up` prints the two tunnel URLs. Keep that terminal and machine running while the GCP trainer is active.
+`domdiff local up` prints the reward tunnel URL. Keep that terminal and machine running while the GCP trainer is active. CDP stays bound to the workstation by default; add `--publish-cdp` only for explicit CDP debugging.
 
 If you explicitly want a GCP-hosted DOMDiff reward VM instead, push a local-only image to Google Artifact Registry first and use that registry URI for GCP:
 
@@ -119,7 +118,6 @@ uv run w8-biayn domdiff local up --image android-world-domdiff:local
 
 uv run w8-biayn launch r3 \
   --chromiumrl-url https://<local-domdiff-reward-tunnel> \
-  --cdp-url wss://<local-domdiff-cdp-tunnel> \
   --benchmark webvoyager-domdiff-heldout \
   --credentials .gcp-service-account.json
 ```
@@ -163,7 +161,7 @@ uv run w8-biayn domdiff local logs
 uv run w8-biayn domdiff local down
 ```
 
-`domdiff local up` starts the local Android/WootzApp container with KVM, starts the reward adapter locally on `127.0.0.1:8080`, publishes Cloudflare quick tunnels for reward HTTP and CDP, and writes state/logs under `.w8-biayn/domdiff-local/<run-id>/`. This path does not push Docker layers or copy browser source.
+`domdiff local up` starts the local Android/WootzApp container with KVM, starts the ChromiumRL reward service locally on `127.0.0.1:8080`, publishes a Cloudflare quick tunnel for reward HTTP, and writes state/logs under `.w8-biayn/domdiff-local/<run-id>/`. This path does not push Docker layers or copy browser source. Use `--publish-cdp` only when you need a temporary CDP tunnel for debugging.
 
 The GCP-hosted DOMDiff lifecycle remains available for remote reward hosting. It creates one temporary GCP Compute VM with nested virtualization, starts the prebuilt Android/WootzApp container, copies in only the small `w8_biayn.rewards` adapter, publishes Cloudflare quick tunnels for reward HTTP and CDP, and writes state/logs under `.w8-biayn/domdiff/<run-id>/`.
 
@@ -203,7 +201,7 @@ uv run w8-biayn benchmarks list
 Recommended order:
 
 - `miniwob-smoke`: cheapest SkyPilot/SkyRL end-to-end check.
-- `domdiff-local-live`: proves local KVM, WootzApp CDP, quick tunnels, and reward adapter health without pushing the image.
+- `domdiff-local-live`: proves local KVM, WootzApp CDP, the reward quick tunnel, and reward service health without pushing the image.
 - `webvoyager-domdiff-heldout`: primary browser-use DOMDiff benchmark for live no-anti-bot web tasks.
 - `harbor-domdiff-browser-swe`: browser/SWE preview tasks where DOMDiff is the verifier.
 - `webarena-browsergym`: reproducible self-hosted web benchmark through BrowserGym.
@@ -235,7 +233,7 @@ flowchart LR
   adapter --> browsergym
   domdiff_local --> local_image[Local android-world-domdiff image]
   local_image --> local_container[Local Android/WootzApp container]
-  local_container --> local_reward[w8_biayn reward adapter on localhost]
+  local_container --> local_reward[w8_biayn ChromiumRL service on localhost]
   local_reward --> tunnels[Cloudflare quick tunnels]
   domdiff_gcp --> reward_vm[GCP nested-virt reward VM]
   gar --> artifact_image[Artifact Registry DOMDiff image]
@@ -269,10 +267,10 @@ sequenceDiagram
   SKY-->>CLI: GCP enabled or IAM blocker
   U->>CLI: domdiff local up --image android-world-domdiff:local
   CLI->>DO: run local Android/WootzApp container
-  CLI->>RW: start local reward adapter with CDP_URL=ws://127.0.0.1:9224
-  CLI->>CF: publish reward and CDP quick tunnels
-  CF-->>CLI: chromiumrl_url and cdp_url
-  U->>CLI: launch r3 --chromiumrl-url ... --cdp-url ...
+  CLI->>RW: start local reward service with CDP_URL=ws://localhost:9224
+  CLI->>CF: publish reward quick tunnel
+  CF-->>CLI: chromiumrl_url
+  U->>CLI: launch r3 --chromiumrl-url ...
   CLI->>CLI: render .w8-biayn/rendered/r3.sky.yaml
   CLI->>SKY: sky launch -y --down
   SKY->>VM: provision A100:4 VM

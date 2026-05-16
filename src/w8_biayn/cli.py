@@ -127,6 +127,7 @@ def _local_domdiff_config(
     host_cdp_port: int,
     reward_port: int,
     keep_container: bool = False,
+    publish_cdp: bool = False,
 ) -> domdiff.LocalDomdiffConfig:
     return domdiff.LocalDomdiffConfig(
         run_id=run_id or domdiff.default_run_id("domdiff-local"),
@@ -136,6 +137,7 @@ def _local_domdiff_config(
         host_cdp_port=host_cdp_port,
         reward_port=reward_port,
         keep_container=keep_container,
+        publish_cdp=publish_cdp,
     )
 
 
@@ -376,7 +378,7 @@ def launch(
         help="GCS prefix containing official WebArena archives for VM-side service provisioning.",
     ),
     with_domdiff: bool = typer.Option(False, help="Provision a GCP DOMDiff reward host before launching R3."),
-    with_local_domdiff: bool = typer.Option(False, help="Start a local DOMDiff container and expose reward/CDP through quick tunnels."),
+    with_local_domdiff: bool = typer.Option(False, help="Start a local DOMDiff container and expose the reward service through a Cloudflare quick tunnel."),
     chromiumrl_url: Optional[str] = typer.Option(None, help="Existing DOMDiff ChromiumRL reward service URL."),
     cdp_url: Optional[str] = typer.Option(None, help="Existing DOMDiff CDP WebSocket URL."),
     domdiff_run_id: Optional[str] = typer.Option(None, help="Run id for the DOMDiff reward host."),
@@ -404,7 +406,8 @@ def launch(
     local_domdiff_container: str = typer.Option("android-world-domdiff", help="Local DOMDiff container name."),
     local_domdiff_health_port: int = typer.Option(5080, help="Local host port for DOMDiff /health."),
     local_domdiff_cdp_port: int = typer.Option(9224, help="Local host port for DOMDiff CDP."),
-    local_chromiumrl_port: int = typer.Option(8080, help="Local host port for the reward adapter."),
+    local_chromiumrl_port: int = typer.Option(8080, help="Local host port for the ChromiumRL reward service."),
+    local_publish_cdp: bool = typer.Option(False, "--local-publish-cdp", help="Also expose local CDP through a Cloudflare quick tunnel for debugging."),
     keep_local_domdiff: bool = typer.Option(False, help="Leave local DOMDiff processes/container running after launch exits."),
     benchmark: Optional[str] = typer.Option(None, help="Benchmark key to record for this run."),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
@@ -464,7 +467,7 @@ def launch(
             domdiff_state = domdiff.up(domdiff_config)
             chromiumrl_url = chromiumrl_url or domdiff_state.chromiumrl_url
             cdp_url = cdp_url or domdiff_state.cdp_url
-    if with_local_domdiff and not (chromiumrl_url and cdp_url):
+    if with_local_domdiff and not chromiumrl_url:
         local_config = _local_domdiff_config(
             run_id=local_domdiff_run_id,
             image=local_domdiff_image,
@@ -473,15 +476,18 @@ def launch(
             host_cdp_port=local_domdiff_cdp_port,
             reward_port=local_chromiumrl_port,
             keep_container=keep_local_domdiff,
+            publish_cdp=local_publish_cdp,
         )
         if dry_run:
             console.print(domdiff.local_dry_run_plan(local_config))
             if benchmark:
                 console.print(f"benchmark: {benchmark}")
             chromiumrl_url = chromiumrl_url or "https://<local-domdiff-reward-tunnel>"
-            cdp_url = cdp_url or "wss://<local-domdiff-cdp-tunnel>"
+            if local_publish_cdp:
+                cdp_url = cdp_url or "wss://<local-domdiff-cdp-tunnel>"
             console.print(f"CHROMIUMRL_URL={chromiumrl_url}")
-            console.print(f"CDP_URL={cdp_url}")
+            if cdp_url:
+                console.print(f"CDP_URL={cdp_url}")
         else:
             local_domdiff_state = domdiff.local_up(local_config)
             chromiumrl_url = chromiumrl_url or local_domdiff_state.chromiumrl_url
@@ -548,6 +554,7 @@ def launch(
                 host_cdp_port=local_domdiff_cdp_port,
                 reward_port=local_chromiumrl_port,
                 keep_container=False,
+                publish_cdp=bool(local_domdiff_state.cdp_url),
             )
             host = domdiff.create_local_host_from_state(
                 local_cleanup_config,
@@ -594,11 +601,12 @@ def domdiff_local_up(
     container_name: str = typer.Option("android-world-domdiff", help="Local Docker container name."),
     health_port: int = typer.Option(5080, help="Host port for DOMDiff /health."),
     cdp_port: int = typer.Option(9224, help="Host port for CDP /json/version."),
-    reward_port: int = typer.Option(8080, help="Host port for the local reward adapter."),
+    reward_port: int = typer.Option(8080, help="Host port for the local ChromiumRL reward service."),
+    publish_cdp: bool = typer.Option(False, "--publish-cdp", help="Also expose local CDP through a Cloudflare quick tunnel for debugging."),
     keep_container: bool = typer.Option(False, "--keep-container/--no-keep-container", help="Keep the Docker container if startup fails before tunnels are ready."),
     dry_run: bool = typer.Option(False, help="Print the local container/tunnel plan without starting anything."),
 ) -> None:
-    """Start a local DOMDiff container, reward adapter, and Cloudflare quick tunnels."""
+    """Start a local DOMDiff container, reward service, and Cloudflare quick tunnel."""
     config = _local_domdiff_config(
         run_id=run_id,
         image=image,
@@ -607,6 +615,7 @@ def domdiff_local_up(
         host_cdp_port=cdp_port,
         reward_port=reward_port,
         keep_container=keep_container,
+        publish_cdp=publish_cdp,
     )
     if dry_run:
         console.print(domdiff.local_dry_run_plan(config))
@@ -614,7 +623,8 @@ def domdiff_local_up(
     state = domdiff.local_up(config)
     console.print(f"run_id: {state.run_id}")
     console.print(f"chromiumrl_url: {state.chromiumrl_url}")
-    console.print(f"cdp_url: {state.cdp_url}")
+    if state.cdp_url:
+        console.print(f"cdp_url: {state.cdp_url}")
     console.print(f"local_reward_url: {state.reward_url}")
     console.print(f"state: {domdiff.local_run_dir_for(state.run_id)}")
 
@@ -625,9 +635,9 @@ def domdiff_local_verify(
     image: str = typer.Option(DEFAULT_DOMDIFF_LOCAL_IMAGE, help="Local DOMDiff Docker image metadata for state reconstruction."),
     health_port: int = typer.Option(5080, help="Host port for DOMDiff /health."),
     cdp_port: int = typer.Option(9224, help="Host port for CDP /json/version."),
-    reward_port: int = typer.Option(8080, help="Host port for the local reward adapter."),
+    reward_port: int = typer.Option(8080, help="Host port for the local ChromiumRL reward service."),
 ) -> None:
-    """Verify local KVM, CDP, quick tunnels, and one live DOMDiff evaluation."""
+    """Verify local KVM, CDP, reward tunnel, and one live DOMDiff evaluation."""
     run_dir = domdiff.resolve_local_run_dir(run_id)
     state = domdiff.LocalDomdiffState.read(run_dir)
     config = _local_domdiff_config(
@@ -646,7 +656,7 @@ def domdiff_local_verify(
 def domdiff_local_logs(
     run_id: Optional[str] = typer.Option(None, help="Run id to collect logs from. Defaults to latest local run."),
 ) -> None:
-    """Collect local Docker, reward adapter, and cloudflared logs."""
+    """Collect local Docker, reward service, and cloudflared logs."""
     run_dir = domdiff.resolve_local_run_dir(run_id)
     state = domdiff.LocalDomdiffState.read(run_dir)
     config = _local_domdiff_config(
@@ -664,9 +674,9 @@ def domdiff_local_logs(
 @domdiff_local_app.command("down")
 def domdiff_local_down(
     run_id: Optional[str] = typer.Option(None, help="Run id to stop. Defaults to latest local run."),
-    keep_container: bool = typer.Option(False, "--keep-container", help="Stop tunnels/reward adapter but keep the Docker container."),
+    keep_container: bool = typer.Option(False, "--keep-container", help="Stop tunnels/reward service but keep the Docker container."),
 ) -> None:
-    """Stop local DOMDiff quick tunnels, reward adapter, and optionally the container."""
+    """Stop local DOMDiff quick tunnels, reward service, and optionally the container."""
     run_dir = domdiff.resolve_local_run_dir(run_id)
     state = domdiff.LocalDomdiffState.read(run_dir)
     config = _local_domdiff_config(
@@ -689,8 +699,9 @@ def domdiff_local_smoke(
     container_name: str = typer.Option("android-world-domdiff", help="Local Docker container name."),
     health_port: int = typer.Option(5080, help="Host port for DOMDiff /health."),
     cdp_port: int = typer.Option(9224, help="Host port for CDP /json/version."),
-    reward_port: int = typer.Option(8080, help="Host port for the local reward adapter."),
-    keep_running: bool = typer.Option(False, help="Leave local container, reward adapter, and tunnels running after verification."),
+    reward_port: int = typer.Option(8080, help="Host port for the local ChromiumRL reward service."),
+    publish_cdp: bool = typer.Option(False, "--publish-cdp", help="Also expose local CDP through a Cloudflare quick tunnel for debugging."),
+    keep_running: bool = typer.Option(False, help="Leave local container, reward service, and tunnels running after verification."),
     dry_run: bool = typer.Option(False, help="Print the local container/tunnel plan without starting anything."),
 ) -> None:
     """Run a local DOMDiff smoke and tear it down by default."""
@@ -702,6 +713,7 @@ def domdiff_local_smoke(
         host_cdp_port=cdp_port,
         reward_port=reward_port,
         keep_container=keep_running,
+        publish_cdp=publish_cdp,
     )
     if dry_run:
         console.print(domdiff.local_dry_run_plan(config))

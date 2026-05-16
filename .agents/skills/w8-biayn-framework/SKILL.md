@@ -23,7 +23,7 @@ Main responsibilities:
 - CLI: `src/w8_biayn/cli.py`
 - SkyPilot rendering: `src/w8_biayn/sky_config.py`
 - DOMDiff local and GCP lifecycle: `src/w8_biayn/domdiff.py`
-- DOMDiff reward adapter: `src/w8_biayn/rewards/chromiumrl_adapter.py`
+- DOMDiff reward service: `src/w8_biayn/rewards/chromiumrl_service.py`
 - Benchmark scorecard: `src/w8_biayn/benchmarks.py`
 - BrowserGym dataset shape: `src/w8_biayn/datasets.py`
 - SkyRL-Gym adapter: `src/w8_biayn/integrations/browsergym_env.py`
@@ -52,11 +52,11 @@ Do not vendor AndroidWorld, WootzApp, APKs, or browser source. DOMDiff uses a pr
 ghcr.io/wootzapp/android-world-domdiff:daytona-92000b7
 ```
 
-For development and smoke runs, prefer local DOMDiff mode: run `android-world-domdiff:local` on the workstation, run the reward adapter locally, and expose reward/CDP through Cloudflare quick tunnels. Do not push local DOMDiff images unless the user explicitly asks for a GCP-hosted reward VM. If the DOMDiff image is local-only and must run on GCP, push it to Google Artifact Registry with `w8-biayn domdiff push-image` or use `--local-reward-image`. Do not copy image tarballs or source trees into this repo. The GCP reward VM must authenticate to Artifact Registry only for `*.pkg.dev` images and must not print service-account contents.
+For development and smoke runs, prefer local DOMDiff mode: run `android-world-domdiff:local` on the workstation, run the ChromiumRL reward service locally, and expose reward HTTP through a Cloudflare quick tunnel. Do not expose CDP unless explicitly debugging with `--publish-cdp` or `--local-publish-cdp`. Do not push local DOMDiff images unless the user explicitly asks for a GCP-hosted reward VM. If the DOMDiff image is local-only and must run on GCP, push it to Google Artifact Registry with `w8-biayn domdiff push-image` or use `--local-reward-image`. Do not copy image tarballs or source trees into this repo. The GCP reward VM must authenticate to Artifact Registry only for `*.pkg.dev` images and must not print service-account contents.
 
 The only code copied into that container should be the small `w8_biayn.rewards` adapter.
 
-In local DOMDiff mode, the reward adapter runs outside the container with `CDP_URL=ws://127.0.0.1:9224`; keep state/logs under `.w8-biayn/domdiff-local/`.
+In local DOMDiff mode, the ChromiumRL reward service runs outside the container with `CDP_URL=ws://localhost:9224`; keep state/logs under `.w8-biayn/domdiff-local/`.
 
 Keep the benchmark ladder runnable and documented. If R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld behavior changes, update `src/w8_biayn/benchmarks.py`, README benchmark guidance, and rendered benchmark metadata.
 
@@ -98,7 +98,6 @@ When the local DOMDiff image should be used by GCP training, keep the local smok
 uv run w8-biayn domdiff local up --image android-world-domdiff:local
 uv run w8-biayn launch r3 \
   --chromiumrl-url https://<local-domdiff-reward-tunnel> \
-  --cdp-url wss://<local-domdiff-cdp-tunnel> \
   --benchmark webvoyager-domdiff-heldout
 ```
 

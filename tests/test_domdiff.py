@@ -84,6 +84,14 @@ def test_local_dry_run_plan_contains_container_adapter_and_tunnels():
     assert "docker run -d --name android-world-domdiff" in plan
     assert "-p 5080:5000" in plan
     assert "-p 9224:9224" in plan
-    assert "CDP_URL=ws://127.0.0.1:9224 uv run --extra domdiff uvicorn" in plan
+    assert "CDP_URL=ws://localhost:9224 CHROMIUMRL_ALLOW_CDP_FALLBACK=0 uv run --extra domdiff uvicorn" in plan
+    assert "w8_biayn.rewards.chromiumrl_service:app" in plan
     assert "cloudflared" in plan
+    assert "wss://<local-cdp-tunnel>" not in plan
+
+
+def test_local_dry_run_plan_publishes_cdp_only_when_requested():
+    plan = local_dry_run_plan(LocalDomdiffConfig(run_id="local-test", publish_cdp=True))
+
     assert "wss://<local-cdp-tunnel>" in plan
+    assert "--http-host-header localhost" in plan

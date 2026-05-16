@@ -86,7 +86,7 @@ DOMDiff reward-host workflows must also:
 - Use Google Artifact Registry (`<location>-docker.pkg.dev/<project>/w8-biayn/android-world-domdiff:<tag>`) for local DOMDiff image promotion to GCP.
 - Never vendor AndroidWorld, WootzApp, APKs, or browser source into this repository.
 - Copy only the small `w8_biayn.rewards` adapter into the running container.
-- In local DOMDiff mode, run the reward adapter outside the container with `CDP_URL=ws://127.0.0.1:9224`; expose both reward HTTP and CDP through Cloudflare quick tunnels for GCP trainers.
+- In local DOMDiff mode, run the ChromiumRL reward service outside the container with `CDP_URL=ws://localhost:9224`; expose the reward HTTP service through a Cloudflare quick tunnel for GCP trainers. Expose CDP only with an explicit `--publish-cdp` or `--local-publish-cdp` debug request.
 - Create GCP nested-virtualization hosts with explicit dry-run support and state under `.w8-biayn/domdiff/`.
 - Keep local DOMDiff state under `.w8-biayn/domdiff-local/`.
 - Authenticate the remote VM to Artifact Registry with `.gcp-service-account.json` only for `*.pkg.dev` reward images, and never print credential contents.

@@ -114,6 +114,7 @@ class LocalDomdiffConfig:
     reward_port: int = 8080
     keep_container: bool = False
     reuse_container: bool = True
+    publish_cdp: bool = False
     verify_timeout_s: int = 420
 
 
@@ -553,9 +554,9 @@ class LocalDomdiffHost:
             container_name=config.container_name,
             health_url=f"http://127.0.0.1:{config.host_health_port}/health",
             cdp_http_url=f"http://127.0.0.1:{config.host_cdp_port}",
-            local_cdp_url=f"ws://127.0.0.1:{config.host_cdp_port}",
+            local_cdp_url=f"ws://localhost:{config.host_cdp_port}",
             reward_url=f"http://{config.reward_host}:{config.reward_port}",
-            reward_log_path=str(run_dir / "local-reward-adapter.log"),
+            reward_log_path=str(run_dir / "local-chromiumrl-service.log"),
             chromiumrl_tunnel_log_path=str(run_dir / "local-cloudflared-chromiumrl.log"),
             cdp_tunnel_log_path=str(run_dir / "local-cloudflared-cdp.log"),
         )
@@ -657,13 +658,14 @@ class LocalDomdiffHost:
         log_handle = log_path.open("ab")
         env = os.environ.copy()
         env["CDP_URL"] = self.state.local_cdp_url
+        env["CHROMIUMRL_ALLOW_CDP_FALLBACK"] = "0"
         command = [
             "uv",
             "run",
             "--extra",
             "domdiff",
             "uvicorn",
-            "w8_biayn.rewards.chromiumrl_adapter:app",
+            "w8_biayn.rewards.chromiumrl_service:app",
             "--host",
             self.config.reward_host,
             "--port",
@@ -685,11 +687,11 @@ class LocalDomdiffHost:
             wait_http_json(
                 self.state.reward_url.rstrip("/") + "/health",
                 timeout_s=180,
-                expected_key="status",
+                expected_key="wootzapp_verified",
             )
         except Exception as exc:
             self._stop_pid(self.state.reward_pid)
-            raise DomdiffError(f"Local reward adapter did not become healthy. See {log_path}") from exc
+            raise DomdiffError(f"Local ChromiumRL reward service did not become healthy. See {log_path}") from exc
         self.state.status = "reward-ready"
         self._state_path()
 
@@ -701,15 +703,19 @@ class LocalDomdiffHost:
             expected_path="/health",
             expected_key="status",
         )
-        self.state.cdp_quick_url = self._start_local_tunnel(
-            label="cdp",
-            url=self.state.cdp_http_url,
-            log_path=Path(self.state.cdp_tunnel_log_path),
-            expected_path="/json/version",
-            expected_key="webSocketDebuggerUrl",
-            extra_args=["--http-host-header", "localhost"],
-        )
-        self.state.cdp_url = "wss://" + urllib.parse.urlparse(self.state.cdp_quick_url).netloc
+        if self.config.publish_cdp:
+            self.state.cdp_quick_url = self._start_local_tunnel(
+                label="cdp",
+                url=self.state.cdp_http_url,
+                log_path=Path(self.state.cdp_tunnel_log_path),
+                expected_path="/json/version",
+                expected_key="webSocketDebuggerUrl",
+                extra_args=["--http-host-header", "localhost"],
+            )
+            self.state.cdp_url = "wss://" + urllib.parse.urlparse(self.state.cdp_quick_url).netloc
+        else:
+            self.state.cdp_quick_url = ""
+            self.state.cdp_url = ""
         self.state.status = "tunnels-ready"
         self._state_path()
         return self.state
@@ -757,6 +763,7 @@ class LocalDomdiffHost:
             "evaluate": result,
             "chromiumrl_url": self.state.chromiumrl_url,
             "cdp_url": self.state.cdp_url,
+            "cdp_published": bool(self.state.cdp_url),
         }
         (self.run_dir / "verify.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         return report
@@ -811,7 +818,7 @@ class LocalDomdiffHost:
             wait_http_json(
                 self.state.reward_url.rstrip("/") + "/health",
                 timeout_s=timeout_s,
-                expected_key="status",
+                expected_key="wootzapp_verified",
             )
             return True
         except Exception:
@@ -1744,7 +1751,8 @@ def local_dry_run_plan(config: LocalDomdiffConfig) -> str:
         f"curl -fsS {cdp_http_url}/json/version",
         (
             "CDP_URL="
-            f"ws://127.0.0.1:{config.host_cdp_port} "
+            f"ws://localhost:{config.host_cdp_port} "
+            "CHROMIUMRL_ALLOW_CDP_FALLBACK=0 "
             + format_command(
                 [
                     "uv",
@@ -1752,7 +1760,7 @@ def local_dry_run_plan(config: LocalDomdiffConfig) -> str:
                     "--extra",
                     "domdiff",
                     "uvicorn",
-                    "w8_biayn.rewards.chromiumrl_adapter:app",
+                    "w8_biayn.rewards.chromiumrl_service:app",
                     "--host",
                     config.reward_host,
                     "--port",
@@ -1761,17 +1769,23 @@ def local_dry_run_plan(config: LocalDomdiffConfig) -> str:
             )
         ),
         format_command([cloudflared_bin, "tunnel", "--no-autoupdate", "--url", reward_url]),
-        format_command(
-            [
-                cloudflared_bin,
-                "tunnel",
-                "--no-autoupdate",
-                "--url",
-                cdp_http_url,
-                "--http-host-header",
-                "localhost",
-            ]
-        ),
-        "# launch: pass chromiumrl_url=https://<local-reward-tunnel> and cdp_url=wss://<local-cdp-tunnel>",
+        "# launch: pass chromiumrl_url=https://<local-reward-tunnel>; CDP stays local by default",
     ]
+    if config.publish_cdp:
+        lines.extend(
+            [
+                format_command(
+                    [
+                        cloudflared_bin,
+                        "tunnel",
+                        "--no-autoupdate",
+                        "--url",
+                        cdp_http_url,
+                        "--http-host-header",
+                        "localhost",
+                    ]
+                ),
+                "# launch: pass cdp_url=wss://<local-cdp-tunnel> only for explicit CDP debugging",
+            ]
+        )
     return "\n".join(lines)

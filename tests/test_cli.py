@@ -139,7 +139,7 @@ def test_cli_domdiff_local_up_dry_run():
     assert result.exit_code == 0, result.output
     assert "Local DOMDiff dry run" in result.output
     assert "docker run -d --name android-world-domdiff" in result.output
-    assert "uv run --extra domdiff uvicorn" in result.output
+    assert "w8_biayn.rewards.chromiumrl_service:app" in result.output
 
 
 def test_cli_launch_r3_with_local_domdiff_dry_run_prints_local_plan(tmp_path):
@@ -162,8 +162,28 @@ def test_cli_launch_r3_with_local_domdiff_dry_run_prints_local_plan(tmp_path):
     assert "Local DOMDiff dry run" in result.output
     assert "CHROMIUMRL_URL" in result.output
     assert "https://<local-domdiff-reward-tunnel>" in result.output
-    assert "wss://<local-domdiff-cdp-tunnel>" in result.output
+    assert "CDP_URL=wss://<local-domdiff-cdp-tunnel>" not in result.output
+    assert "wss://<local-domdiff-cdp-tunnel>" not in result.output
     assert "sky launch" in result.output
+
+
+def test_cli_launch_r3_with_local_domdiff_can_publish_cdp_for_debug(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "r3",
+            "--credentials",
+            str(credentials),
+            "--with-local-domdiff",
+            "--local-publish-cdp",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "CDP_URL=wss://<local-domdiff-cdp-tunnel>" in result.output
 
 
 def test_cli_launch_r3_rejects_push_option_with_local_domdiff(tmp_path):
