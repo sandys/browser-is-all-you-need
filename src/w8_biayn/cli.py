@@ -30,7 +30,7 @@ from .constants import (
 )
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
-from .sky_config import Pipeline, RenderOptions, write_sky_yaml
+from .sky_config import Pipeline, RenderOptions, validate_remote_runtime_urls, write_sky_yaml
 
 app = typer.Typer(help="Command and control for BrowserGym RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
@@ -71,7 +71,7 @@ def _render_options(
     benchmark: Optional[str] = None,
 ) -> RenderOptions:
     project_id = _project_id(credentials)
-    return RenderOptions(
+    options = RenderOptions(
         pipeline=pipeline,
         project_id=project_id,
         bucket=bucket,
@@ -87,6 +87,11 @@ def _render_options(
         domdiff_reward_image=domdiff_reward_image,
         benchmark=benchmark,
     )
+    try:
+        validate_remote_runtime_urls(options)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    return options
 
 
 def _domdiff_config(

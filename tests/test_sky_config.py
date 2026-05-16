@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import pytest
 import yaml
 
-from w8_biayn.sky_config import RenderOptions, render_sky_yaml, skyrl_overrides
+from w8_biayn.sky_config import RenderOptions, render_sky_yaml, is_private_runtime_url, skyrl_overrides
 
 
 def test_render_miniwob_sky_yaml_contains_gcp_and_mount():
@@ -62,3 +63,18 @@ def test_render_r3_includes_domdiff_reward_envs():
     assert config["envs"]["CDP_URL"] == "wss://cdp.trycloudflare.com"
     assert config["envs"]["W8_BIAYN_BENCHMARK"] == "webvoyager-domdiff-heldout"
     assert 'export CHROMIUMRL_API_URL="https://reward.trycloudflare.com"' in config["run"]
+
+
+def test_private_domdiff_urls_are_rejected_for_remote_runtime():
+    assert is_private_runtime_url("http://127.0.0.1:8080")
+    assert is_private_runtime_url("ws://192.168.1.10:9224")
+    assert not is_private_runtime_url("https://reward.trycloudflare.com")
+
+    with pytest.raises(ValueError, match="local/private URL"):
+        render_sky_yaml(
+            RenderOptions(
+                pipeline="r3",
+                project_id="proj",
+                chromiumrl_url="http://localhost:8080",
+            )
+        )

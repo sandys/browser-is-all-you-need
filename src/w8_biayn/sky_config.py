@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import yaml
 
@@ -66,6 +68,45 @@ def model_for_pipeline(pipeline: Pipeline) -> str:
 
 def benchmark_for_pipeline(pipeline: Pipeline) -> str:
     return "webarena" if pipeline == "webarena" else "miniwob"
+
+
+def is_private_runtime_url(url: str | None) -> bool:
+    """Return True when a URL cannot be reached from a remote SkyPilot VM."""
+
+    if not url:
+        return False
+    host = (urlparse(url).hostname or "").strip().lower()
+    if not host:
+        return False
+    if host in {"localhost", "host.docker.internal", "docker.for.mac.localhost"}:
+        return True
+    if host.endswith(".local"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_unspecified
+        or address.is_reserved
+    )
+
+
+def validate_remote_runtime_urls(options: RenderOptions) -> None:
+    """Reject DOMDiff URLs that would only work on the operator workstation."""
+
+    for label, url in (
+        ("CHROMIUMRL_URL", options.chromiumrl_url),
+        ("CDP_URL", options.cdp_url),
+    ):
+        if is_private_runtime_url(url):
+            raise ValueError(
+                f"{label} must be reachable from the GCP/SkyPilot trainer, not a local/private URL: {url}. "
+                "Use `w8-biayn domdiff local up` and pass the Cloudflare tunnel URL."
+            )
 
 
 def setup_script(options: RenderOptions) -> LiteralStr:
@@ -250,6 +291,7 @@ python -m w8_biayn.integrations.skyrl_browsergym_main \\
 
 
 def render_sky_yaml(options: RenderOptions) -> str:
+    validate_remote_runtime_urls(options)
     secrets: dict[str, Any] = {}
     if options.wandb_secret:
         secrets["WANDB_API_KEY"] = None

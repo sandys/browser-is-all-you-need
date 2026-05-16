@@ -87,6 +87,7 @@ DOMDiff reward-host workflows must also:
 - Never vendor AndroidWorld, WootzApp, APKs, or browser source into this repository.
 - Copy only the small `w8_biayn.rewards` adapter into the running container.
 - In local DOMDiff mode, run the ChromiumRL reward service outside the container with `CDP_URL=ws://localhost:9224`; expose the reward HTTP service through a Cloudflare quick tunnel for GCP trainers. Expose CDP only with an explicit `--publish-cdp` or `--local-publish-cdp` debug request.
+- Never render local/private DOMDiff URLs into SkyPilot configs. `localhost`, `127.0.0.1`, `host.docker.internal`, `.local` names, private RFC1918 addresses, link-local addresses, and unspecified addresses are invalid for remote GCP/SkyPilot trainers. Use Cloudflare tunnel URLs.
 - Create GCP nested-virtualization hosts with explicit dry-run support and state under `.w8-biayn/domdiff/`.
 - Keep local DOMDiff state under `.w8-biayn/domdiff-local/`.
 - Authenticate the remote VM to Artifact Registry with `.gcp-service-account.json` only for `*.pkg.dev` reward images, and never print credential contents.

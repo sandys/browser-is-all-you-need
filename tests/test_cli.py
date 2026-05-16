@@ -206,6 +206,25 @@ def test_cli_launch_r3_rejects_push_option_with_local_domdiff(tmp_path):
     assert "--local-reward-image uploads to Artifact Registry" in result.output
 
 
+def test_cli_config_render_rejects_private_domdiff_url(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "r3",
+            "--credentials",
+            str(credentials),
+            "--chromiumrl-url",
+            "http://127.0.0.1:8080",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "local/private URL" in result.output
+
+
 def test_cli_benchmarks_list():
     result = CliRunner().invoke(app, ["benchmarks", "list"])
 
