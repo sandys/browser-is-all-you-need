@@ -1,5 +1,30 @@
 # browser-is-all-you-need
 
+## Latest Smoke Stats
+
+Completed on May 17, 2026 against `harbor-domdiff-browser-swe` with SkyRL R3 on Google Cloud (`asia-southeast1-a`, `a2-highgpu-8g`, `A100:8`) and the laptop-local `android-world-domdiff:local` reward image exposed through Cloudflare quick tunnel.
+
+| Metric | Value |
+| --- | ---: |
+| Job status | `SUCCEEDED` |
+| Tasks | 2 |
+| Samples per task | 2 |
+| Generated trajectories | 4 |
+| `reward/avg_pass_at_2` | `1.0000` |
+| `reward/avg_raw_reward` | `0.3354` |
+| `environment/domdiff_total` | `0.6708` |
+| `environment/harbor_reward` | `0.3354` |
+| `environment/chromiumrl_enabled` | `1.0000` |
+| `environment/harbor_oracle` | `1.0000` |
+| `environment/rubric_passed` | `0.0000` |
+| Avg response length | `177.0` tokens |
+| Generation time | `670.2853s` |
+| Policy train time | `40.5535s` |
+| End-to-end R3 step time | `749.0343s` |
+| Policy grad norm | `19.4491` |
+
+Task IDs: `radix-ui__primitives-3548`, `chakra-ui__chakra-ui-8905`. This is an oracle-mode paid infrastructure smoke: it verifies the GCP/SkyPilot/SkyRL/Harbor/DOMDiff pipeline end to end, not a held-out competition leaderboard score.
+
 `browser-is-all-you-need` provides `w8-biayn`, a command-and-control CLI for BrowserGym reinforcement-learning smoke runs on rLLM, SkyRL, SkyPilot, and Google Cloud.
 
 The current implementation supports MiniWoB smoke runs, WebArena config rendering, DOMDiff reward hosting, and a Harbor DOMDiff browser/SWE R3 smoke that runs task containers on GCP while using the local DOMDiff image through a Cloudflare reward tunnel.
