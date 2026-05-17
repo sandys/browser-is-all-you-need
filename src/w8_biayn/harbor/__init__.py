@@ -7,7 +7,6 @@ from .tasks import (
     build_harbor_rows,
     discover_task_ids,
     load_task,
-    register_harbor_dataset,
     resolve_task_root,
     validate_task_dir,
 )
@@ -19,7 +18,6 @@ __all__ = [
     "build_harbor_rows",
     "discover_task_ids",
     "load_task",
-    "register_harbor_dataset",
     "resolve_task_root",
     "validate_task_dir",
 ]

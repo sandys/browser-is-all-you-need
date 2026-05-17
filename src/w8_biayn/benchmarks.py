@@ -40,7 +40,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="webvoyager-domdiff-heldout",
         tier="eval",
-        harness="rLLM/Tinker + WebVoyager DOMDiff",
+        harness="SkyRL + WebVoyager DOMDiff",
         command=(
             "uv run w8-biayn launch r3 --with-local-domdiff "
             "--benchmark webvoyager-domdiff-heldout"
@@ -52,14 +52,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="harbor-domdiff-browser-swe",
         tier="eval",
-        harness="Harbor + rLLM/Tinker + DOMDiff reward",
+        harness="Harbor + SkyRL + DOMDiff reward",
         command=(
             "uv run w8-biayn launch r3 --with-local-domdiff "
             "--benchmark harbor-domdiff-browser-swe"
         ),
         metric="rubric reward and DOMDiff success over converted browser/SWE tasks",
         reason="Exercises app-building/browser-preview tasks where DOMDiff is a verifier, not just an observation channel.",
-        notes="Start with the 29 benchmark-ready Harbor tasks studied in SWE-RL.",
+        notes=(
+            "Uses the two packaged SWE-RL Harbor tasks with definitive DOMDiff rubrics. "
+            "Task containers run on the GCP trainer VM; the local DOMDiff reward service is reached through Cloudflare."
+        ),
     ),
     BenchmarkSpec(
         key="webarena-browsergym",

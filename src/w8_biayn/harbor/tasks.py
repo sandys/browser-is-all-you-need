@@ -147,7 +147,7 @@ def build_harbor_rows(
     task_root: str | Path | None = None,
     task_ids: tuple[str, ...] | list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Convert local Harbor task dirs to rLLM dataset rows."""
+    """Convert local Harbor task dirs to portable task metadata rows."""
 
     root = resolve_task_root(task_root)
     ids = selected_task_ids(root, task_ids)
@@ -155,19 +155,8 @@ def build_harbor_rows(
         raise RuntimeError(f"No Harbor tasks found under {root}")
 
     rows: list[dict[str, Any]] = []
-    try:
-        from rllm.integrations.harbor.dataset_loader import harbor_task_to_row
-    except Exception:
-        harbor_task_to_row = None
-
     for task_id in ids:
         task = load_task(task_id, root)
-        if harbor_task_to_row is not None:
-            row = harbor_task_to_row(task.path, task_name=task_id)
-            if row is None:
-                raise RuntimeError(f"Invalid Harbor task for rLLM dataset: {task.path}")
-            rows.append(row)
-            continue
         rows.append(
             {
                 "id": task_id,
@@ -181,36 +170,6 @@ def build_harbor_rows(
             }
         )
     return rows
-
-
-def register_harbor_dataset(
-    name: str = "w8_harbor_domdiff_smoke",
-    *,
-    task_root: str | Path | None = None,
-    task_ids: tuple[str, ...] | list[str] | None = None,
-):
-    """Register train/test splits for the packaged Harbor DOMDiff tasks."""
-
-    from rllm.data.dataset import DatasetRegistry
-
-    rows = build_harbor_rows(task_root=task_root, task_ids=task_ids)
-    train = DatasetRegistry.register_dataset(
-        name,
-        rows,
-        "train",
-        source="local:w8-harbor-domdiff-smoke",
-        description=f"{len(rows)} W8 Harbor DOMDiff browser/SWE tasks",
-        category="harbor",
-    )
-    test = DatasetRegistry.register_dataset(
-        name,
-        rows,
-        "test",
-        source="local:w8-harbor-domdiff-smoke",
-        description=f"{len(rows)} W8 Harbor DOMDiff browser/SWE tasks",
-        category="harbor",
-    )
-    return train, test
 
 
 def _read_json(path: Path) -> dict[str, Any]:

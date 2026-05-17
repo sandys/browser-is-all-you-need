@@ -82,7 +82,7 @@ def test_private_domdiff_urls_are_rejected_for_remote_runtime():
         )
 
 
-def test_render_harbor_r3_uses_gpu_container_and_tinker_secret():
+def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
     text = render_sky_yaml(
         RenderOptions(
             pipeline="r3",
@@ -90,18 +90,21 @@ def test_render_harbor_r3_uses_gpu_container_and_tinker_secret():
             benchmark="harbor-domdiff-browser-swe",
             chromiumrl_url="https://reward.trycloudflare.com",
             harbor_task_ids=(DEFAULT_HARBOR_TASK_IDS[0],),
-            tinker_secret=True,
         )
     )
     config = yaml.safe_load(text)
 
-    assert config["secrets"]["TINKER_API_KEY"] is None
+    assert "secrets" not in config
     assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
     assert "CDP_URL" not in config["envs"]
-    assert "git clone https://github.com/rllm-org/rllm.git" in config["setup"]
+    assert "rllm-org/rllm" not in config["setup"]
     assert "git clone https://github.com/NovaSky-AI/SkyRL.git" in config["setup"]
     assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
     assert "docker run --rm --gpus all --network host" in config["run"]
-    assert "w8_biayn.integrations.harbor_r3_main" in config["run"]
+    assert "w8-biayn harbor prepare-data" in config["run"]
+    assert "w8_biayn.integrations.skyrl_harbor_main" in config["run"]
+    assert "TINKER_API_KEY" not in config["run"]
+    assert "environment.env_class=harbor-domdiff" in config["run"]
+    assert "generator.inference_engine.enable_return_routed_experts=true" in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[0] in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]

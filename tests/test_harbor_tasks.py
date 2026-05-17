@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from w8_biayn.harbor.skyrl_dataset import make_harbor_record, prepare_harbor_skyrl_dataset
 from w8_biayn.harbor.tasks import (
     DEFAULT_HARBOR_TASK_IDS,
     build_harbor_rows,
@@ -10,6 +13,7 @@ from w8_biayn.harbor.tasks import (
 )
 from w8_biayn.harbor.docker_runner import HarborDockerTaskRunner, image_tag_for_task
 from w8_biayn.harbor.rubric import evaluate_harbor_rubric
+from w8_biayn.integrations.harbor_env import _extract_solution_script
 
 
 def test_packaged_harbor_tasks_validate():
@@ -21,7 +25,7 @@ def test_packaged_harbor_tasks_validate():
     assert all(task.preview_path.startswith("/") for task in tasks)
 
 
-def test_harbor_rows_have_local_task_paths_without_rllm():
+def test_harbor_rows_have_local_task_paths():
     rows = build_harbor_rows(task_ids=[DEFAULT_HARBOR_TASK_IDS[0]])
 
     assert len(rows) == 1
@@ -57,3 +61,43 @@ def test_harbor_docker_dry_run_names_build_and_verifier_steps():
     assert str(task.path / "environment") in plan
     assert "bash /tests/test.sh" in plan
     assert image_tag_for_task(task.path).startswith("w8-biayn-harbor-")
+
+
+def test_harbor_docker_dry_run_can_use_generated_solution():
+    task = load_task(DEFAULT_HARBOR_TASK_IDS[0])
+    runner = HarborDockerTaskRunner(chromiumrl_url="https://reward.trycloudflare.com", oracle=False)
+    plan = runner.dry_run_plan(task)
+
+    assert "/tmp/w8_solution.sh" in plan
+    assert "bash /task/solution/solve.sh" not in plan
+
+
+def test_harbor_skyrl_record_shape():
+    task = load_task(DEFAULT_HARBOR_TASK_IDS[0])
+    record = make_harbor_record(task, "train", 0, oracle=True)
+
+    assert record["env_class"] == "harbor-domdiff"
+    assert record["task_id"] == DEFAULT_HARBOR_TASK_IDS[0]
+    assert record["oracle"] is True
+    assert record["prompt"][0]["role"] == "system"
+    assert "<solution>" in record["prompt"][0]["content"]
+
+
+def test_harbor_solution_extraction():
+    assert _extract_solution_script("before <solution>\necho ok\n</solution> after") == "echo ok\n"
+    assert _extract_solution_script("```bash\necho fenced\n```") == "echo fenced\n"
+
+
+def test_prepare_harbor_skyrl_dataset(tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+
+    train_path, val_path = prepare_harbor_skyrl_dataset(
+        tmp_path,
+        task_ids=[DEFAULT_HARBOR_TASK_IDS[0]],
+        oracle=True,
+    )
+
+    assert train_path.exists()
+    assert val_path.exists()
+    assert (tmp_path / "metadata.json").exists()

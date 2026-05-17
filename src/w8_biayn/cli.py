@@ -31,6 +31,7 @@ from .constants import (
 )
 from .harbor import tasks as harbor_tasks
 from .harbor.docker_runner import HarborDockerTaskRunner, run_oracle_smoke
+from .harbor.skyrl_dataset import prepare_harbor_skyrl_dataset
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
 from .sky_config import Pipeline, RenderOptions, validate_remote_runtime_urls, write_sky_yaml
@@ -77,7 +78,6 @@ def _render_options(
     harbor_task_ids: Optional[list[str]] = None,
     harbor_oracle: bool = True,
     gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE,
-    tinker_secret: bool = False,
 ) -> RenderOptions:
     project_id = _project_id(credentials)
     normalized_harbor_task_ids = tuple(harbor_task_ids or harbor_tasks.DEFAULT_HARBOR_TASK_IDS)
@@ -101,7 +101,6 @@ def _render_options(
         harbor_task_ids=normalized_harbor_task_ids,
         harbor_oracle=harbor_oracle,
         gpu_container_image=gpu_container_image,
-        tinker_secret=tinker_secret,
     )
     try:
         validate_remote_runtime_urls(options)
@@ -372,7 +371,6 @@ def config_render(
     harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
     harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
     gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
-    tinker_secret: bool = typer.Option(False, "--tinker-secret/--no-tinker-secret", help="Include TINKER_API_KEY as a SkyPilot secret."),
 ) -> None:
     """Render a SkyPilot YAML file."""
     options = _render_options(
@@ -392,7 +390,6 @@ def config_render(
         harbor_task,
         harbor_oracle,
         gpu_container_image,
-        tinker_secret,
     )
     output_path = output or f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml"
     written = write_sky_yaml(options, output_path)
@@ -449,7 +446,6 @@ def launch(
     harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
     harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
     gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
-    tinker_secret: bool = typer.Option(True, "--tinker-secret/--no-tinker-secret", help="Pass TINKER_API_KEY through SkyPilot secrets for Harbor R3 training."),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
@@ -477,8 +473,6 @@ def launch(
         if pipeline != "r3":
             raise typer.BadParameter("harbor-domdiff-browser-swe is supported only for the r3 pipeline")
         _validate_harbor_tasks(selected_harbor_tasks)
-        if not dry_run and not os.environ.get("TINKER_API_KEY"):
-            raise typer.BadParameter("TINKER_API_KEY is required for real harbor-domdiff-browser-swe launches")
     domdiff_reward_image = _maybe_push_local_reward_image(
         local_reward_image=local_reward_image,
         reward_image=domdiff_reward_image,
@@ -558,7 +552,6 @@ def launch(
         list(selected_harbor_tasks),
         harbor_oracle,
         gpu_container_image,
-        tinker_secret if is_harbor_benchmark else False,
     )
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = {
@@ -1043,6 +1036,24 @@ def harbor_validate(
     for item in harbor_tasks.validate_tasks(task_root=task_root, task_ids=task):
         table.add_row(item.task_id, "ok", item.preview_path)
     console.print(table)
+
+
+@harbor_app.command("prepare-data")
+def harbor_prepare_data(
+    out: str = typer.Option(..., "--out", help="Output directory for SkyRL train/validation parquet files."),
+    task: Optional[list[str]] = typer.Option(None, "--task", help="Task id to include. Repeat to include multiple tasks."),
+    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
+    oracle: bool = typer.Option(False, "--oracle/--no-oracle", help="Mark dataset rows to use packaged oracle patches for infrastructure smoke runs."),
+) -> None:
+    """Prepare packaged Harbor tasks as a SkyRL-Gym dataset."""
+    train_path, val_path = prepare_harbor_skyrl_dataset(
+        out,
+        task_root=task_root,
+        task_ids=task,
+        oracle=oracle,
+    )
+    console.print(f"train: {train_path}")
+    console.print(f"validation: {val_path}")
 
 
 @harbor_app.command("oracle-smoke")

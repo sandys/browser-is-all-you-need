@@ -14,8 +14,6 @@ from .constants import (
     DEFAULT_CREDENTIALS_PATH,
     DEFAULT_DOMDIFF_IMAGE,
     DEFAULT_GPU_CONTAINER_IMAGE,
-    RLLM_PIN,
-    RLLM_REPO,
     SKYRL_PIN,
     SKYRL_REPO,
 )
@@ -55,7 +53,6 @@ class RenderOptions:
     harbor_task_ids: tuple[str, ...] = DEFAULT_HARBOR_TASK_IDS
     harbor_oracle: bool = True
     gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE
-    tinker_secret: bool = False
 
     @property
     def artifact_bucket(self) -> str:
@@ -183,11 +180,6 @@ if ! command -v cloudflared >/dev/null 2>&1; then
 fi
 W8_CACHE="$HOME/.cache/w8-biayn/upstreams"
 mkdir -p "$W8_CACHE"
-if [ ! -d "$W8_CACHE/rllm/.git" ]; then
-  git clone {RLLM_REPO} "$W8_CACHE/rllm"
-fi
-git -C "$W8_CACHE/rllm" fetch origin {RLLM_PIN} --depth 1 || git -C "$W8_CACHE/rllm" fetch --all --tags
-git -C "$W8_CACHE/rllm" checkout {RLLM_PIN}
 if [ ! -d "$W8_CACHE/SkyRL/.git" ]; then
   git clone {SKYRL_REPO} "$W8_CACHE/SkyRL"
 fi
@@ -348,7 +340,6 @@ python -m w8_biayn.integrations.skyrl_browsergym_main \\
 
 def harbor_run_script(options: RenderOptions) -> LiteralStr:
     task_ids = ",".join(options.harbor_task_ids or DEFAULT_HARBOR_TASK_IDS)
-    task_ids_hydra = "[" + ",".join(options.harbor_task_ids or DEFAULT_HARBOR_TASK_IDS) + "]"
     oracle_value = "true" if options.harbor_oracle else "false"
     return LiteralStr(
         f"""set -euxo pipefail
@@ -357,26 +348,24 @@ export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_BIAYN_BENCHMARK="{options.benchmark or ""}"
 export W8_HARBOR_TASK_ROOT="{DEFAULT_HARBOR_TASK_ROOT}"
 export W8_HARBOR_TASK_IDS="{task_ids}"
+export W8_HARBOR_ORACLE="{oracle_value}"
 export CHROMIUMRL_URL="{options.chromiumrl_url or ""}"
 export CHROMIUMRL_API_URL="{options.chromiumrl_url or ""}"
 export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
-if [ -z "${{TINKER_API_KEY:-}}" ]; then
-  echo "TINKER_API_KEY is required for the Harbor rLLM/Tinker R3 smoke." >&2
-  exit 2
-fi
 docker pull "$W8_GPU_CONTAINER_IMAGE"
 docker run --rm --gpus all --network host \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -v "$PWD":/workspace \\
   -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
+  -v "$HOME/data/w8-biayn":/root/data/w8-biayn \\
   -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
-  -e TINKER_API_KEY \\
   -e CHROMIUMRL_URL \\
   -e CHROMIUMRL_API_URL \\
   -e W8_REPO_ROOT=/workspace \\
   -e W8_HARBOR_TASK_ROOT=/workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
   -e W8_HARBOR_TASK_IDS \\
+  -e W8_HARBOR_ORACLE \\
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
 set -euxo pipefail
@@ -393,44 +382,72 @@ if ! command -v uv >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$PATH"
 fi
 export PATH="$HOME/.local/bin:$PATH"
-RLLM_DIR="$HOME/.cache/w8-biayn/upstreams/rllm"
 SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
+HARBOR_DATA_DIR="$HOME/data/w8-biayn/harbor-domdiff-browser-swe"
 uv venv --python 3.12 --seed "$HOME/.cache/w8-biayn/venvs/harbor-r3"
 source "$HOME/.cache/w8-biayn/venvs/harbor-r3/bin/activate"
 uv pip install -e /workspace
-uv pip install -e "$RLLM_DIR[harbor,tinker]"
-uv pip install docker openai hydra-core
+uv pip install -e "$SKYRL_DIR[fsdp,gcp]"
+uv pip install docker pandas pyarrow
 python - <<PY
 import subprocess
 subprocess.run(["nvidia-smi"], check=False)
 PY
-python -m w8_biayn.integrations.harbor_r3_main \\
-  rllm/backend=tinker \\
-  model.name=Qwen/Qwen3-4B-Instruct-2507 \\
-  model.lora_rank=16 \\
-  training.group_size=2 \\
-  validation.group_size=1 \\
-  data.train_batch_size=1 \\
-  data.val_batch_size=1 \\
-  data.max_prompt_length=32768 \\
-  data.max_response_length=8192 \\
-  rllm.workflow.n_parallel_tasks=1 \\
-  rllm.workflow.retry_limit=0 \\
-  rllm.trainer.total_batches=1 \\
-  rllm.trainer.total_epochs=1 \\
-  rllm.trainer.val_before_train=false \\
-  rllm.trainer.test_freq=0 \\
-  rllm.trainer.save_freq=-1 \\
-  rllm.trainer.logger="[console]" \\
-  rllm.trainer.project_name=w8-biayn-r3 \\
-  rllm.trainer.experiment_name=harbor-domdiff-smoke \\
-  w8.harbor.dataset_name=w8_harbor_domdiff_smoke \\
-  w8.harbor.task_root=/workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
-  w8.harbor.task_ids="{task_ids_hydra}" \\
-  w8.harbor.max_samples=2 \\
-  w8.harbor.chromiumrl_url="$CHROMIUMRL_URL" \\
-  w8.harbor.oracle={oracle_value} \\
-  w8.harbor.keep_containers=false
+ORACLE_FLAG=""
+if [ "$W8_HARBOR_ORACLE" = "true" ]; then
+  ORACLE_FLAG="--oracle"
+fi
+w8-biayn harbor prepare-data \\
+  --out "$HARBOR_DATA_DIR" \\
+  --task-root /workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
+  $ORACLE_FLAG \\
+  $(printf "%s" "$W8_HARBOR_TASK_IDS" | awk -F, '"'"'{{for (i=1; i<=NF; i++) printf " --task %s", $i}}'"'"')
+python -m w8_biayn.integrations.skyrl_harbor_main \\
+  data.train_data=[$HARBOR_DATA_DIR/train.parquet] \\
+  data.val_data=[$HARBOR_DATA_DIR/validation.parquet] \\
+  trainer.algorithm.advantage_estimator=grpo \\
+  trainer.policy.model.path=Qwen/Qwen1.5-MoE-A2.7B-Chat \\
+  trainer.placement.colocate_all=true \\
+  trainer.strategy=fsdp \\
+  trainer.placement.policy_num_gpus_per_node=$SKYPILOT_NUM_GPUS_PER_NODE \\
+  trainer.placement.ref_num_gpus_per_node=$SKYPILOT_NUM_GPUS_PER_NODE \\
+  generator.inference_engine.num_engines=1 \\
+  generator.inference_engine.tensor_parallel_size=$SKYPILOT_NUM_GPUS_PER_NODE \\
+  generator.inference_engine.backend=vllm \\
+  generator.inference_engine.run_engines_locally=true \\
+  generator.inference_engine.weight_sync_backend=nccl \\
+  generator.inference_engine.async_engine=true \\
+  generator.inference_engine.enable_return_routed_experts=true \\
+  trainer.policy.megatron_config.moe_enable_routing_replay=true \\
+  trainer.ref.megatron_config.moe_enable_routing_replay=true \\
+  trainer.epochs=1 \\
+  trainer.update_epochs_per_batch=1 \\
+  trainer.train_batch_size=2 \\
+  trainer.policy_mini_batch_size=2 \\
+  trainer.micro_train_batch_size_per_gpu=1 \\
+  trainer.micro_forward_batch_size_per_gpu=1 \\
+  trainer.eval_before_train=false \\
+  trainer.eval_interval=-1 \\
+  trainer.ckpt_interval=-1 \\
+  trainer.hf_save_interval=-1 \\
+  trainer.max_prompt_length=8192 \\
+  trainer.algorithm.use_kl_loss=true \\
+  generator.max_turns=1 \\
+  generator.max_input_length=8192 \\
+  generator.sampling_params.max_generate_length=4096 \\
+  generator.sampling_params.temperature=0.7 \\
+  generator.sampling_params.top_p=0.95 \\
+  generator.batched=false \\
+  generator.use_conversation_multi_turn=true \\
+  generator.n_samples_per_prompt=2 \\
+  generator.inference_engine.gpu_memory_utilization=0.8 \\
+  environment.env_class=harbor-domdiff \\
+  environment.skyrl_gym.max_env_workers=1 \\
+  trainer.logger="[console]" \\
+  trainer.project_name=w8-biayn-r3 \\
+  trainer.run_name=harbor-domdiff-skyrl-smoke \\
+  trainer.ckpt_path="$HOME/ckpts/w8-biayn/harbor-r3" \\
+  trainer.export_path="$HOME/exports/w8-biayn/harbor-r3"
 '
 """
     )
@@ -441,8 +458,6 @@ def render_sky_yaml(options: RenderOptions) -> str:
     secrets: dict[str, Any] = {}
     if options.wandb_secret:
         secrets["WANDB_API_KEY"] = None
-    if options.tinker_secret:
-        secrets["TINKER_API_KEY"] = None
 
     config: dict[str, Any] = {
         "name": options.name,

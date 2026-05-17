@@ -53,20 +53,31 @@ class HarborDockerTaskRunner:
 
     def dry_run_plan(self, task: HarborTask) -> str:
         tag = image_tag_for_task(task.path)
+        solution_step = (
+            "docker exec w8-harbor-<session> bash /task/solution/solve.sh  # oracle smoke"
+            if self.oracle
+            else "docker exec -i w8-harbor-<session> sh -lc 'cat > /tmp/w8_solution.sh && bash /tmp/w8_solution.sh'"
+        )
         return "\n".join(
             [
                 f"Harbor Docker task dry run: {task.task_id}",
                 f"docker build -t {tag} {task.path / 'environment'}",
                 f"docker run -d --name w8-harbor-<session> --network host {tag}",
                 "docker cp <task assets> w8-harbor-<session>:/task",
-                "docker exec w8-harbor-<session> bash /task/solution/solve.sh  # oracle smoke",
+                solution_step,
                 "docker exec w8-harbor-<session> bash /tests/test.sh",
                 "ChromiumRL evaluation: "
                 + (self.chromiumrl_url or "disabled until --chromiumrl-url is provided"),
             ]
         )
 
-    def run(self, task_id: str, *, task_root: str | Path | None = None) -> HarborDockerOutcome:
+    def run(
+        self,
+        task_id: str,
+        *,
+        task_root: str | Path | None = None,
+        solution_script: str | None = None,
+    ) -> HarborDockerOutcome:
         task = load_task(task_id, task_root)
         image = image_tag_for_task(task.path)
         container = container_name_for_task(task.task_id)
@@ -76,6 +87,9 @@ class HarborDockerTaskRunner:
             self._copy_task_assets(task, container)
             if self.oracle:
                 self._exec(container, ["bash", "/task/solution/solve.sh"], workdir="/testbed")
+            elif solution_script:
+                self._copy_generated_solution(container, solution_script)
+                self._exec(container, ["bash", "/tmp/w8_solution.sh"], workdir="/testbed")
             self._run_verifier(task, container)
             reward_doc = self._read_json(container, "/logs/verifier/reward.json")
             diagnostics = self._read_json(container, "/logs/verifier/diagnostics.json")
@@ -123,6 +137,21 @@ class HarborDockerTaskRunner:
             self._run(["docker", "cp", str(task.path / name), f"{container}:/task/{name}"])
         self._run(["docker", "cp", str(task.path / "solution"), f"{container}:/task/solution"])
         self._run(["docker", "cp", str(task.path / "tests" / "."), f"{container}:/tests"])
+
+    def _copy_generated_solution(self, container: str, solution_script: str) -> None:
+        self._run(
+            [
+                "docker",
+                "exec",
+                "-i",
+                container,
+                "sh",
+                "-lc",
+                "cat > /tmp/w8_solution.sh && chmod +x /tmp/w8_solution.sh",
+            ],
+            input_text=solution_script,
+            timeout=30,
+        )
 
     def _run_verifier(self, task: HarborTask, container: str) -> None:
         verifier_env = task.task_config.get("verifier", {}).get("env", {})
@@ -185,11 +214,13 @@ class HarborDockerTaskRunner:
         self,
         command: list[str],
         *,
+        input_text: str | None = None,
         timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
             command,
             check=False,
+            input=input_text,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

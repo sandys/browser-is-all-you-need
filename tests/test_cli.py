@@ -247,18 +247,19 @@ def test_cli_config_render_harbor_r3_smoke(tmp_path):
             "https://reward.trycloudflare.com",
             "--harbor-task",
             task_id,
-            "--tinker-secret",
         ],
     )
 
     assert result.exit_code == 0, result.output
     config = yaml.safe_load(output.read_text(encoding="utf-8"))
-    assert config["secrets"]["TINKER_API_KEY"] is None
+    assert "secrets" not in config
     assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
     assert "CDP_URL" not in config["envs"]
     assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
     assert "docker run --rm --gpus all --network host" in config["run"]
-    assert "w8_biayn.integrations.harbor_r3_main" in config["run"]
+    assert "w8-biayn harbor prepare-data" in config["run"]
+    assert "w8_biayn.integrations.skyrl_harbor_main" in config["run"]
+    assert "TINKER_API_KEY" not in config["run"]
     assert task_id in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]
 
@@ -288,24 +289,24 @@ def test_cli_launch_harbor_with_local_domdiff_dry_run(tmp_path):
     assert "sky launch" in result.output
 
 
-def test_cli_launch_harbor_requires_tinker_for_real_launch(tmp_path, monkeypatch):
+def test_cli_launch_harbor_rejects_non_r3_pipeline(tmp_path):
     credentials = service_account(tmp_path)
-    monkeypatch.delenv("TINKER_API_KEY", raising=False)
     result = CliRunner().invoke(
         app,
         [
             "launch",
-            "r3",
+            "miniwob",
             "--credentials",
             str(credentials),
             "--benchmark",
             "harbor-domdiff-browser-swe",
-            "--skip-auth",
+            "--dry-run",
         ],
     )
 
     assert result.exit_code != 0
-    assert "TINKER_API_KEY is required" in result.output
+    assert "supported only for the r3" in result.output
+    assert "pipeline" in result.output
 
 
 def test_cli_harbor_commands_validate_and_dry_run():
