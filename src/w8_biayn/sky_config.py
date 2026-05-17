@@ -378,6 +378,9 @@ def harbor_run_script(options: RenderOptions) -> LiteralStr:
     oracle_value = "true" if options.harbor_oracle else "false"
     num_gpus = accelerator_count(options.accelerators)
     megatron_tp = max(num_gpus // 2, 1)
+    accelerator_name = options.accelerators.split(":", maxsplit=1)[0].strip().upper()
+    optimizer_cpu_offload = "true" if accelerator_name == "A100" else "false"
+    optimizer_offload_fraction = "1.0" if optimizer_cpu_offload == "true" else "0.0"
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
@@ -475,6 +478,8 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   generator.inference_engine.enable_return_routed_experts=true \\
   trainer.policy.megatron_config.moe_enable_routing_replay=true \\
   trainer.ref.megatron_config.moe_enable_routing_replay=true \\
+  trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_cpu_offload={optimizer_cpu_offload} \\
+  trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_offload_fraction={optimizer_offload_fraction} \\
   trainer.use_sample_packing=true \\
   trainer.flash_attn=false \\
   trainer.epochs=1 \\

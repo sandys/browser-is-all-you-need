@@ -350,6 +350,7 @@ def test_cli_launch_harbor_warns_for_a100_override(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "Harbor DOMDiff R3 on 40GB A100 GPUs" in result.output
+    assert "enables offload automatically" in result.output
     assert "H100:8" in result.output
 
 
