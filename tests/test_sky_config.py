@@ -39,6 +39,11 @@ def test_r3_overrides_enable_routing_replay():
     assert "trainer.placement.policy_num_gpus_per_node=4" in overrides
     assert "generator.inference_engine.tensor_parallel_size=4" in overrides
     assert "generator.inference_engine.distributed_executor_backend=mp" in overrides
+    assert "trainer.strategy=megatron" in overrides
+    assert "trainer.algorithm.use_kl_loss=false" in overrides
+    assert "trainer.policy.megatron_config.tensor_model_parallel_size=2" in overrides
+    assert "trainer.policy.megatron_config.expert_model_parallel_size=4" in overrides
+    assert "trainer.use_sample_packing=true" in overrides
     assert not any("SKYPILOT_NUM_GPUS_PER_NODE" in item for item in overrides)
     assert any("Qwen/Qwen1.5-MoE-A2.7B-Chat" in item for item in overrides)
 
@@ -81,6 +86,8 @@ def test_render_r3_includes_domdiff_reward_envs():
     assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
     assert config["envs"]["CDP_URL"] == "wss://cdp.trycloudflare.com"
     assert config["envs"]["W8_BIAYN_BENCHMARK"] == "webvoyager-domdiff-heldout"
+    assert "uv sync --extra megatron --extra gcp" in config["setup"]
+    assert "trainer.strategy=megatron" in config["run"]
     assert 'export CHROMIUMRL_API_URL="https://reward.trycloudflare.com"' in config["run"]
 
 
@@ -118,6 +125,7 @@ def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
     assert "git clone https://github.com/NovaSky-AI/SkyRL.git" in config["setup"]
     assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
     assert "docker run --rm --gpus all --network host" in config["run"]
+    assert 'uv pip install -e "$SKYRL_DIR[megatron,gcp]"' in config["run"]
     assert "w8-biayn harbor prepare-data" in config["run"]
     assert "w8_biayn.integrations.skyrl_harbor_main" in config["run"]
     assert "TINKER_API_KEY" not in config["run"]
@@ -127,5 +135,10 @@ def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
     assert "trainer.placement.policy_num_gpus_per_node=4" in config["run"]
     assert "generator.inference_engine.tensor_parallel_size=4" in config["run"]
     assert "generator.inference_engine.distributed_executor_backend=mp" in config["run"]
+    assert "trainer.strategy=megatron" in config["run"]
+    assert "trainer.algorithm.use_kl_loss=false" in config["run"]
+    assert "trainer.policy.megatron_config.tensor_model_parallel_size=2" in config["run"]
+    assert "trainer.policy.megatron_config.expert_model_parallel_size=4" in config["run"]
+    assert "trainer.use_sample_packing=true" in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[0] in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]

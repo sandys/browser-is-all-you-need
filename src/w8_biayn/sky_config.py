@@ -142,6 +142,7 @@ def setup_script(options: RenderOptions) -> LiteralStr:
     extra_browser_pkg = "browsergym-webarena browsergym" if benchmark == "webarena" else "browsergym-miniwob"
     maybe_playwright = "python -m playwright install chromium || true" if benchmark == "webarena" else "true"
     webarena_setup = webarena_provision_script(options) if benchmark == "webarena" else "true"
+    skyrl_extra = "megatron" if options.pipeline == "r3" else "fsdp"
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
@@ -161,7 +162,7 @@ git -C "$SKYRL_DIR" checkout {SKYRL_PIN}
 cd "$SKYRL_DIR"
 uv venv --python 3.12 --seed
 source .venv/bin/activate
-uv sync --extra fsdp --extra gcp
+uv sync --extra {skyrl_extra} --extra gcp
 uv pip install -e "$W8_WORKDIR"
 uv pip install pandas pyarrow gymnasium {extra_browser_pkg}
 {maybe_playwright}
@@ -251,6 +252,7 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
     pipeline = options.pipeline
     data_dir = remote_data_dir(pipeline)
     num_gpus = str(accelerator_count(options.accelerators))
+    megatron_tp = str(max(accelerator_count(options.accelerators) // 2, 1))
     model = model_for_pipeline(pipeline)
     max_turns = "6" if pipeline == "miniwob" else "12"
     train_batch_size = "16" if pipeline == "miniwob" else "8"
@@ -265,7 +267,7 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
         'trainer.algorithm.advantage_estimator="grpo"',
         f'trainer.policy.model.path="{model}"',
         "trainer.placement.colocate_all=true",
-        "trainer.strategy=fsdp",
+        f"trainer.strategy={'megatron' if pipeline == 'r3' else 'fsdp'}",
         f"trainer.placement.policy_num_gpus_per_node={num_gpus}",
         f"trainer.placement.ref_num_gpus_per_node={num_gpus}",
         f"generator.inference_engine.num_engines={num_gpus}",
@@ -288,7 +290,7 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
         "generator.eval_sampling_params.stop='[\"</action>\"]'",
         f"generator.eval_sampling_params.max_generate_length={max_gen}",
         "trainer.policy.optimizer_config.lr=1.0e-6",
-        "trainer.algorithm.use_kl_loss=true",
+        f"trainer.algorithm.use_kl_loss={'false' if pipeline == 'r3' else 'true'}",
         f"generator.max_turns={max_turns}",
         "generator.inference_engine.backend=vllm",
         "generator.inference_engine.run_engines_locally=true",
@@ -316,8 +318,19 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
                 f"generator.inference_engine.expert_parallel_size={num_gpus}",
                 "generator.inference_engine.distributed_executor_backend=mp",
                 "generator.inference_engine.data_parallel_size=1",
+                f"trainer.policy.megatron_config.tensor_model_parallel_size={megatron_tp}",
+                "trainer.policy.megatron_config.pipeline_model_parallel_size=1",
+                "trainer.policy.megatron_config.context_parallel_size=1",
+                f"trainer.policy.megatron_config.expert_model_parallel_size={num_gpus}",
+                "trainer.policy.megatron_config.expert_tensor_parallel_size=1",
+                f"trainer.ref.megatron_config.tensor_model_parallel_size={megatron_tp}",
+                "trainer.ref.megatron_config.pipeline_model_parallel_size=1",
+                "trainer.ref.megatron_config.context_parallel_size=1",
+                f"trainer.ref.megatron_config.expert_model_parallel_size={num_gpus}",
+                "trainer.ref.megatron_config.expert_tensor_parallel_size=1",
                 "trainer.policy.megatron_config.moe_enable_routing_replay=true",
                 "trainer.ref.megatron_config.moe_enable_routing_replay=true",
+                "trainer.use_sample_packing=true",
                 'trainer.project_name="w8-biayn-r3"',
                 'trainer.run_name="miniwob-qwen15-moe-routing-replay"',
             ]
@@ -355,6 +368,7 @@ def harbor_run_script(options: RenderOptions) -> LiteralStr:
     task_ids = ",".join(options.harbor_task_ids or DEFAULT_HARBOR_TASK_IDS)
     oracle_value = "true" if options.harbor_oracle else "false"
     num_gpus = accelerator_count(options.accelerators)
+    megatron_tp = max(num_gpus // 2, 1)
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
@@ -401,8 +415,8 @@ HARBOR_DATA_DIR="$HOME/data/w8-biayn/harbor-domdiff-browser-swe"
 uv venv --python 3.12 --seed "$HOME/.cache/w8-biayn/venvs/harbor-r3"
 source "$HOME/.cache/w8-biayn/venvs/harbor-r3/bin/activate"
 uv pip install -e /workspace
-uv pip install -e "$SKYRL_DIR[fsdp,gcp]"
-uv pip install docker pandas pyarrow
+uv pip install -e "$SKYRL_DIR[megatron,gcp]"
+uv pip install blobfile docker pandas pyarrow
 python - <<PY
 import subprocess
 subprocess.run(["nvidia-smi"], check=False)
@@ -416,18 +430,29 @@ w8-biayn harbor prepare-data \\
   --task-root /workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
   $ORACLE_FLAG \\
   $(printf "%s" "$W8_HARBOR_TASK_IDS" | awk -F, '"'"'{{for (i=1; i<=NF; i++) printf " --task %s", $i}}'"'"')
+export SKYRL_RAY_PG_TIMEOUT_IN_S=300
 python -m w8_biayn.integrations.skyrl_harbor_main \\
   data.train_data=[$HARBOR_DATA_DIR/train.parquet] \\
   data.val_data=[$HARBOR_DATA_DIR/validation.parquet] \\
   trainer.algorithm.advantage_estimator=grpo \\
   trainer.policy.model.path=Qwen/Qwen1.5-MoE-A2.7B-Chat \\
   trainer.placement.colocate_all=true \\
-  trainer.strategy=fsdp \\
+  trainer.strategy=megatron \\
   trainer.placement.policy_num_gpus_per_node={num_gpus} \\
   trainer.placement.ref_num_gpus_per_node={num_gpus} \\
   generator.inference_engine.num_engines=1 \\
   generator.inference_engine.tensor_parallel_size={num_gpus} \\
   generator.inference_engine.distributed_executor_backend=mp \\
+  trainer.policy.megatron_config.tensor_model_parallel_size={megatron_tp} \\
+  trainer.policy.megatron_config.pipeline_model_parallel_size=1 \\
+  trainer.policy.megatron_config.context_parallel_size=1 \\
+  trainer.policy.megatron_config.expert_model_parallel_size={num_gpus} \\
+  trainer.policy.megatron_config.expert_tensor_parallel_size=1 \\
+  trainer.ref.megatron_config.tensor_model_parallel_size={megatron_tp} \\
+  trainer.ref.megatron_config.pipeline_model_parallel_size=1 \\
+  trainer.ref.megatron_config.context_parallel_size=1 \\
+  trainer.ref.megatron_config.expert_model_parallel_size={num_gpus} \\
+  trainer.ref.megatron_config.expert_tensor_parallel_size=1 \\
   generator.inference_engine.backend=vllm \\
   generator.inference_engine.run_engines_locally=true \\
   generator.inference_engine.weight_sync_backend=nccl \\
@@ -435,6 +460,7 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   generator.inference_engine.enable_return_routed_experts=true \\
   trainer.policy.megatron_config.moe_enable_routing_replay=true \\
   trainer.ref.megatron_config.moe_enable_routing_replay=true \\
+  trainer.use_sample_packing=true \\
   trainer.epochs=1 \\
   trainer.update_epochs_per_batch=1 \\
   trainer.train_batch_size=2 \\
@@ -446,7 +472,7 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   trainer.ckpt_interval=-1 \\
   trainer.hf_save_interval=-1 \\
   trainer.max_prompt_length=8192 \\
-  trainer.algorithm.use_kl_loss=true \\
+  trainer.algorithm.use_kl_loss=false \\
   generator.max_turns=1 \\
   generator.max_input_length=8192 \\
   generator.sampling_params.max_generate_length=4096 \\
