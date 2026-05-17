@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from w8_biayn.domdiff import (
     ArtifactImageConfig,
     DomdiffConfig,
@@ -116,6 +118,47 @@ def test_local_dry_run_plan_contains_container_adapter_and_tunnels():
     assert "w8_biayn.rewards.chromiumrl_service:app" in plan
     assert "cloudflared" in plan
     assert "wss://<local-cdp-tunnel>" not in plan
+
+
+def test_local_quick_tunnel_uses_http2_protocol(tmp_path, monkeypatch):
+    from w8_biayn.domdiff import DomdiffError, LocalDomdiffHost
+
+    config = LocalDomdiffConfig(run_id="local-test")
+    manager = LocalDomdiffHost(config, tmp_path)
+    manager.state.cloudflared_path = "/bin/echo"
+    launched = {}
+
+    class FakeProcess:
+        pid = 123
+
+        def poll(self):
+            return None
+
+    class FakeLogHandle:
+        def close(self):
+            return None
+
+    def fake_open(*_args, **_kwargs):
+        return FakeLogHandle()
+
+    def fake_popen(command, **_kwargs):
+        launched["command"] = command
+        raise DomdiffError("stop after command capture")
+
+    monkeypatch.setattr("w8_biayn.domdiff.Path.open", fake_open)
+    monkeypatch.setattr("w8_biayn.domdiff.subprocess.Popen", fake_popen)
+
+    with pytest.raises(DomdiffError):
+        manager._start_local_tunnel(
+            label="chromiumrl",
+            url="http://127.0.0.1:8080",
+            log_path=tmp_path / "cloudflared.log",
+            expected_path="/health",
+            expected_key="status",
+        )
+
+    assert "--protocol" in launched["command"]
+    assert "http2" in launched["command"]
 
 
 def test_local_dry_run_plan_publishes_cdp_only_when_requested():

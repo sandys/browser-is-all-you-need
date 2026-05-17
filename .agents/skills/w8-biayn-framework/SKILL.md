@@ -61,6 +61,8 @@ ghcr.io/wootzapp/android-world-domdiff:daytona-92000b7
 
 For development and smoke runs, prefer local DOMDiff mode: run `android-world-domdiff:local` on the workstation, run the ChromiumRL reward service locally, and expose reward HTTP through a Cloudflare quick tunnel. Do not expose CDP unless explicitly debugging with `--publish-cdp` or `--local-publish-cdp`. Do not push local DOMDiff images unless the user explicitly asks for a GCP-hosted reward VM. If the DOMDiff image is local-only and must run on GCP, push it to Google Artifact Registry with `w8-biayn domdiff push-image` or use `--local-reward-image`. Do not copy image tarballs or source trees into this repo. The GCP reward VM must authenticate to Artifact Registry only for `*.pkg.dev` images and must not print service-account contents.
 
+Prefer HTTP/2 for laptop-local Cloudflare quick tunnels, and keep Harbor DOMDiff submit/poll calls retryable with the trycloudflare curl fallback. A transient quick-tunnel submit timeout should be recovered before failing a paid R3 smoke.
+
 The only code copied into that container should be the small `w8_biayn.rewards` adapter.
 
 In local DOMDiff mode, the ChromiumRL reward service runs outside the container with `CDP_URL=ws://localhost:9224`; keep state/logs under `.w8-biayn/domdiff-local/`.

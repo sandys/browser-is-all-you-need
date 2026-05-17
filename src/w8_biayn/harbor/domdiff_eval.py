@@ -124,9 +124,11 @@ def _json_http_request(
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read().decode("utf-8")
+    except urllib.error.HTTPError:
+        raise
     except Exception as exc:
         connect_to_args = trycloudflare_connect_to_args(url)
-        if not connect_to_args or not _is_dns_resolution_error(exc):
+        if not connect_to_args:
             raise
         body = _curl_json_request(
             url,
@@ -149,7 +151,20 @@ def _curl_json_request(
     timeout: int,
     connect_to_args: list[str],
 ) -> str:
-    cmd = ["curl", "-fsSL", "--max-time", str(timeout), *connect_to_args]
+    cmd = [
+        "curl",
+        "-fsSL",
+        "--retry",
+        "6",
+        "--retry-all-errors",
+        "--retry-delay",
+        "2",
+        "--connect-timeout",
+        "10",
+        "--max-time",
+        str(timeout),
+        *connect_to_args,
+    ]
     input_text = None
     if payload is not None:
         cmd.extend(["-H", "Content-Type: application/json", "--data-binary", "@-"])
@@ -163,7 +178,7 @@ def _curl_json_request(
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=timeout + 5,
+        timeout=timeout * 7 + 20,
         check=False,
     )
     if result.returncode != 0:

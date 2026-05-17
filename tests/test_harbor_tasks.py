@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import subprocess
+import urllib.error
+
 import pytest
 
+from w8_biayn.harbor import domdiff_eval
 from w8_biayn.harbor.skyrl_dataset import make_harbor_record, prepare_harbor_skyrl_dataset
 from w8_biayn.harbor.tasks import (
     DEFAULT_HARBOR_TASK_IDS,
@@ -103,6 +107,62 @@ def test_harbor_copies_test_directory_contents_without_nested_tests_dir(tmp_path
     assert ["docker", "cp", str(tests_dir / "test.sh"), "container:/tests/test.sh"] in calls
     assert ["docker", "cp", str(nested_dir / "case.txt"), "container:/tests/fixtures/case.txt"] in calls
     assert not any(call[-1] == "container:/tests/tests" for call in calls)
+
+
+def test_harbor_domdiff_trycloudflare_timeout_uses_curl_fallback(monkeypatch):
+    def fake_urlopen(*_args, **_kwargs):
+        raise TimeoutError("timed out")
+
+    fallback_calls = []
+
+    def fake_curl_request(url, **kwargs):
+        fallback_calls.append((url, kwargs))
+        return '{"ok": true}'
+
+    monkeypatch.setattr(domdiff_eval.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(domdiff_eval, "_curl_json_request", fake_curl_request)
+
+    doc = domdiff_eval._json_http_request("https://reward.trycloudflare.com/evaluate_jobs/abc")
+
+    assert doc == {"ok": True}
+    assert fallback_calls[0][0] == "https://reward.trycloudflare.com/evaluate_jobs/abc"
+    assert fallback_calls[0][1]["connect_to_args"] == [
+        "--connect-to",
+        "reward.trycloudflare.com:443:trycloudflare.com:443",
+    ]
+
+
+def test_harbor_domdiff_http_errors_still_surface(monkeypatch):
+    def fake_urlopen(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "https://reward.trycloudflare.com/evaluate_async",
+            404,
+            "not found",
+            hdrs={},
+            fp=None,
+        )
+
+    monkeypatch.setattr(domdiff_eval.urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(urllib.error.HTTPError):
+        domdiff_eval._json_http_request("https://reward.trycloudflare.com/evaluate_async")
+
+
+def test_harbor_docker_cleanup_suppresses_missing_container_noise(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, "")
+
+    monkeypatch.setattr("w8_biayn.harbor.docker_runner.subprocess.run", fake_run)
+
+    runner = HarborDockerTaskRunner()
+    runner._start_container("image", "missing-container")
+
+    assert calls[0][0] == ["docker", "rm", "-f", "missing-container"]
+    assert calls[0][1]["stdout"] is subprocess.DEVNULL
+    assert calls[0][1]["stderr"] is subprocess.DEVNULL
 
 
 def test_harbor_skyrl_record_shape():

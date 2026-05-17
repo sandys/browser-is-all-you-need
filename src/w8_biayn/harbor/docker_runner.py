@@ -108,7 +108,12 @@ class HarborDockerTaskRunner:
             )
         finally:
             if not self.keep_containers:
-                subprocess.run(["docker", "rm", "-f", container], check=False)
+                subprocess.run(
+                    ["docker", "rm", "-f", container],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
     def _build_image(self, task: HarborTask, image: str) -> None:
         self._run(
@@ -117,7 +122,12 @@ class HarborDockerTaskRunner:
         )
 
     def _start_container(self, image: str, container: str) -> None:
-        subprocess.run(["docker", "rm", "-f", container], check=False, stdout=subprocess.DEVNULL)
+        subprocess.run(
+            ["docker", "rm", "-f", container],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self._run(
             [
                 "docker",
