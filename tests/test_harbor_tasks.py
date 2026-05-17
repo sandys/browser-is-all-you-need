@@ -8,6 +8,7 @@ from w8_biayn.harbor.tasks import (
     resolve_task_root,
     validate_tasks,
 )
+from w8_biayn.harbor.docker_runner import HarborDockerTaskRunner, image_tag_for_task
 from w8_biayn.harbor.rubric import evaluate_harbor_rubric
 
 
@@ -45,3 +46,14 @@ def test_domdiff_core_rubric_scores_passing_summary():
 
     assert evaluation.passed
     assert evaluation.score >= task.rubric["pass_threshold"]
+
+
+def test_harbor_docker_dry_run_names_build_and_verifier_steps():
+    task = load_task(DEFAULT_HARBOR_TASK_IDS[0])
+    runner = HarborDockerTaskRunner(chromiumrl_url="https://reward.trycloudflare.com")
+    plan = runner.dry_run_plan(task)
+
+    assert "docker build" in plan
+    assert str(task.path / "environment") in plan
+    assert "bash /tests/test.sh" in plan
+    assert image_tag_for_task(task.path).startswith("w8-biayn-harbor-")
