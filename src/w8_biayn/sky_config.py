@@ -314,6 +314,7 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
                 "generator.inference_engine.num_engines=1",
                 f"generator.inference_engine.tensor_parallel_size={num_gpus}",
                 f"generator.inference_engine.expert_parallel_size={num_gpus}",
+                "generator.inference_engine.distributed_executor_backend=mp",
                 "generator.inference_engine.data_parallel_size=1",
                 "trainer.policy.megatron_config.moe_enable_routing_replay=true",
                 "trainer.ref.megatron_config.moe_enable_routing_replay=true",
@@ -426,6 +427,7 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   trainer.placement.ref_num_gpus_per_node={num_gpus} \\
   generator.inference_engine.num_engines=1 \\
   generator.inference_engine.tensor_parallel_size={num_gpus} \\
+  generator.inference_engine.distributed_executor_backend=mp \\
   generator.inference_engine.backend=vllm \\
   generator.inference_engine.run_engines_locally=true \\
   generator.inference_engine.weight_sync_backend=nccl \\

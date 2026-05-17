@@ -38,6 +38,7 @@ def test_r3_overrides_enable_routing_replay():
     assert "trainer.policy.megatron_config.moe_enable_routing_replay=true" in overrides
     assert "trainer.placement.policy_num_gpus_per_node=4" in overrides
     assert "generator.inference_engine.tensor_parallel_size=4" in overrides
+    assert "generator.inference_engine.distributed_executor_backend=mp" in overrides
     assert not any("SKYPILOT_NUM_GPUS_PER_NODE" in item for item in overrides)
     assert any("Qwen/Qwen1.5-MoE-A2.7B-Chat" in item for item in overrides)
 
@@ -125,5 +126,6 @@ def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
     assert "SKYPILOT_NUM_GPUS_PER_NODE" not in config["run"]
     assert "trainer.placement.policy_num_gpus_per_node=4" in config["run"]
     assert "generator.inference_engine.tensor_parallel_size=4" in config["run"]
+    assert "generator.inference_engine.distributed_executor_backend=mp" in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[0] in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]
