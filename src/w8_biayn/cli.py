@@ -163,6 +163,18 @@ def _validate_harbor_tasks(task_ids: tuple[str, ...] | list[str]) -> None:
         raise typer.BadParameter(str(exc)) from exc
 
 
+def _warn_if_harbor_r3_accelerator_risk(options: RenderOptions) -> None:
+    """Warn before spending a paid launch on a topology known to OOM."""
+
+    accelerator_name = options.accelerators.split(":", maxsplit=1)[0].strip().upper()
+    if options.benchmark == "harbor-domdiff-browser-swe" and accelerator_name.startswith("A100"):
+        console.print(
+            "[yellow]warning:[/yellow] Harbor DOMDiff R3 on A100-class GPUs can reach DOMDiff reward "
+            "scoring but OOM during the Megatron optimizer step. Use the default "
+            f"{DEFAULT_HARBOR_R3_ACCELERATORS} topology for the full smoke."
+        )
+
+
 def _domdiff_config(
     *,
     run_id: Optional[str],
@@ -625,6 +637,7 @@ def launch(
         harbor_oracle,
         gpu_container_image,
     )
+    _warn_if_harbor_r3_accelerator_risk(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = _service_account_env(credentials, project_id=options.project_id)
     sky_args = ["sky", "launch", "-c", options.name]

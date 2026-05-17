@@ -329,6 +329,30 @@ def test_cli_launch_harbor_with_local_domdiff_dry_run(tmp_path):
     assert "sky launch" in result.output
 
 
+def test_cli_launch_harbor_warns_for_a100_override(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "r3",
+            "--credentials",
+            str(credentials),
+            "--benchmark",
+            "harbor-domdiff-browser-swe",
+            "--chromiumrl-url",
+            "https://reward.trycloudflare.com",
+            "--accelerators",
+            "A100:8",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Harbor DOMDiff R3 on A100-class GPUs" in result.output
+    assert "H100:8" in result.output
+
+
 def test_cli_launch_harbor_rejects_non_r3_pipeline(tmp_path):
     credentials = service_account(tmp_path)
     result = CliRunner().invoke(
