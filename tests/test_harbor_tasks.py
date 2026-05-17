@@ -80,6 +80,31 @@ def test_harbor_container_names_are_unique_for_parallel_samples():
     assert all(len(name) <= 63 for name in names)
 
 
+def test_harbor_copies_test_directory_contents_without_nested_tests_dir(tmp_path):
+    tests_dir = tmp_path / "tests"
+    nested_dir = tests_dir / "fixtures"
+    nested_dir.mkdir(parents=True)
+    (tests_dir / "test.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (nested_dir / "case.txt").write_text("ok\n", encoding="utf-8")
+    runner = HarborDockerTaskRunner()
+    calls: list[list[str]] = []
+
+    def fake_exec(container, command, **kwargs):
+        calls.append(["exec", container, *command])
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+
+    runner._exec = fake_exec  # type: ignore[method-assign]
+    runner._run = fake_run  # type: ignore[method-assign]
+
+    runner._copy_directory_contents(tests_dir, "container", "/tests")
+
+    assert ["docker", "cp", str(tests_dir / "test.sh"), "container:/tests/test.sh"] in calls
+    assert ["docker", "cp", str(nested_dir / "case.txt"), "container:/tests/fixtures/case.txt"] in calls
+    assert not any(call[-1] == "container:/tests/tests" for call in calls)
+
+
 def test_harbor_skyrl_record_shape():
     task = load_task(DEFAULT_HARBOR_TASK_IDS[0])
     record = make_harbor_record(task, "train", 0, oracle=True)

@@ -137,8 +137,18 @@ class HarborDockerTaskRunner:
         for name in ("instruction.md", "task.toml", "rubric.json", "gold_signals.json"):
             self._run(["docker", "cp", str(task.path / name), f"{container}:/task/{name}"])
         self._run(["docker", "cp", str(task.path / "solution"), f"{container}:/task/solution"])
-        self._run(["docker", "cp", str(task.path / "tests" / "."), f"{container}:/tests"])
+        self._copy_directory_contents(task.path / "tests", container, "/tests")
         self._exec(container, ["sh", "-lc", "test -f /tests/test.sh && chmod +x /tests/test.sh"], timeout=30)
+
+    def _copy_directory_contents(self, source_dir: Path, container: str, target_dir: str) -> None:
+        for source in sorted(source_dir.rglob("*")):
+            relative = source.relative_to(source_dir).as_posix()
+            target = f"{target_dir.rstrip('/')}/{relative}"
+            if source.is_dir():
+                self._exec(container, ["mkdir", "-p", target], timeout=30)
+            elif source.is_file():
+                self._exec(container, ["mkdir", "-p", str(Path(target).parent)], timeout=30)
+                self._run(["docker", "cp", str(source), f"{container}:{target}"])
 
     def _copy_generated_solution(self, container: str, solution_script: str) -> None:
         self._run(
