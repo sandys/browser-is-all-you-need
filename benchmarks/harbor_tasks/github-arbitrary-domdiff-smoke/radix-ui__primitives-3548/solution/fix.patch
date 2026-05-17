@@ -1,0 +1,32 @@
+diff --git a/.changeset/kind-icons-tan.md b/.changeset/kind-icons-tan.md
+new file mode 100644
+index 000000000..520189dbb
+--- /dev/null
++++ b/.changeset/kind-icons-tan.md
+@@ -0,0 +1,5 @@
++---
++'@radix-ui/react-one-time-password-field': patch
++---
++
++Fix: disable otp input
+diff --git a/packages/react/one-time-password-field/src/one-time-password-field.tsx b/packages/react/one-time-password-field/src/one-time-password-field.tsx
+index f585b61d5..791d80a7f 100644
+--- a/packages/react/one-time-password-field/src/one-time-password-field.tsx
++++ b/packages/react/one-time-password-field/src/one-time-password-field.tsx
+@@ -590,7 +590,7 @@ const OneTimePasswordFieldInput = React.forwardRef<
+     'OneTimePasswordFieldInput',
+     __scopeOneTimePasswordField
+   );
+-  const { dispatch, userActionRef, validationType, isHydrated } = context;
++  const { dispatch, userActionRef, validationType, isHydrated, disabled } = context;
+   const collection = useCollection(__scopeOneTimePasswordField);
+   const rovingFocusGroupScope = useRovingFocusGroupScope(__scopeOneTimePasswordField);
+ 
+@@ -639,6 +639,7 @@ const OneTimePasswordFieldInput = React.forwardRef<
+             <Primitive.Root.input
+               ref={composedInputRef}
+               type={context.type}
++              disabled={disabled}
+               aria-label={`Character ${index + 1} of ${collection.size}`}
+               autoComplete={supportsAutoComplete ? context.autoComplete : 'off'}
+               data-1p-ignore={supportsAutoComplete ? undefined : 'true'}

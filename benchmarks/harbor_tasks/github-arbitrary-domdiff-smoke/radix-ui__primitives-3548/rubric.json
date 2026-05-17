@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "instance_id": "radix-ui__primitives-3548",
+  "task_id": "radix-ui__primitives-3548",
+  "source_reward_mode": "patch_rubric_preserved_domdiff_live_score",
+  "source_rubric_fact_types": [
+    "patch_contains_regex",
+    "patch_modifies_file"
+  ],
+  "pass_threshold": 0.85,
+  "pass_requirements": {
+    "required_fact_ids": [],
+    "required_group_ids": [],
+    "domdiff_floors": {
+      "structuralSimilarity": 0.55,
+      "layoutSimilarity": 0.6,
+      "styleSimilarity": 0.45
+    }
+  },
+  "fact_groups": [
+    {
+      "name": "domdiff_core",
+      "weight": 0.6,
+      "facts": [
+        {
+          "id": "domdiff_structural",
+          "type": "domdiff_subscore",
+          "key": "structuralSimilarity",
+          "weight": 0.35
+        },
+        {
+          "id": "domdiff_text",
+          "type": "domdiff_subscore",
+          "key": "textSimilarity",
+          "weight": 0.15
+        },
+        {
+          "id": "domdiff_layout",
+          "type": "domdiff_subscore",
+          "key": "layoutSimilarity",
+          "weight": 0.3
+        },
+        {
+          "id": "domdiff_style",
+          "type": "domdiff_subscore",
+          "key": "styleSimilarity",
+          "weight": 0.2
+        }
+      ]
+    }
+  ]
+}

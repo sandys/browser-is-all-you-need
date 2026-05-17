@@ -1,0 +1,20 @@
+diff --git a/apps/compositions/src/examples/heading-basic.tsx b/apps/compositions/src/examples/heading-basic.tsx
+index 4f3801ab806..c6fb84247e9 100644
+--- a/apps/compositions/src/examples/heading-basic.tsx
++++ b/apps/compositions/src/examples/heading-basic.tsx
+@@ -1,5 +1,14 @@
+ import { Heading } from "@chakra-ui/react"
+ 
+ export const HeadingBasic = () => {
+-  return <Heading>The quick brown fox jumps over the lazy dog</Heading>
++  return (
++    <Heading
++      bgGradient="to-l"
++      gradientFrom="red.500"
++      gradientTo="blue.500"
++      bgClip="text"
++    >
++      The quick brown fox jumps over the lazy dog
++    </Heading>
++  )
+ }

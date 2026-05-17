@@ -1,0 +1,82 @@
+{
+  "task_id": "chakra-ui__chakra-ui-8905",
+  "task_type": "swe-bench",
+  "fact_groups": [
+    {
+      "name": "Target Style System",
+      "weight": 0.3,
+      "facts": [
+        {
+          "id": "modifies_preset_base",
+          "description": "Patch updates Chakra's base style-system preset where backgroundClip is defined.",
+          "weight": 1.0,
+          "type": "patch_modifies_file",
+          "file": "packages/react/src/preset-base.ts"
+        }
+      ]
+    },
+    {
+      "name": "Background Clip Text Transform",
+      "weight": 0.7,
+      "facts": [
+        {
+          "id": "adds_background_clip_transform",
+          "description": "backgroundClip gains a transform function.",
+          "weight": 1.0,
+          "type": "patch_contains_regex",
+          "pattern": "backgroundClip:\\s*\\{[\\s\\S]*transform\\(value\\)"
+        },
+        {
+          "id": "handles_text_value",
+          "description": "The transform special-cases the text value.",
+          "weight": 1.0,
+          "type": "patch_contains_regex",
+          "pattern": "value\\s*===\\s*[\"']text[\"']"
+        },
+        {
+          "id": "sets_transparent_text_color",
+          "description": "The text background-clip case sets text color to transparent.",
+          "weight": 1.0,
+          "type": "patch_contains_regex",
+          "pattern": "color:\\s*[\"']transparent[\"']"
+        },
+        {
+          "id": "keeps_background_clip_text",
+          "description": "The text background-clip case preserves backgroundClip: text.",
+          "weight": 1.0,
+          "type": "patch_contains_regex",
+          "pattern": "backgroundClip:\\s*[\"']text[\"']"
+        }
+      ]
+    }
+  ],
+  "difficulty": 5,
+  "total_weight": 1.0,
+  "instance_id": "chakra-ui__chakra-ui-8905",
+  "criteria": [
+    {
+      "name": "correct_files_modified",
+      "description": "Agent modifies the correct source files",
+      "weight": 0.2,
+      "expected_files": [
+        "packages/react/src/preset-base.ts"
+      ]
+    },
+    {
+      "name": "bug_addressed",
+      "description": "The fix addresses the described bug",
+      "weight": 0.3
+    },
+    {
+      "name": "tests_pass",
+      "description": "All tests pass after the fix",
+      "weight": 0.3
+    },
+    {
+      "name": "no_regressions",
+      "description": "Fix doesn't break existing functionality",
+      "weight": 0.2
+    }
+  ],
+  "issue_description": "### Description\n\nWhen applying the gradients with the gradientFrom, gradientTo, and bgGradient(direction) props, and then applying bgClip=\"Text\" on a Text or Heading component, no gradient is rendered.\n\n### Link to Reproduction\n\nhttps://codesandbox.io/p/sandbox/peaceful-ritchie-4xpdf3?file=%2Fsrc%2Findex.tsx%3A21%2C9&workspaceId=04c0dc82-137b-495b-9f48-3685476ec068\n\n### Steps to reproduce\n\n1). Go to code sandbox link\r\n2). Examine the lack of gradient on the text and heading components provided despite appropriate gradient props.\n\n### Chakra UI Version\n\n3.0.0-next.26\n\n### Browser\n\nVersion 129.0.6668.60\n\n### Operating System\n\n- [ ] macOS\n- [X] Windows\n- [ ] Linux\n\n### Additional Information\n\n![gradientNotWorkingChakra](https://github.com/user-attachments/assets/d6400147-a0df-4804-b13a-a89cd55bc9f5)\r\n"
+}

@@ -1,0 +1,68 @@
+{
+  "task_id": "radix-ui__primitives-3548",
+  "task_type": "swe-bench",
+  "fact_groups": [
+    {
+      "name": "Target Component",
+      "weight": 0.3,
+      "facts": [
+        {
+          "id": "modifies_otp_component_source",
+          "description": "Patch updates the OneTimePasswordField component implementation.",
+          "weight": 1.0,
+          "type": "patch_modifies_file",
+          "file": "packages/react/one-time-password-field/src/one-time-password-field.tsx"
+        }
+      ]
+    },
+    {
+      "name": "Disabled Propagation",
+      "weight": 0.7,
+      "facts": [
+        {
+          "id": "reads_disabled_from_context",
+          "description": "Visible OTP segment inputs read the disabled state from OneTimePasswordField context.",
+          "weight": 1.0,
+          "type": "patch_contains_regex",
+          "pattern": "const\\s*\\{[^}]*disabled[^}]*\\}\\s*=\\s*context"
+        },
+        {
+          "id": "passes_disabled_to_visible_input",
+          "description": "The rendered visible input receives the disabled prop from context.",
+          "weight": 1.0,
+          "type": "patch_contains_regex",
+          "pattern": "disabled=\\{disabled\\}"
+        }
+      ]
+    }
+  ],
+  "difficulty": 5,
+  "total_weight": 1.0,
+  "instance_id": "radix-ui__primitives-3548",
+  "criteria": [
+    {
+      "name": "correct_files_modified",
+      "description": "Agent modifies the correct source files",
+      "weight": 0.2,
+      "expected_files": [
+        "packages/react/one-time-password-field/src/one-time-password-field.tsx"
+      ]
+    },
+    {
+      "name": "bug_addressed",
+      "description": "The fix addresses the described bug",
+      "weight": 0.3
+    },
+    {
+      "name": "tests_pass",
+      "description": "All tests pass after the fix",
+      "weight": 0.3
+    },
+    {
+      "name": "no_regressions",
+      "description": "Fix doesn't break existing functionality",
+      "weight": 0.2
+    }
+  ],
+  "issue_description": "# disabled prop on RadixOTPField.Root doesn\u2019t disable the child inputs\n\n## Issue Description\n## Bug report\n\n### Current Behavior\n\nWhen passing the disabled prop to the One-Time-Password field components, the inputs remain interactive\u2014they can still be focused and edited\u2014and styling never reflects a disabled state. Even if you wrap `<RadixOTPField.Root disabled={true}>`, neither the individual <Input> nor the hidden input respects or applies that flag.\n\n### Expected behavior\n\nA consumer should be"
+}

@@ -1,0 +1,40 @@
+version = "1.0"
+
+[metadata]
+instance_id = "radix-ui__primitives-3548"
+difficulty = 1
+language = "typescript"
+build_system = "pnpm"
+
+[environment]
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+build_timeout_sec = 600
+allow_internet = true
+
+[agent]
+timeout_sec = 600
+
+[verifier]
+timeout_sec = 120
+
+[verifier.env]
+SERVE_CMD = "pnpm --filter=@repo/storybook exec storybook dev -p 9009 --host 0.0.0.0 --no-open --disable-telemetry"
+SERVE_PORT = "9009"
+PREVIEW_PATH = "/iframe.html?id=components-onetimepasswordfield--uncontrolled&viewMode=story&args=disabled:true"
+REBUILD_CMD = "true"
+OUTPUT_DIR = ""
+CHROMIUMRL_ELIGIBLE = "true"
+CHROMIUMRL_API_URL = ""
+READY_PROBE = ""
+READY_TIMEOUT_SEC = "60"
+SLOT_SAFE_SERVE_CMD = ""
+READINESS_MODE = "http"
+READY_LOG_PATTERN = ""
+
+[solution]
+repo = "radix-ui/primitives"
+base_commit = "7e2adc6dee70d175191ace6ce60e9aa86e46f2f2"
+head_commit = "c30af52fbdfed29be522b18f9c55bb209ff27eca"
+pr_url = "https://github.com/radix-ui/primitives/pull/3548"
