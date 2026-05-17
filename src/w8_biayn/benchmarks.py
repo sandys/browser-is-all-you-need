@@ -27,7 +27,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         harness="BrowserGym + SkyRL",
         command="uv run w8-biayn launch miniwob",
         metric="task success / reward",
-        reason="Cheap end-to-end SkyPilot/SkyRL sanity check before spending DOMDiff or Tinker budget.",
+        reason="Cheap end-to-end SkyPilot/SkyRL sanity check before spending DOMDiff or larger GPU budget.",
     ),
     BenchmarkSpec(
         key="domdiff-local-live",

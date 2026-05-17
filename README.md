@@ -2,7 +2,7 @@
 
 `browser-is-all-you-need` provides `w8-biayn`, a command-and-control CLI for BrowserGym reinforcement-learning smoke runs on rLLM, SkyRL, SkyPilot, and Google Cloud.
 
-The current implementation focuses on the MiniWoB smoke path first, then WebArena, then SkyRL routing-replay R3 for MoE models.
+The current implementation supports MiniWoB smoke runs, WebArena config rendering, DOMDiff reward hosting, and a Harbor DOMDiff browser/SWE R3 smoke that runs task containers on GCP while using the local DOMDiff image through a Cloudflare reward tunnel.
 
 ## Bootstrap
 
@@ -13,6 +13,7 @@ Start from a fresh clone:
 cp /secure/path/service-account.json .gcp-service-account.json
 uv run w8-biayn doctor --cloud --domdiff
 uv run w8-biayn launch miniwob --dry-run
+uv run w8-biayn harbor validate
 ```
 
 Run the real MiniWoB smoke:
@@ -41,6 +42,17 @@ uv run w8-biayn launch r3 \
 ```
 
 `domdiff local up` prints the reward tunnel URL. Keep that terminal and machine running while the GCP trainer is active. CDP stays bound to the workstation by default; add `--publish-cdp` only for explicit CDP debugging. SkyPilot configs reject local/private DOMDiff URLs such as `localhost`, `127.0.0.1`, `192.168.x.x`, and `.local` names because the remote trainer cannot reach them.
+
+Run the packaged Harbor DOMDiff R3 smoke with SkyRL on a GCP GPU container:
+
+```bash
+uv run w8-biayn launch r3 \
+  --with-local-domdiff \
+  --benchmark harbor-domdiff-browser-swe \
+  --credentials .gcp-service-account.json
+```
+
+This path does not use Daytona, Tinker, Thinking Machines, or a GitHub token. SkyPilot provisions the GCP GPU VM, pulls the Google PyTorch GPU container, mounts the host Docker socket, and runs SkyRL plus the two packaged Harbor task containers on that VM. Each task publishes its preview through a Cloudflare quick tunnel so the laptop-local DOMDiff reward service can evaluate it.
 
 If you explicitly want a GCP-hosted DOMDiff reward VM instead, push a local-only image to Google Artifact Registry first and use that registry URI for GCP:
 
@@ -77,8 +89,13 @@ uv run w8-biayn --help
 uv run w8-biayn upstreams clone
 uv run w8-biayn upstreams status
 uv run w8-biayn benchmarks list
+uv run w8-biayn harbor list
+uv run w8-biayn harbor validate
+uv run w8-biayn harbor oracle-smoke --task radix-ui__primitives-3548 --dry-run
+uv run w8-biayn harbor prepare-data --out /tmp/w8-harbor-data --task radix-ui__primitives-3548 --oracle
 uv run w8-biayn data prepare miniwob --out ./data/miniwob
 uv run w8-biayn config render miniwob --credentials .gcp-service-account.json
+uv run w8-biayn config render r3 --benchmark harbor-domdiff-browser-swe
 uv run w8-biayn launch miniwob --dry-run
 uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --dry-run
 uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
@@ -132,6 +149,23 @@ uv run w8-biayn launch r3 \
   --credentials .gcp-service-account.json
 ```
 
+Run the Harbor DOMDiff browser/SWE R3 smoke with self-hosted SkyRL:
+
+```bash
+uv run w8-biayn harbor list
+uv run w8-biayn harbor validate
+
+uv run w8-biayn launch r3 \
+  --with-local-domdiff \
+  --local-domdiff-image android-world-domdiff:local \
+  --benchmark harbor-domdiff-browser-swe \
+  --credentials .gcp-service-account.json
+```
+
+The Harbor smoke uses the two packaged tasks `radix-ui__primitives-3548` and `chakra-ui__chakra-ui-8905` by default. Select a subset with repeated `--harbor-task <task-id>` flags. The default uses packaged oracle patches so infrastructure can be smoked deterministically; pass `--no-harbor-oracle` when you want the model-generated `<solution>...</solution>` script to determine the reward.
+
+The rendered Harbor config is different from the MiniWoB/WebArena SkyRL path. It installs Docker and Cloudflare on the SkyPilot host, clones the pinned SkyRL repository into `$HOME/.cache/w8-biayn/upstreams`, then starts `us-docker.pkg.dev/deeplearning-platform-release/gcr.io/pytorch-cu124.2-4.py310` with GPU access and the host Docker socket mounted. Inside that Google GPU container, `w8-biayn harbor prepare-data` writes SkyRL parquet files and `w8_biayn.integrations.skyrl_harbor_main` registers the `harbor-domdiff` SkyRL-Gym environment before starting SkyRL.
+
 Run R3 with a GCP-hosted DOMDiff reward VM only when you want the reward host to live in GCP:
 
 ```bash
@@ -162,6 +196,8 @@ uv run w8-biayn domdiff local down
 ```
 
 `domdiff local up` starts the local Android/WootzApp container with KVM, starts the ChromiumRL reward service locally on `127.0.0.1:8080`, publishes a Cloudflare quick tunnel for reward HTTP, and writes state/logs under `.w8-biayn/domdiff-local/<run-id>/`. This path does not push Docker layers or copy browser source. Use `--publish-cdp` only when you need a temporary CDP tunnel for debugging. Pass only Cloudflare or otherwise publicly reachable tunnel URLs to remote SkyPilot runs.
+
+For Harbor tasks, the browser preview runs inside a Docker task container on the GCP trainer VM. The task verifier starts its own Cloudflare quick tunnel for that preview URL and sends the preview URL to the local ChromiumRL reward service through `CHROMIUMRL_API_URL`. This keeps the DOMDiff image local while still allowing GCP task containers and SkyRL to evaluate the same browser state.
 
 The GCP-hosted DOMDiff lifecycle remains available for remote reward hosting. It creates one temporary GCP Compute VM with nested virtualization, starts the prebuilt Android/WootzApp container, copies in only the small `w8_biayn.rewards` adapter, publishes Cloudflare quick tunnels for reward HTTP and CDP, and writes state/logs under `.w8-biayn/domdiff/<run-id>/`.
 
@@ -203,7 +239,7 @@ Recommended order:
 - `miniwob-smoke`: cheapest SkyPilot/SkyRL end-to-end check.
 - `domdiff-local-live`: proves local KVM, WootzApp CDP, the reward quick tunnel, and reward service health without pushing the image.
 - `webvoyager-domdiff-heldout`: primary browser-use DOMDiff benchmark for live no-anti-bot web tasks.
-- `harbor-domdiff-browser-swe`: browser/SWE preview tasks where DOMDiff is the verifier.
+- `harbor-domdiff-browser-swe`: two packaged Harbor browser/SWE preview tasks with definitive DOMDiff rubrics; task containers run on the GCP trainer VM and publish previews back to the laptop-local reward service.
 - `webarena-browsergym`: reproducible self-hosted web benchmark through BrowserGym.
 - `androidworld-transfer`: mobile transfer check for the claim that browser-use RL generalizes to app UI.
 
@@ -216,6 +252,7 @@ flowchart LR
   cli --> render[SkyPilot YAML renderer]
   cli --> data[BrowserGym dataset prep]
   cli --> bench[benchmark scorecard]
+  cli --> harbor[Harbor task commands]
   cli --> domdiff_local[Local DOMDiff lifecycle]
   cli --> domdiff_gcp[GCP DOMDiff lifecycle]
   cli --> gar[Artifact Registry image push]
@@ -229,12 +266,18 @@ flowchart LR
   gcp --> setup[Remote trainer setup]
   setup --> skyrl_remote[SkyRL trainer]
   setup --> browsergym[BrowserGym envs]
+  setup --> gpu_container[Google GPU Docker container]
+  gpu_container --> skyrl_harbor[w8_biayn SkyRL Harbor entrypoint]
+  skyrl_harbor --> harbor_env[harbor-domdiff SkyRL-Gym env]
+  harbor_env --> task_docker[GCP Harbor task containers]
+  task_docker --> preview_tunnels[Task preview quick tunnels]
   skyrl_remote --> adapter[w8_biayn BrowserGymEnv]
   adapter --> browsergym
   domdiff_local --> local_image[Local android-world-domdiff image]
   local_image --> local_container[Local Android/WootzApp container]
   local_container --> local_reward[w8_biayn ChromiumRL service on localhost]
   local_reward --> tunnels[Cloudflare quick tunnels]
+  preview_tunnels --> local_reward
   domdiff_gcp --> reward_vm[GCP nested-virt reward VM]
   gar --> artifact_image[Artifact Registry DOMDiff image]
   reward_vm --> artifact_image
@@ -259,6 +302,8 @@ sequenceDiagram
   participant RW as Reward Adapter
   participant SRL as SkyRL
   participant BG as BrowserGym
+  participant GPU as Google GPU Container
+  participant HT as Harbor Task Container
 
   U->>CLI: doctor --cloud --domdiff
   CLI->>GC: activate service account
@@ -281,6 +326,15 @@ sequenceDiagram
   SRL->>RW: call DOMDiff reward service when configured
   BG-->>SRL: observations and rewards
   RW-->>SRL: DOMDiff reward metrics
+  U->>CLI: launch r3 --benchmark harbor-domdiff-browser-swe --with-local-domdiff
+  CLI->>SKY: sky launch Harbor R3 YAML
+  SKY->>VM: provision GPU VM
+  VM->>GPU: run Google PyTorch GPU container with host Docker socket
+  GPU->>SRL: start skyrl_harbor_main
+  SRL->>HT: run harbor-domdiff env and task Docker container
+  HT->>CF: publish task preview quick tunnel
+  HT->>RW: request DOMDiff score through CHROMIUMRL_API_URL
+  RW-->>SRL: rubric reward
   SRL-->>VM: logs, checkpoints, exports
   SKY-->>U: stream logs
   SKY->>VM: tear down after successful job

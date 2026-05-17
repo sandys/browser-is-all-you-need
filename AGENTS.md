@@ -96,6 +96,8 @@ DOMDiff reward-host workflows must also:
 
 For WebArena, do not assume the official archives are bundled. Require an explicit GCS prefix with `--webarena-archives-gcs` or external `WA_*` URLs.
 
+For Harbor DOMDiff R3, do not use Tinker or Thinking Machines as the training backend. Render and launch self-hosted SkyRL through `w8-biayn launch r3 --benchmark harbor-domdiff-browser-swe`, normally with `--with-local-domdiff` so the local DOMDiff image stays on the workstation. The SkyPilot job must install Docker and Cloudflare on the GCP host, run the Google GPU container with the host Docker socket mounted, prepare Harbor SkyRL parquet data with `w8-biayn harbor prepare-data`, and start `w8_biayn.integrations.skyrl_harbor_main`. Harbor task previews must use Cloudflare quick tunnels back to the laptop-local ChromiumRL reward service. This path must not require `TINKER_API_KEY`, Daytona, a GitHub token, or copied browser source.
+
 ## Benchmark Rules
 
 Infrastructure changes are not sufficient unless they preserve a runnable benchmark ladder. Keep `w8-biayn benchmarks list`, README benchmark guidance, and rendered benchmark metadata current when changing R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld paths.
@@ -120,6 +122,7 @@ uv run w8-biayn config render miniwob --credentials .gcp-service-account.json
 uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
 uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --tag smoke --dry-run
 uv run w8-biayn launch r3 --with-local-domdiff --benchmark webvoyager-domdiff-heldout --dry-run
+uv run w8-biayn launch r3 --with-local-domdiff --benchmark harbor-domdiff-browser-swe --dry-run
 python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
 

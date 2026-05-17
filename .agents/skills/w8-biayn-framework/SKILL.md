@@ -25,9 +25,12 @@ Main responsibilities:
 - DOMDiff local and GCP lifecycle: `src/w8_biayn/domdiff.py`
 - DOMDiff reward service: `src/w8_biayn/rewards/chromiumrl_service.py`
 - Benchmark scorecard: `src/w8_biayn/benchmarks.py`
+- Harbor task discovery and SkyRL dataset prep: `src/w8_biayn/harbor/tasks.py`, `src/w8_biayn/harbor/skyrl_dataset.py`
+- Harbor Docker task runner and SkyRL-Gym env: `src/w8_biayn/harbor/docker_runner.py`, `src/w8_biayn/integrations/harbor_env.py`
 - BrowserGym dataset shape: `src/w8_biayn/datasets.py`
 - SkyRL-Gym adapter: `src/w8_biayn/integrations/browsergym_env.py`
 - SkyRL registration entrypoint: `src/w8_biayn/integrations/skyrl_browsergym_main.py`
+- Harbor SkyRL registration entrypoint: `src/w8_biayn/integrations/skyrl_harbor_main.py`
 - Tests: `tests/`
 
 ## Development Rules
@@ -61,6 +64,8 @@ In local DOMDiff mode, the ChromiumRL reward service runs outside the container 
 Never render local/private DOMDiff URLs into SkyPilot configs. `localhost`, `127.0.0.1`, `host.docker.internal`, `.local` names, private RFC1918 addresses, link-local addresses, and unspecified addresses are invalid for remote GCP/SkyPilot trainers. Use Cloudflare tunnel URLs.
 
 Keep the benchmark ladder runnable and documented. If R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld behavior changes, update `src/w8_biayn/benchmarks.py`, README benchmark guidance, and rendered benchmark metadata.
+
+For Harbor DOMDiff R3, do not use Tinker or Thinking Machines as the backend. Use self-hosted SkyRL on the SkyPilot/GCP side. The rendered path should install Docker and Cloudflare on the GCP host, start the Google GPU container with `/var/run/docker.sock` mounted, prepare Harbor parquet data with `w8-biayn harbor prepare-data`, and run `w8_biayn.integrations.skyrl_harbor_main`. Do not require `TINKER_API_KEY`, Daytona, GitHub tokens, or copied browser source. Harbor task previews must publish Cloudflare quick tunnels so the laptop-local ChromiumRL reward service can score them.
 
 ## Documentation Rule
 
@@ -103,6 +108,17 @@ uv run w8-biayn launch r3 \
   --benchmark webvoyager-domdiff-heldout
 ```
 
+For the packaged Harbor DOMDiff R3 smoke, keep local DOMDiff running and launch SkyRL on GCP:
+
+```bash
+uv run w8-biayn harbor validate
+uv run w8-biayn launch r3 \
+  --with-local-domdiff \
+  --benchmark harbor-domdiff-browser-swe
+```
+
+Use `--no-harbor-oracle` only when testing model-generated fixes instead of deterministic infrastructure smoke patches.
+
 When the local DOMDiff image must be hosted on a GCP reward VM:
 
 ```bash
@@ -131,4 +147,5 @@ uv run w8-biayn benchmarks list
 uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
 uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --tag smoke --dry-run
 uv run w8-biayn launch r3 --with-local-domdiff --benchmark webvoyager-domdiff-heldout --dry-run
+uv run w8-biayn launch r3 --with-local-domdiff --benchmark harbor-domdiff-browser-swe --dry-run
 ```
