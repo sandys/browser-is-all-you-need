@@ -293,7 +293,7 @@ def test_cli_config_render_harbor_r3_smoke(tmp_path):
     assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
     assert "CDP_URL" not in config["envs"]
     assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
-    assert "docker run --rm --gpus all --network host" in config["run"]
+    assert "docker run --rm --gpus all --network host --shm-size=32g" in config["run"]
     assert "w8-biayn harbor prepare-data" in config["run"]
     assert "w8_biayn.integrations.skyrl_harbor_main" in config["run"]
     assert "TINKER_API_KEY" not in config["run"]

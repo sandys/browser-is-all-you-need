@@ -381,7 +381,7 @@ export CHROMIUMRL_URL="{options.chromiumrl_url or ""}"
 export CHROMIUMRL_API_URL="{options.chromiumrl_url or ""}"
 export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
 docker pull "$W8_GPU_CONTAINER_IMAGE"
-docker run --rm --gpus all --network host \\
+docker run --rm --gpus all --network host --shm-size=32g \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -v "$PWD":/workspace \\
   -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
@@ -444,6 +444,7 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   trainer.placement.ref_num_gpus_per_node={num_gpus} \\
   generator.inference_engine.num_engines=1 \\
   generator.inference_engine.tensor_parallel_size={num_gpus} \\
+  generator.inference_engine.expert_parallel_size={num_gpus} \\
   generator.inference_engine.distributed_executor_backend=mp \\
   trainer.policy.megatron_config.tensor_model_parallel_size={megatron_tp} \\
   trainer.policy.megatron_config.pipeline_model_parallel_size=1 \\
