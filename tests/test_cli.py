@@ -349,8 +349,31 @@ def test_cli_launch_harbor_warns_for_a100_override(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "Harbor DOMDiff R3 on A100-class GPUs" in result.output
+    assert "Harbor DOMDiff R3 on 40GB A100 GPUs" in result.output
     assert "H100:8" in result.output
+
+
+def test_cli_launch_harbor_allows_a100_80gb_without_memory_warning(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "r3",
+            "--credentials",
+            str(credentials),
+            "--benchmark",
+            "harbor-domdiff-browser-swe",
+            "--chromiumrl-url",
+            "https://reward.trycloudflare.com",
+            "--accelerators",
+            "A100-80GB:8",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "40GB A100" not in result.output
 
 
 def test_cli_launch_harbor_rejects_non_r3_pipeline(tmp_path):

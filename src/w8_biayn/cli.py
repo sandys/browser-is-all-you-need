@@ -167,9 +167,9 @@ def _warn_if_harbor_r3_accelerator_risk(options: RenderOptions) -> None:
     """Warn before spending a paid launch on a topology known to OOM."""
 
     accelerator_name = options.accelerators.split(":", maxsplit=1)[0].strip().upper()
-    if options.benchmark == "harbor-domdiff-browser-swe" and accelerator_name.startswith("A100"):
+    if options.benchmark == "harbor-domdiff-browser-swe" and accelerator_name == "A100":
         console.print(
-            "[yellow]warning:[/yellow] Harbor DOMDiff R3 on A100-class GPUs can reach DOMDiff reward "
+            "[yellow]warning:[/yellow] Harbor DOMDiff R3 on 40GB A100 GPUs can reach DOMDiff reward "
             "scoring but OOM during the Megatron optimizer step. Use the default "
             f"{DEFAULT_HARBOR_R3_ACCELERATORS} topology for the full smoke."
         )
