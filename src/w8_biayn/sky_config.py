@@ -414,8 +414,10 @@ SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
 HARBOR_DATA_DIR="$HOME/data/w8-biayn/harbor-domdiff-browser-swe"
 uv venv --python 3.12 --seed "$HOME/.cache/w8-biayn/venvs/harbor-r3"
 source "$HOME/.cache/w8-biayn/venvs/harbor-r3/bin/activate"
+cd "$SKYRL_DIR"
+uv sync --active --extra megatron --extra gcp
+cd /workspace
 uv pip install -e /workspace
-uv pip install -e "$SKYRL_DIR[megatron,gcp]"
 uv pip install blobfile docker pandas pyarrow
 python - <<PY
 import subprocess
