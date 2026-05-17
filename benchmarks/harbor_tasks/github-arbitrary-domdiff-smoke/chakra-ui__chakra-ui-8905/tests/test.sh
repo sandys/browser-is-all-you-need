@@ -136,14 +136,59 @@ if [ $SERVE_READY -eq 0 ]; then
     write_result 0.0 1 0 1 "serve_failed" "serve_timeout" "Serve not ready after $READY_TIMEOUT_SEC s"
 fi
 
+start_preview_tunnel() {
+    if [ "${W8_HARBOR_PREVIEW_TUNNEL:-1}" = "0" ]; then
+        return 1
+    fi
+    if ! command -v cloudflared >/dev/null 2>&1; then
+        echo "cloudflared not found; cannot publish preview URL"
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$PREVIEW_URL_FILE")"
+    local tunnel_log="$VERIFIER_DIR/preview_tunnel.log"
+    local tunnel_pid_file="$VERIFIER_DIR/preview_tunnel.pid"
+    local tunnel_timeout="${W8_HARBOR_PREVIEW_TUNNEL_TIMEOUT_SEC:-90}"
+    nohup cloudflared tunnel --no-autoupdate --url "http://localhost:${SERVE_PORT}" >"$tunnel_log" 2>&1 &
+    echo "$!" > "$tunnel_pid_file"
+
+    local tunnel_url=""
+    for i in $(seq 1 "$tunnel_timeout"); do
+        tunnel_url="$(python3 - "$tunnel_log" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(errors="replace") if Path(sys.argv[1]).exists() else ""
+match = re.search(r"https://[-A-Za-z0-9]+[.]trycloudflare[.]com", text)
+print(match.group(0) if match else "")
+PY
+)"
+        if [ -n "$tunnel_url" ]; then
+            PREVIEW_URL="${tunnel_url}${PREVIEW_PATH}"
+            echo "$PREVIEW_URL" > "$PREVIEW_URL_FILE"
+            echo '{}' > /trial/preview_headers.json
+            echo "${CHROMIUMRL_API_URL:-}" > /trial/chromiumrl_api_url
+            echo "Preview tunnel ready after ${i}s: $PREVIEW_URL"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Preview tunnel failed to produce a trycloudflare URL"
+    tail -100 "$tunnel_log" 2>/dev/null || true
+    return 1
+}
+
 # -----------------------------------------------------------------------
 # Step 4: Read preview URL
 # -----------------------------------------------------------------------
 echo "=== Step 4: Reading preview URL ==="
 if [ -z "$PREVIEW_URL" ]; then
     if [ ! -f "$PREVIEW_URL_FILE" ]; then
-        echo "No preview URL file at $PREVIEW_URL_FILE"
-        write_result 0.0 1 1 0 "preview_url_missing" "no_preview_url" "Preview URL file not found"
+        echo "No preview URL file at $PREVIEW_URL_FILE; starting preview tunnel"
+        if ! start_preview_tunnel; then
+            write_result 0.0 1 1 0 "preview_url_missing" "no_preview_url" "Preview URL file not found and preview tunnel failed"
+        fi
     fi
     PREVIEW_URL=$(cat "$PREVIEW_URL_FILE")
 fi
