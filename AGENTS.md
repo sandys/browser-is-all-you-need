@@ -75,7 +75,7 @@ Any command that provisions cloud resources must:
 
 - Use `.gcp-service-account.json` through scoped environment variables such as `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, and `CLOUDSDK_CORE_PROJECT`.
 - Never run `gcloud auth activate-service-account` or mutate the user's global `gcloud config`.
-- Check SkyPilot launch IAM before paid launches, including `resourcemanager.projects.setIamPolicy`.
+- Check the full project-level SkyPilot GCP launch IAM set before paid launches, including compute, storage, service usage, service-account creation, and project IAM policy update permissions.
 - Avoid printing credential contents.
 - Render the SkyPilot YAML into an ignored path.
 - Provide status, logs, and teardown commands through `w8-biayn`.

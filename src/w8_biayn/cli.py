@@ -53,7 +53,42 @@ app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(harbor_app, name="harbor")
 console = Console()
 
-SKYPILOT_GCP_LAUNCH_PERMISSIONS = ("resourcemanager.projects.setIamPolicy",)
+SKYPILOT_GCP_LAUNCH_PERMISSIONS = (
+    "compute.disks.create",
+    "compute.disks.list",
+    "compute.firewalls.create",
+    "compute.firewalls.delete",
+    "compute.firewalls.get",
+    "compute.globalOperations.get",
+    "compute.instances.create",
+    "compute.instances.delete",
+    "compute.instances.get",
+    "compute.instances.list",
+    "compute.instances.setLabels",
+    "compute.instances.setServiceAccount",
+    "compute.instances.start",
+    "compute.instances.stop",
+    "compute.networks.get",
+    "compute.networks.getEffectiveFirewalls",
+    "compute.networks.list",
+    "compute.projects.get",
+    "compute.reservations.list",
+    "compute.subnetworks.list",
+    "compute.subnetworks.use",
+    "compute.subnetworks.useExternalIp",
+    "compute.zoneOperations.get",
+    "iam.roles.get",
+    "iam.serviceAccounts.create",
+    "iam.serviceAccounts.get",
+    "resourcemanager.projects.get",
+    "resourcemanager.projects.getIamPolicy",
+    "resourcemanager.projects.setIamPolicy",
+    "serviceusage.services.enable",
+    "serviceusage.services.list",
+    "serviceusage.services.use",
+    "storage.buckets.create",
+    "storage.buckets.delete",
+)
 
 
 def _project_id(credentials: str) -> str:

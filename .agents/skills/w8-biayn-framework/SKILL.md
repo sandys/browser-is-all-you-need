@@ -51,7 +51,7 @@ Keep cloud commands dry-run capable. Real launches must go through `w8-biayn lau
 
 Cloud commands must use `.gcp-service-account.json` directly through scoped environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, `CLOUDSDK_CORE_PROJECT`). Do not run `gcloud auth activate-service-account`, do not call `gcloud config set project`, and do not depend on a preconfigured global gcloud account. Python code that needs an OAuth token should mint it from the service-account JSON, not from `gcloud auth print-access-token`.
 
-Before paid SkyPilot launches, `doctor --cloud` must verify launch-time IAM too. In particular, SkyPilot may call project `setIamPolicy` while preparing worker service-account bindings, so `resourcemanager.projects.setIamPolicy` must be checked and documented.
+Before paid SkyPilot launches, `doctor --cloud` must verify launch-time IAM too. Use the explicit project-level SkyPilot GCP launch permission set from SkyPilot's GCP backend: compute, storage, service usage, firewall, reservation, IAM service-account creation/get, and project IAM policy get/set permissions. SkyPilot may call project `setIamPolicy` while preparing worker service-account bindings, so `resourcemanager.projects.setIamPolicy` must remain in the checked set.
 
 Do not vendor AndroidWorld, WootzApp, APKs, or browser source. DOMDiff uses a prebuilt image, defaulting to:
 

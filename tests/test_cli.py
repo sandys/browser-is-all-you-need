@@ -7,7 +7,7 @@ import yaml
 from typer.testing import CliRunner
 
 import w8_biayn.cli as cli_mod
-from w8_biayn.cli import app
+from w8_biayn.cli import SKYPILOT_GCP_LAUNCH_PERMISSIONS, app
 from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE
 from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
 
@@ -80,6 +80,19 @@ def test_cli_doctor_cloud_rejects_missing_skypilot_launch_permission(monkeypatch
 
     assert result.exit_code == 1
     assert "resourcemanager.projects.setIamPolicy" in result.output
+
+
+def test_skypilot_launch_preflight_covers_project_permissions():
+    permissions = set(SKYPILOT_GCP_LAUNCH_PERMISSIONS)
+
+    assert "compute.instances.create" in permissions
+    assert "compute.firewalls.create" in permissions
+    assert "compute.reservations.list" in permissions
+    assert "iam.serviceAccounts.create" in permissions
+    assert "resourcemanager.projects.getIamPolicy" in permissions
+    assert "resourcemanager.projects.setIamPolicy" in permissions
+    assert "serviceusage.services.enable" in permissions
+    assert "storage.buckets.create" in permissions
 
 
 def test_cli_launch_r3_with_domdiff_dry_run_prints_domdiff_plan(tmp_path):

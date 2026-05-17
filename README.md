@@ -74,7 +74,7 @@ uv run w8-biayn domdiff smoke \
 
 At minimum, SkyPilot needs permissions to inspect and use GCP services, create/delete compute instances, networks/firewalls/disks, use service accounts, and create/delete storage buckets. If `doctor --cloud` reports GCP disabled, fix IAM before launching.
 
-SkyPilot launch also updates project IAM bindings while preparing the worker service account. The service account in `.gcp-service-account.json` must have `resourcemanager.projects.setIamPolicy`; `doctor --cloud` checks this before a paid launch.
+SkyPilot launch also prepares the `skypilot-v1` worker service account and its project bindings. `doctor --cloud` explicitly preflights the project-level SkyPilot launch permissions from SkyPilot's GCP backend, including Compute, Storage, Service Usage, IAM service-account creation, `resourcemanager.projects.getIamPolicy`, and `resourcemanager.projects.setIamPolicy`.
 
 Useful commands:
 
