@@ -864,8 +864,6 @@ class LocalDomdiffHost:
                 cloudflared,
                 "tunnel",
                 "--no-autoupdate",
-                "--protocol",
-                "http2",
                 "--url",
                 url,
                 *(extra_args or []),
