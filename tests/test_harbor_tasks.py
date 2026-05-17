@@ -11,7 +11,7 @@ from w8_biayn.harbor.tasks import (
     resolve_task_root,
     validate_tasks,
 )
-from w8_biayn.harbor.docker_runner import HarborDockerTaskRunner, image_tag_for_task
+from w8_biayn.harbor.docker_runner import HarborDockerTaskRunner, container_name_for_task, image_tag_for_task
 from w8_biayn.harbor.rubric import evaluate_harbor_rubric
 from w8_biayn.integrations.harbor_env import _extract_solution_script
 
@@ -70,6 +70,14 @@ def test_harbor_docker_dry_run_can_use_generated_solution():
 
     assert "/tmp/w8_solution.sh" in plan
     assert "bash /task/solution/solve.sh" not in plan
+
+
+def test_harbor_container_names_are_unique_for_parallel_samples():
+    names = {container_name_for_task("chakra-ui__chakra-ui-8905") for _ in range(100)}
+
+    assert len(names) == 100
+    assert all(name.startswith("w8-harbor-chakra-ui__chakra-ui-8905-") for name in names)
+    assert all(len(name) <= 63 for name in names)
 
 
 def test_harbor_skyrl_record_shape():

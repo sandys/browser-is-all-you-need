@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,7 @@ class HarborDockerTaskRunner:
             self._run(["docker", "cp", str(task.path / name), f"{container}:/task/{name}"])
         self._run(["docker", "cp", str(task.path / "solution"), f"{container}:/task/solution"])
         self._run(["docker", "cp", str(task.path / "tests" / "."), f"{container}:/tests"])
+        self._exec(container, ["sh", "-lc", "test -f /tests/test.sh && chmod +x /tests/test.sh"], timeout=30)
 
     def _copy_generated_solution(self, container: str, solution_script: str) -> None:
         self._run(
@@ -245,7 +247,7 @@ def image_tag_for_task(task_dir: str | Path) -> str:
 
 
 def container_name_for_task(task_id: str) -> str:
-    suffix = f"{os.getpid()}-{int(time.time() * 1000)}"
+    suffix = f"{os.getpid()}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:12]}"
     return _safe_name(f"w8-harbor-{task_id}-{suffix}", max_len=63)
 
 
