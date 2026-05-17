@@ -23,6 +23,7 @@ DEFAULT_DOMDIFF_MACHINE_TYPE = "n2-standard-4"
 DEFAULT_DOMDIFF_MIN_CPU_PLATFORM = "Intel Cascade Lake"
 DEFAULT_DOMDIFF_BOOT_DISK_TYPE = "pd-balanced"
 DEFAULT_DOMDIFF_VOLUME_GB = 100
+DEFAULT_GPU_CONTAINER_IMAGE = "us-docker.pkg.dev/deeplearning-platform-release/gcr.io/pytorch-cu124.2-4.py310"
 
 
 @dataclass(frozen=True)

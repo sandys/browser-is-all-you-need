@@ -26,8 +26,11 @@ from .constants import (
     DEFAULT_DOMDIFF_MIN_CPU_PLATFORM,
     DEFAULT_DOMDIFF_VOLUME_GB,
     DEFAULT_DOMDIFF_ZONE,
+    DEFAULT_GPU_CONTAINER_IMAGE,
     DEFAULT_RENDER_DIR,
 )
+from .harbor import tasks as harbor_tasks
+from .harbor.docker_runner import HarborDockerTaskRunner, run_oracle_smoke
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
 from .sky_config import Pipeline, RenderOptions, validate_remote_runtime_urls, write_sky_yaml
@@ -39,12 +42,14 @@ config_app = typer.Typer(help="Render SkyPilot and training configs.")
 domdiff_app = typer.Typer(help="Manage DOMDiff reward images and hosts.")
 domdiff_local_app = typer.Typer(help="Run a local DOMDiff container and expose it with quick tunnels.")
 benchmarks_app = typer.Typer(help="Inspect benchmark targets for the R3 pipeline.")
+harbor_app = typer.Typer(help="Inspect and smoke packaged Harbor DOMDiff tasks.")
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
 app.add_typer(domdiff_app, name="domdiff")
 domdiff_app.add_typer(domdiff_local_app, name="local")
 app.add_typer(benchmarks_app, name="benchmarks")
+app.add_typer(harbor_app, name="harbor")
 console = Console()
 
 
@@ -69,8 +74,15 @@ def _render_options(
     cdp_url: Optional[str] = None,
     domdiff_reward_image: str = DEFAULT_DOMDIFF_IMAGE,
     benchmark: Optional[str] = None,
+    harbor_task_ids: Optional[list[str]] = None,
+    harbor_oracle: bool = True,
+    gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE,
+    tinker_secret: bool = False,
 ) -> RenderOptions:
     project_id = _project_id(credentials)
+    normalized_harbor_task_ids = tuple(harbor_task_ids or harbor_tasks.DEFAULT_HARBOR_TASK_IDS)
+    if benchmark == "harbor-domdiff-browser-swe":
+        _validate_harbor_tasks(normalized_harbor_task_ids)
     options = RenderOptions(
         pipeline=pipeline,
         project_id=project_id,
@@ -86,12 +98,23 @@ def _render_options(
         cdp_url=cdp_url,
         domdiff_reward_image=domdiff_reward_image,
         benchmark=benchmark,
+        harbor_task_ids=normalized_harbor_task_ids,
+        harbor_oracle=harbor_oracle,
+        gpu_container_image=gpu_container_image,
+        tinker_secret=tinker_secret,
     )
     try:
         validate_remote_runtime_urls(options)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
     return options
+
+
+def _validate_harbor_tasks(task_ids: tuple[str, ...] | list[str]) -> None:
+    try:
+        harbor_tasks.validate_tasks(task_ids=list(task_ids))
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _domdiff_config(
@@ -346,6 +369,10 @@ def config_render(
     cdp_url: Optional[str] = typer.Option(None, help="DOMDiff CDP WebSocket URL to inject."),
     domdiff_reward_image: str = typer.Option(DEFAULT_DOMDIFF_IMAGE, help="DOMDiff reward image metadata to render."),
     benchmark: Optional[str] = typer.Option(None, help="Benchmark key to record in the rendered config."),
+    harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
+    harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
+    gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
+    tinker_secret: bool = typer.Option(False, "--tinker-secret/--no-tinker-secret", help="Include TINKER_API_KEY as a SkyPilot secret."),
 ) -> None:
     """Render a SkyPilot YAML file."""
     options = _render_options(
@@ -362,6 +389,10 @@ def config_render(
         cdp_url,
         domdiff_reward_image,
         benchmark,
+        harbor_task,
+        harbor_oracle,
+        gpu_container_image,
+        tinker_secret,
     )
     output_path = output or f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml"
     written = write_sky_yaml(options, output_path)
@@ -415,6 +446,10 @@ def launch(
     local_publish_cdp: bool = typer.Option(False, "--local-publish-cdp", help="Also expose local CDP through a Cloudflare quick tunnel for debugging."),
     keep_local_domdiff: bool = typer.Option(False, help="Leave local DOMDiff processes/container running after launch exits."),
     benchmark: Optional[str] = typer.Option(None, help="Benchmark key to record for this run."),
+    harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
+    harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
+    gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
+    tinker_secret: bool = typer.Option(True, "--tinker-secret/--no-tinker-secret", help="Pass TINKER_API_KEY through SkyPilot secrets for Harbor R3 training."),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
@@ -436,6 +471,14 @@ def launch(
             benchmarks.get_benchmark(benchmark)
         except KeyError as exc:
             raise typer.BadParameter(str(exc)) from exc
+    is_harbor_benchmark = benchmark == "harbor-domdiff-browser-swe"
+    selected_harbor_tasks = tuple(harbor_task or harbor_tasks.DEFAULT_HARBOR_TASK_IDS)
+    if is_harbor_benchmark:
+        if pipeline != "r3":
+            raise typer.BadParameter("harbor-domdiff-browser-swe is supported only for the r3 pipeline")
+        _validate_harbor_tasks(selected_harbor_tasks)
+        if not dry_run and not os.environ.get("TINKER_API_KEY"):
+            raise typer.BadParameter("TINKER_API_KEY is required for real harbor-domdiff-browser-swe launches")
     domdiff_reward_image = _maybe_push_local_reward_image(
         local_reward_image=local_reward_image,
         reward_image=domdiff_reward_image,
@@ -512,6 +555,10 @@ def launch(
         cdp_url,
         domdiff_reward_image,
         benchmark,
+        list(selected_harbor_tasks),
+        harbor_oracle,
+        gpu_container_image,
+        tinker_secret if is_harbor_benchmark else False,
     )
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = {
@@ -957,6 +1004,77 @@ def benchmarks_show(key: str = typer.Argument(..., help="Benchmark key.")) -> No
     except KeyError as exc:
         raise typer.BadParameter(str(exc)) from exc
     console.print_json(data=benchmark.__dict__)
+
+
+@harbor_app.command("list")
+def harbor_list(
+    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
+) -> None:
+    """List packaged Harbor DOMDiff tasks."""
+    table = Table(title="w8-biayn Harbor DOMDiff tasks")
+    table.add_column("task_id", no_wrap=True, overflow="ignore")
+    for column in ("difficulty", "language", "build", "preview_path"):
+        table.add_column(column)
+    for task_id in harbor_tasks.discover_task_ids(task_root):
+        task = harbor_tasks.load_task(task_id, task_root)
+        metadata = task.task_config.get("metadata", {})
+        env = task.task_config.get("verifier", {}).get("env", {})
+        build = str(env.get("BUILD_COMMAND", "") if isinstance(env, dict) else "")
+        table.add_row(
+            task.task_id,
+            str(metadata.get("difficulty", "")),
+            str(metadata.get("language", "")),
+            build,
+            task.preview_path,
+        )
+    console.print(table)
+
+
+@harbor_app.command("validate")
+def harbor_validate(
+    task: Optional[list[str]] = typer.Option(None, "--task", help="Task id to validate. Repeat to validate multiple tasks."),
+    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
+) -> None:
+    """Validate packaged Harbor task structure and DOMDiff rubrics."""
+    table = Table(title="Harbor validation")
+    table.add_column("task_id", no_wrap=True, overflow="ignore")
+    for column in ("status", "preview_path"):
+        table.add_column(column)
+    for item in harbor_tasks.validate_tasks(task_root=task_root, task_ids=task):
+        table.add_row(item.task_id, "ok", item.preview_path)
+    console.print(table)
+
+
+@harbor_app.command("oracle-smoke")
+def harbor_oracle_smoke(
+    task: str = typer.Option(harbor_tasks.DEFAULT_HARBOR_TASK_IDS[0], "--task", help="Task id to run."),
+    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
+    chromiumrl_url: Optional[str] = typer.Option(None, help="ChromiumRL reward URL. Omit to run verifier setup without live DOMDiff scoring."),
+    keep_container: bool = typer.Option(False, "--keep-container", help="Leave the task container running for debugging."),
+    dry_run: bool = typer.Option(False, help="Print Docker build/run/verifier commands without running them."),
+) -> None:
+    """Run one Harbor task with the packaged oracle patch in Docker."""
+    loaded = harbor_tasks.load_task(task, task_root)
+    if dry_run:
+        runner = HarborDockerTaskRunner(chromiumrl_url=chromiumrl_url, oracle=True, keep_containers=keep_container)
+        console.print(runner.dry_run_plan(loaded))
+        return
+    outcome = run_oracle_smoke(
+        loaded.task_id,
+        task_root=task_root,
+        chromiumrl_url=chromiumrl_url,
+        keep_container=keep_container,
+    )
+    console.print_json(
+        data={
+            "task_id": outcome.task_id,
+            "container": outcome.container,
+            "image": outcome.image,
+            "preview_url": outcome.preview_url,
+            "terminal_state": outcome.terminal_state,
+            "reward": outcome.reward_doc,
+        }
+    )
 
 
 @app.command()

@@ -10,7 +10,16 @@ from urllib.parse import urlparse
 
 import yaml
 
-from .constants import DEFAULT_CREDENTIALS_PATH, DEFAULT_DOMDIFF_IMAGE, SKYRL_PIN, SKYRL_REPO
+from .constants import (
+    DEFAULT_CREDENTIALS_PATH,
+    DEFAULT_DOMDIFF_IMAGE,
+    DEFAULT_GPU_CONTAINER_IMAGE,
+    RLLM_PIN,
+    RLLM_REPO,
+    SKYRL_PIN,
+    SKYRL_REPO,
+)
+from .harbor.tasks import DEFAULT_HARBOR_TASK_IDS, DEFAULT_HARBOR_TASK_ROOT
 from .secrets import default_bucket_for_project
 
 Pipeline = Literal["miniwob", "webarena", "r3"]
@@ -43,6 +52,10 @@ class RenderOptions:
     cdp_url: str | None = None
     domdiff_reward_image: str = DEFAULT_DOMDIFF_IMAGE
     benchmark: str | None = None
+    harbor_task_ids: tuple[str, ...] = DEFAULT_HARBOR_TASK_IDS
+    harbor_oracle: bool = True
+    gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE
+    tinker_secret: bool = False
 
     @property
     def artifact_bucket(self) -> str:
@@ -68,6 +81,10 @@ def model_for_pipeline(pipeline: Pipeline) -> str:
 
 def benchmark_for_pipeline(pipeline: Pipeline) -> str:
     return "webarena" if pipeline == "webarena" else "miniwob"
+
+
+def is_harbor_domdiff_benchmark(options: RenderOptions) -> bool:
+    return options.pipeline == "r3" and options.benchmark == "harbor-domdiff-browser-swe"
 
 
 def is_private_runtime_url(url: str | None) -> bool:
@@ -110,6 +127,8 @@ def validate_remote_runtime_urls(options: RenderOptions) -> None:
 
 
 def setup_script(options: RenderOptions) -> LiteralStr:
+    if is_harbor_domdiff_benchmark(options):
+        return harbor_setup_script(options)
     benchmark = benchmark_for_pipeline(options.pipeline)
     extra_browser_pkg = "browsergym-webarena browsergym" if benchmark == "webarena" else "browsergym-miniwob"
     maybe_playwright = "python -m playwright install chromium || true" if benchmark == "webarena" else "true"
@@ -139,6 +158,41 @@ uv pip install pandas pyarrow gymnasium {extra_browser_pkg}
 {maybe_playwright}
 {webarena_setup}
 w8-biayn data prepare {benchmark} --out "{remote_data_dir(options.pipeline)}"
+"""
+    )
+
+
+def harbor_setup_script(_options: RenderOptions) -> LiteralStr:
+    return LiteralStr(
+        f"""set -euxo pipefail
+export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+if ! command -v docker >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io curl git ca-certificates
+  fi
+fi
+if command -v systemctl >/dev/null 2>&1; then
+  sudo systemctl enable --now docker || true
+fi
+sudo chmod 666 /var/run/docker.sock || true
+docker version
+if ! command -v cloudflared >/dev/null 2>&1; then
+  curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+  sudo install -m 0755 /tmp/cloudflared /usr/local/bin/cloudflared
+fi
+W8_CACHE="$HOME/.cache/w8-biayn/upstreams"
+mkdir -p "$W8_CACHE"
+if [ ! -d "$W8_CACHE/rllm/.git" ]; then
+  git clone {RLLM_REPO} "$W8_CACHE/rllm"
+fi
+git -C "$W8_CACHE/rllm" fetch origin {RLLM_PIN} --depth 1 || git -C "$W8_CACHE/rllm" fetch --all --tags
+git -C "$W8_CACHE/rllm" checkout {RLLM_PIN}
+if [ ! -d "$W8_CACHE/SkyRL/.git" ]; then
+  git clone {SKYRL_REPO} "$W8_CACHE/SkyRL"
+fi
+git -C "$W8_CACHE/SkyRL" fetch origin {SKYRL_PIN} --depth 1 || git -C "$W8_CACHE/SkyRL" fetch --all --tags
+git -C "$W8_CACHE/SkyRL" checkout {SKYRL_PIN}
 """
     )
 
@@ -267,6 +321,8 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
 
 
 def run_script(options: RenderOptions) -> LiteralStr:
+    if is_harbor_domdiff_benchmark(options):
+        return harbor_run_script(options)
     overrides = " \\\n  ".join(skyrl_overrides(options))
     webarena_exports = webarena_env_exports() if options.pipeline == "webarena" else ""
     domdiff_enabled = "1" if options.chromiumrl_url or options.cdp_url else "0"
@@ -290,11 +346,103 @@ python -m w8_biayn.integrations.skyrl_browsergym_main \\
     )
 
 
+def harbor_run_script(options: RenderOptions) -> LiteralStr:
+    task_ids = ",".join(options.harbor_task_ids or DEFAULT_HARBOR_TASK_IDS)
+    task_ids_hydra = "[" + ",".join(options.harbor_task_ids or DEFAULT_HARBOR_TASK_IDS) + "]"
+    oracle_value = "true" if options.harbor_oracle else "false"
+    return LiteralStr(
+        f"""set -euxo pipefail
+export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+export ARTIFACT_BUCKET="{options.artifact_bucket}"
+export W8_BIAYN_BENCHMARK="{options.benchmark or ""}"
+export W8_HARBOR_TASK_ROOT="{DEFAULT_HARBOR_TASK_ROOT}"
+export W8_HARBOR_TASK_IDS="{task_ids}"
+export CHROMIUMRL_URL="{options.chromiumrl_url or ""}"
+export CHROMIUMRL_API_URL="{options.chromiumrl_url or ""}"
+export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
+if [ -z "${{TINKER_API_KEY:-}}" ]; then
+  echo "TINKER_API_KEY is required for the Harbor rLLM/Tinker R3 smoke." >&2
+  exit 2
+fi
+docker pull "$W8_GPU_CONTAINER_IMAGE"
+docker run --rm --gpus all --network host \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v "$PWD":/workspace \\
+  -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
+  -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
+  -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
+  -e TINKER_API_KEY \\
+  -e CHROMIUMRL_URL \\
+  -e CHROMIUMRL_API_URL \\
+  -e W8_REPO_ROOT=/workspace \\
+  -e W8_HARBOR_TASK_ROOT=/workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
+  -e W8_HARBOR_TASK_IDS \\
+  -w /workspace \\
+  "$W8_GPU_CONTAINER_IMAGE" bash -lc '
+set -euxo pipefail
+if ! command -v docker >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+fi
+if ! command -v curl >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl git ca-certificates
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+export PATH="$HOME/.local/bin:$PATH"
+RLLM_DIR="$HOME/.cache/w8-biayn/upstreams/rllm"
+SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
+uv venv --python 3.12 --seed "$HOME/.cache/w8-biayn/venvs/harbor-r3"
+source "$HOME/.cache/w8-biayn/venvs/harbor-r3/bin/activate"
+uv pip install -e /workspace
+uv pip install -e "$RLLM_DIR[harbor,tinker]"
+uv pip install docker openai hydra-core
+python - <<PY
+import subprocess
+subprocess.run(["nvidia-smi"], check=False)
+PY
+python -m w8_biayn.integrations.harbor_r3_main \\
+  rllm/backend=tinker \\
+  model.name=Qwen/Qwen3-4B-Instruct-2507 \\
+  model.lora_rank=16 \\
+  training.group_size=2 \\
+  validation.group_size=1 \\
+  data.train_batch_size=1 \\
+  data.val_batch_size=1 \\
+  data.max_prompt_length=32768 \\
+  data.max_response_length=8192 \\
+  rllm.workflow.n_parallel_tasks=1 \\
+  rllm.workflow.retry_limit=0 \\
+  rllm.trainer.total_batches=1 \\
+  rllm.trainer.total_epochs=1 \\
+  rllm.trainer.val_before_train=false \\
+  rllm.trainer.test_freq=0 \\
+  rllm.trainer.save_freq=-1 \\
+  rllm.trainer.logger="[console]" \\
+  rllm.trainer.project_name=w8-biayn-r3 \\
+  rllm.trainer.experiment_name=harbor-domdiff-smoke \\
+  w8.harbor.dataset_name=w8_harbor_domdiff_smoke \\
+  w8.harbor.task_root=/workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
+  w8.harbor.task_ids="{task_ids_hydra}" \\
+  w8.harbor.max_samples=2 \\
+  w8.harbor.chromiumrl_url="$CHROMIUMRL_URL" \\
+  w8.harbor.oracle={oracle_value} \\
+  w8.harbor.keep_containers=false
+'
+"""
+    )
+
+
 def render_sky_yaml(options: RenderOptions) -> str:
     validate_remote_runtime_urls(options)
     secrets: dict[str, Any] = {}
     if options.wandb_secret:
         secrets["WANDB_API_KEY"] = None
+    if options.tinker_secret:
+        secrets["TINKER_API_KEY"] = None
 
     config: dict[str, Any] = {
         "name": options.name,

@@ -6,6 +6,8 @@ import yaml
 from typer.testing import CliRunner
 
 from w8_biayn.cli import app
+from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE
+from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
 
 
 def service_account(tmp_path):
@@ -223,6 +225,114 @@ def test_cli_config_render_rejects_private_domdiff_url(tmp_path):
 
     assert result.exit_code != 0
     assert "local/private URL" in result.output
+
+
+def test_cli_config_render_harbor_r3_smoke(tmp_path):
+    credentials = service_account(tmp_path)
+    output = tmp_path / "harbor.sky.yaml"
+    task_id = DEFAULT_HARBOR_TASK_IDS[0]
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "r3",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--benchmark",
+            "harbor-domdiff-browser-swe",
+            "--chromiumrl-url",
+            "https://reward.trycloudflare.com",
+            "--harbor-task",
+            task_id,
+            "--tinker-secret",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load(output.read_text(encoding="utf-8"))
+    assert config["secrets"]["TINKER_API_KEY"] is None
+    assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
+    assert "CDP_URL" not in config["envs"]
+    assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
+    assert "docker run --rm --gpus all --network host" in config["run"]
+    assert "w8_biayn.integrations.harbor_r3_main" in config["run"]
+    assert task_id in config["run"]
+    assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]
+
+
+def test_cli_launch_harbor_with_local_domdiff_dry_run(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "r3",
+            "--credentials",
+            str(credentials),
+            "--with-local-domdiff",
+            "--benchmark",
+            "harbor-domdiff-browser-swe",
+            "--harbor-task",
+            DEFAULT_HARBOR_TASK_IDS[0],
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Local DOMDiff dry run" in result.output
+    assert "https://<local-domdiff-reward-tunnel>" in result.output
+    assert "wss://<local-domdiff-cdp-tunnel>" not in result.output
+    assert "sky launch" in result.output
+
+
+def test_cli_launch_harbor_requires_tinker_for_real_launch(tmp_path, monkeypatch):
+    credentials = service_account(tmp_path)
+    monkeypatch.delenv("TINKER_API_KEY", raising=False)
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "r3",
+            "--credentials",
+            str(credentials),
+            "--benchmark",
+            "harbor-domdiff-browser-swe",
+            "--skip-auth",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "TINKER_API_KEY is required" in result.output
+
+
+def test_cli_harbor_commands_validate_and_dry_run():
+    list_result = CliRunner().invoke(app, ["harbor", "list"])
+    assert list_result.exit_code == 0, list_result.output
+    assert DEFAULT_HARBOR_TASK_IDS[0] in list_result.output
+    assert DEFAULT_HARBOR_TASK_IDS[1] in list_result.output
+
+    validate_result = CliRunner().invoke(app, ["harbor", "validate", "--task", DEFAULT_HARBOR_TASK_IDS[0]])
+    assert validate_result.exit_code == 0, validate_result.output
+    assert "ok" in validate_result.output
+
+    smoke_result = CliRunner().invoke(
+        app,
+        [
+            "harbor",
+            "oracle-smoke",
+            "--task",
+            DEFAULT_HARBOR_TASK_IDS[0],
+            "--chromiumrl-url",
+            "https://reward.trycloudflare.com",
+            "--dry-run",
+        ],
+    )
+    assert smoke_result.exit_code == 0, smoke_result.output
+    assert "Harbor Docker task dry run" in smoke_result.output
+    assert "docker build" in smoke_result.output
 
 
 def test_cli_benchmarks_list():
