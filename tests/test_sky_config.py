@@ -127,6 +127,7 @@ def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
     assert "git clone https://github.com/NovaSky-AI/SkyRL.git" in config["setup"]
     assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
     assert "docker run --rm --gpus all --network host --shm-size=32g" in config["run"]
+    assert 'if [ ! -x "$HARBOR_VENV/bin/python" ]; then' in config["run"]
     assert "uv sync --active --extra megatron --extra gcp" in config["run"]
     assert "cd /workspace" in config["run"]
     assert "w8-biayn harbor prepare-data" in config["run"]
