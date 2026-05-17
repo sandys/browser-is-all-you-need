@@ -18,6 +18,7 @@ from w8_biayn.harbor.docker_runner import HarborDockerTaskRunner
 from w8_biayn.harbor.domdiff_eval import evaluate_preview_url
 from w8_biayn.harbor.tasks import load_task
 
+HARBOR_SKYRL_ENV_ID = "harbor-domdiff"
 SOLUTION_RE = re.compile(r"<solution>(.*?)</solution>", re.DOTALL | re.IGNORECASE)
 FENCED_RE = re.compile(r"```(?:bash|sh|shell)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -112,6 +113,21 @@ class HarborSkyRLEnv(BaseTextEnv):
             "harbor_oracle": self.oracle,
             **self.last_metadata,
         }
+
+
+def register_harbor_env() -> None:
+    """Register the Harbor DOMDiff environment in the current SkyRL-Gym process."""
+
+    from skyrl_gym.envs import register
+
+    try:
+        register(
+            id=HARBOR_SKYRL_ENV_ID,
+            entry_point="w8_biayn.integrations.harbor_env:HarborSkyRLEnv",
+        )
+    except Exception as exc:
+        if "already registered" not in str(exc):
+            raise
 
 
 def _extract_solution_script(action: str) -> str:
