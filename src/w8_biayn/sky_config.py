@@ -76,6 +76,18 @@ def model_for_pipeline(pipeline: Pipeline) -> str:
     return "Qwen/Qwen2.5-1.5B-Instruct"
 
 
+def accelerator_count(accelerators: str) -> int:
+    """Parse the GPU count from a SkyPilot accelerator request."""
+
+    first_request = accelerators.split(",", maxsplit=1)[0].strip()
+    if not first_request or ":" not in first_request:
+        return 1
+    try:
+        return max(int(first_request.rsplit(":", maxsplit=1)[1].strip()), 1)
+    except ValueError:
+        return 1
+
+
 def benchmark_for_pipeline(pipeline: Pipeline) -> str:
     return "webarena" if pipeline == "webarena" else "miniwob"
 
@@ -238,7 +250,7 @@ fi"""
 def skyrl_overrides(options: RenderOptions) -> list[str]:
     pipeline = options.pipeline
     data_dir = remote_data_dir(pipeline)
-    num_gpus = "$SKYPILOT_NUM_GPUS_PER_NODE"
+    num_gpus = str(accelerator_count(options.accelerators))
     model = model_for_pipeline(pipeline)
     max_turns = "6" if pipeline == "miniwob" else "12"
     train_batch_size = "16" if pipeline == "miniwob" else "8"
@@ -341,6 +353,7 @@ python -m w8_biayn.integrations.skyrl_browsergym_main \\
 def harbor_run_script(options: RenderOptions) -> LiteralStr:
     task_ids = ",".join(options.harbor_task_ids or DEFAULT_HARBOR_TASK_IDS)
     oracle_value = "true" if options.harbor_oracle else "false"
+    num_gpus = accelerator_count(options.accelerators)
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
@@ -409,10 +422,10 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   trainer.policy.model.path=Qwen/Qwen1.5-MoE-A2.7B-Chat \\
   trainer.placement.colocate_all=true \\
   trainer.strategy=fsdp \\
-  trainer.placement.policy_num_gpus_per_node=$SKYPILOT_NUM_GPUS_PER_NODE \\
-  trainer.placement.ref_num_gpus_per_node=$SKYPILOT_NUM_GPUS_PER_NODE \\
+  trainer.placement.policy_num_gpus_per_node={num_gpus} \\
+  trainer.placement.ref_num_gpus_per_node={num_gpus} \\
   generator.inference_engine.num_engines=1 \\
-  generator.inference_engine.tensor_parallel_size=$SKYPILOT_NUM_GPUS_PER_NODE \\
+  generator.inference_engine.tensor_parallel_size={num_gpus} \\
   generator.inference_engine.backend=vllm \\
   generator.inference_engine.run_engines_locally=true \\
   generator.inference_engine.weight_sync_backend=nccl \\
