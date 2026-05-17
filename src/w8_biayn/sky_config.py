@@ -423,7 +423,7 @@ SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
 HARBOR_DATA_DIR="$HOME/data/w8-biayn/harbor-domdiff-browser-swe"
 HARBOR_VENV="$HOME/.cache/w8-biayn/venvs/harbor-r3"
 if [ ! -x "$HARBOR_VENV/bin/python" ]; then
-  uv venv --python 3.12 --seed "$HARBOR_VENV"
+  uv venv --python 3.12 --seed --clear "$HARBOR_VENV"
 fi
 source "$HARBOR_VENV/bin/activate"
 cd "$SKYRL_DIR"
