@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE
+from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE, DEFAULT_HARBOR_R3_ACCELERATORS
 from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
 from w8_biayn.sky_config import (
     RenderOptions,
@@ -51,6 +51,7 @@ def test_r3_overrides_enable_routing_replay():
 
 def test_accelerator_count_parses_skypilot_accelerator_request():
     assert accelerator_count("A100:4") == 4
+    assert accelerator_count(DEFAULT_HARBOR_R3_ACCELERATORS) == 8
     assert accelerator_count("L4") == 1
     assert accelerator_count("A100:abc") == 1
     assert accelerator_count("") == 1
@@ -134,6 +135,7 @@ def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
     assert "environment.env_class=harbor-domdiff" in config["run"]
     assert "generator.inference_engine.enable_return_routed_experts=true" in config["run"]
     assert "SKYPILOT_NUM_GPUS_PER_NODE" not in config["run"]
+    assert config["resources"]["accelerators"] == "A100:4"
     assert "trainer.placement.policy_num_gpus_per_node=4" in config["run"]
     assert "generator.inference_engine.tensor_parallel_size=4" in config["run"]
     assert "generator.inference_engine.expert_parallel_size=4" in config["run"]
@@ -145,3 +147,23 @@ def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
     assert "trainer.use_sample_packing=true" in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[0] in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]
+
+
+def test_render_harbor_r3_h100_eight_gpu_topology():
+    text = render_sky_yaml(
+        RenderOptions(
+            pipeline="r3",
+            project_id="proj",
+            benchmark="harbor-domdiff-browser-swe",
+            accelerators=DEFAULT_HARBOR_R3_ACCELERATORS,
+            chromiumrl_url="https://reward.trycloudflare.com",
+        )
+    )
+    config = yaml.safe_load(text)
+
+    assert config["resources"]["accelerators"] == DEFAULT_HARBOR_R3_ACCELERATORS
+    assert "trainer.placement.policy_num_gpus_per_node=8" in config["run"]
+    assert "generator.inference_engine.tensor_parallel_size=8" in config["run"]
+    assert "generator.inference_engine.expert_parallel_size=8" in config["run"]
+    assert "trainer.policy.megatron_config.tensor_model_parallel_size=4" in config["run"]
+    assert "trainer.policy.megatron_config.expert_model_parallel_size=8" in config["run"]

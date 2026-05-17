@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 import w8_biayn.cli as cli_mod
 from w8_biayn.cli import SKYPILOT_GCP_LAUNCH_PERMISSIONS, app
-from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE
+from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE, DEFAULT_HARBOR_R3_ACCELERATORS
 from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
 
 
@@ -290,12 +290,15 @@ def test_cli_config_render_harbor_r3_smoke(tmp_path):
     assert result.exit_code == 0, result.output
     config = yaml.safe_load(output.read_text(encoding="utf-8"))
     assert "secrets" not in config
+    assert config["resources"]["accelerators"] == DEFAULT_HARBOR_R3_ACCELERATORS
     assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
     assert "CDP_URL" not in config["envs"]
     assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
     assert "docker run --rm --gpus all --network host --shm-size=32g" in config["run"]
     assert "w8-biayn harbor prepare-data" in config["run"]
     assert "w8_biayn.integrations.skyrl_harbor_main" in config["run"]
+    assert "trainer.placement.policy_num_gpus_per_node=8" in config["run"]
+    assert "generator.inference_engine.tensor_parallel_size=8" in config["run"]
     assert "TINKER_API_KEY" not in config["run"]
     assert task_id in config["run"]
     assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]

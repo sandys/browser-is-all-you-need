@@ -15,6 +15,7 @@ from rich.table import Table
 from . import benchmarks, datasets, domdiff, upstreams
 from .constants import (
     DEFAULT_CREDENTIALS_PATH,
+    DEFAULT_ACCELERATORS,
     DEFAULT_DOMDIFF_ARTIFACT_IMAGE,
     DEFAULT_DOMDIFF_ARTIFACT_LOCATION,
     DEFAULT_DOMDIFF_ARTIFACT_REPOSITORY,
@@ -26,6 +27,7 @@ from .constants import (
     DEFAULT_DOMDIFF_VOLUME_GB,
     DEFAULT_DOMDIFF_ZONE,
     DEFAULT_GPU_CONTAINER_IMAGE,
+    DEFAULT_HARBOR_R3_ACCELERATORS,
     DEFAULT_RENDER_DIR,
 )
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
@@ -34,7 +36,7 @@ from .harbor.docker_runner import HarborDockerTaskRunner, run_oracle_smoke
 from .harbor.skyrl_dataset import prepare_harbor_skyrl_dataset
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
-from .sky_config import Pipeline, RenderOptions, validate_remote_runtime_urls, write_sky_yaml
+from .sky_config import Pipeline, RenderOptions, default_accelerators_for, validate_remote_runtime_urls, write_sky_yaml
 
 app = typer.Typer(help="Command and control for BrowserGym RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
@@ -109,7 +111,7 @@ def _render_options(
     pipeline: Pipeline,
     credentials: str,
     bucket: Optional[str],
-    accelerators: str,
+    accelerators: Optional[str],
     num_nodes: int,
     cluster: Optional[str],
     logger: str,
@@ -127,12 +129,13 @@ def _render_options(
     normalized_harbor_task_ids = tuple(harbor_task_ids or harbor_tasks.DEFAULT_HARBOR_TASK_IDS)
     if benchmark == "harbor-domdiff-browser-swe":
         _validate_harbor_tasks(normalized_harbor_task_ids)
+    effective_accelerators = accelerators or default_accelerators_for(pipeline, benchmark)
     options = RenderOptions(
         pipeline=pipeline,
         project_id=project_id,
         bucket=bucket,
         credentials_path=credentials,
-        accelerators=accelerators,
+        accelerators=effective_accelerators,
         num_nodes=num_nodes,
         cluster_name=cluster,
         logger=logger,
@@ -413,7 +416,13 @@ def config_render(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML path."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
-    accelerators: str = typer.Option("A100:4", help="SkyPilot accelerator request."),
+    accelerators: Optional[str] = typer.Option(
+        None,
+        help=(
+            "SkyPilot accelerator request. Defaults to "
+            f"{DEFAULT_ACCELERATORS}, or {DEFAULT_HARBOR_R3_ACCELERATORS} for Harbor DOMDiff R3."
+        ),
+    ),
     num_nodes: int = typer.Option(1, help="SkyPilot node count."),
     cluster: Optional[str] = typer.Option(None, help="SkyPilot cluster name."),
     logger: str = typer.Option("console", help="SkyRL logger: console or wandb."),
@@ -459,7 +468,13 @@ def launch(
     pipeline: Pipeline = typer.Argument(..., help="Pipeline to launch."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
-    accelerators: str = typer.Option("A100:4", help="SkyPilot accelerator request."),
+    accelerators: Optional[str] = typer.Option(
+        None,
+        help=(
+            "SkyPilot accelerator request. Defaults to "
+            f"{DEFAULT_ACCELERATORS}, or {DEFAULT_HARBOR_R3_ACCELERATORS} for Harbor DOMDiff R3."
+        ),
+    ),
     num_nodes: int = typer.Option(1, help="SkyPilot node count."),
     cluster: Optional[str] = typer.Option(None, help="SkyPilot cluster name."),
     logger: str = typer.Option("console", help="SkyRL logger: console or wandb."),

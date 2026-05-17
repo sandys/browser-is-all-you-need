@@ -11,8 +11,10 @@ from urllib.parse import urlparse
 import yaml
 
 from .constants import (
+    DEFAULT_ACCELERATORS,
     DEFAULT_CREDENTIALS_PATH,
     DEFAULT_DOMDIFF_IMAGE,
+    DEFAULT_HARBOR_R3_ACCELERATORS,
     DEFAULT_GPU_CONTAINER_IMAGE,
     SKYRL_PIN,
     SKYRL_REPO,
@@ -40,7 +42,7 @@ class RenderOptions:
     project_id: str
     bucket: str | None = None
     credentials_path: str = DEFAULT_CREDENTIALS_PATH
-    accelerators: str = "A100:4"
+    accelerators: str = DEFAULT_ACCELERATORS
     num_nodes: int = 1
     cluster_name: str | None = None
     logger: str = "console"
@@ -94,6 +96,12 @@ def benchmark_for_pipeline(pipeline: Pipeline) -> str:
 
 def is_harbor_domdiff_benchmark(options: RenderOptions) -> bool:
     return options.pipeline == "r3" and options.benchmark == "harbor-domdiff-browser-swe"
+
+
+def default_accelerators_for(pipeline: Pipeline, benchmark: str | None = None) -> str:
+    if pipeline == "r3" and benchmark == "harbor-domdiff-browser-swe":
+        return DEFAULT_HARBOR_R3_ACCELERATORS
+    return DEFAULT_ACCELERATORS
 
 
 def is_private_runtime_url(url: str | None) -> bool:
