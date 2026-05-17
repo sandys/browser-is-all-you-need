@@ -44,8 +44,9 @@ def test_r3_overrides_enable_routing_replay():
     assert "trainer.policy.megatron_config.tensor_model_parallel_size=2" in overrides
     assert "trainer.policy.megatron_config.expert_model_parallel_size=4" in overrides
     assert "trainer.use_sample_packing=true" in overrides
+    assert "trainer.flash_attn=false" in overrides
     assert not any("SKYPILOT_NUM_GPUS_PER_NODE" in item for item in overrides)
-    assert any("Qwen/Qwen1.5-MoE-A2.7B-Chat" in item for item in overrides)
+    assert any("moonshotai/Moonlight-16B-A3B-Instruct" in item for item in overrides)
 
 
 def test_accelerator_count_parses_skypilot_accelerator_request():

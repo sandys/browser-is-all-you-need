@@ -126,7 +126,9 @@ Without `--webarena-archives-gcs` or external `WA_*` URLs, MiniWoB is the suppor
 
 ## R3 Pipeline
 
-The first R3 target is SkyRL routing replay for `Qwen/Qwen1.5-MoE-A2.7B-Chat`.
+The first R3 target is SkyRL routing replay for `moonshotai/Moonlight-16B-A3B-Instruct`.
+SkyRL still owns the trainer and rollout lifecycle; the rendered job enables SkyRL's internal vLLM
+engine in `mp` mode because router replay needs routed-expert metadata from rollout.
 
 ```bash
 uv run w8-biayn config render r3 --credentials .gcp-service-account.json

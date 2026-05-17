@@ -70,7 +70,7 @@ def remote_data_dir(pipeline: Pipeline) -> str:
 
 def model_for_pipeline(pipeline: Pipeline) -> str:
     if pipeline == "r3":
-        return "Qwen/Qwen1.5-MoE-A2.7B-Chat"
+        return "moonshotai/Moonlight-16B-A3B-Instruct"
     if pipeline == "webarena":
         return "Qwen/Qwen3-8B"
     return "Qwen/Qwen2.5-1.5B-Instruct"
@@ -331,8 +331,9 @@ def skyrl_overrides(options: RenderOptions) -> list[str]:
                 "trainer.policy.megatron_config.moe_enable_routing_replay=true",
                 "trainer.ref.megatron_config.moe_enable_routing_replay=true",
                 "trainer.use_sample_packing=true",
+                "trainer.flash_attn=false",
                 'trainer.project_name="w8-biayn-r3"',
-                'trainer.run_name="miniwob-qwen15-moe-routing-replay"',
+                'trainer.run_name="miniwob-moonlight-routing-replay"',
             ]
         )
     return overrides
@@ -437,7 +438,7 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   data.train_data=[$HARBOR_DATA_DIR/train.parquet] \\
   data.val_data=[$HARBOR_DATA_DIR/validation.parquet] \\
   trainer.algorithm.advantage_estimator=grpo \\
-  trainer.policy.model.path=Qwen/Qwen1.5-MoE-A2.7B-Chat \\
+  trainer.policy.model.path=moonshotai/Moonlight-16B-A3B-Instruct \\
   trainer.placement.colocate_all=true \\
   trainer.strategy=megatron \\
   trainer.placement.policy_num_gpus_per_node={num_gpus} \\
@@ -464,6 +465,7 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   trainer.policy.megatron_config.moe_enable_routing_replay=true \\
   trainer.ref.megatron_config.moe_enable_routing_replay=true \\
   trainer.use_sample_packing=true \\
+  trainer.flash_attn=false \\
   trainer.epochs=1 \\
   trainer.update_epochs_per_batch=1 \\
   trainer.train_batch_size=2 \\
@@ -484,12 +486,12 @@ python -m w8_biayn.integrations.skyrl_harbor_main \\
   generator.batched=false \\
   generator.use_conversation_multi_turn=true \\
   generator.n_samples_per_prompt=2 \\
-  generator.inference_engine.gpu_memory_utilization=0.8 \\
+  generator.inference_engine.gpu_memory_utilization=0.6 \\
   environment.env_class=harbor-domdiff \\
   environment.skyrl_gym.max_env_workers=1 \\
   trainer.logger="[console]" \\
   trainer.project_name=w8-biayn-r3 \\
-  trainer.run_name=harbor-domdiff-skyrl-smoke \\
+  trainer.run_name=harbor-domdiff-moonlight-r3-smoke \\
   trainer.ckpt_path="$HOME/ckpts/w8-biayn/harbor-r3" \\
   trainer.export_path="$HOME/exports/w8-biayn/harbor-r3"
 '
