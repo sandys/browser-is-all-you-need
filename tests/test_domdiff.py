@@ -13,6 +13,7 @@ from w8_biayn.domdiff import (
     local_dry_run_plan,
     safe_name,
     trycloudflare_connect_to_args,
+    wait_http_json,
 )
 
 
@@ -31,6 +32,29 @@ def test_trycloudflare_connect_to_args():
     args = trycloudflare_connect_to_args("https://abc.trycloudflare.com/health")
 
     assert args == ["--connect-to", "abc.trycloudflare.com:443:trycloudflare.com:443"]
+
+
+def test_wait_http_json_retries_post_payload(monkeypatch):
+    calls = []
+
+    def fake_request(url, *, method="GET", payload=None, timeout=30):
+        calls.append((url, method, payload, timeout))
+        if len(calls) == 1:
+            raise RuntimeError("not ready")
+        return {"job_id": "abc"}
+
+    monkeypatch.setattr("w8_biayn.domdiff._json_http_request", fake_request)
+    monkeypatch.setattr("w8_biayn.domdiff.time.sleep", lambda _seconds: None)
+
+    assert wait_http_json(
+        "https://reward.trycloudflare.com/evaluate_async",
+        method="POST",
+        payload={"target_url": "https://example.com"},
+        expected_key="job_id",
+        timeout_s=5,
+    ) == {"job_id": "abc"}
+    assert calls[0][1] == "POST"
+    assert calls[0][2] == {"target_url": "https://example.com"}
 
 
 def test_dry_run_plan_contains_nested_virtualization_and_image():

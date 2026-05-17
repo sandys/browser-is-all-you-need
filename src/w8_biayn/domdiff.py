@@ -317,7 +317,18 @@ def _json_http_request(
         connect_to = trycloudflare_connect_to_args(url)
         if not connect_to:
             raise
-        args = ["curl", "-fsSL", "--max-time", str(timeout), *connect_to]
+        args = [
+            "curl",
+            "-fsSL",
+            "--retry",
+            "6",
+            "--retry-all-errors",
+            "--retry-delay",
+            "2",
+            "--max-time",
+            str(timeout),
+            *connect_to,
+        ]
         if body is not None:
             args.extend(["-H", "Content-Type: application/json", "-X", method, "--data-binary", "@-"])
         args.append(url)
@@ -328,19 +339,26 @@ def _json_http_request(
             check=False,
         )
         if result.returncode != 0:
-            raise exc
+            raise DomdiffError(f"trycloudflare curl fallback failed for {url}: {_tail(result.stdout)}") from exc
         doc = json.loads(result.stdout)
     if not isinstance(doc, dict):
         raise DomdiffError(f"Expected object JSON from {url}")
     return doc
 
 
-def wait_http_json(url: str, *, timeout_s: int = 300, expected_key: str | None = None) -> dict[str, Any]:
+def wait_http_json(
+    url: str,
+    *,
+    timeout_s: int = 300,
+    expected_key: str | None = None,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     deadline = time.time() + timeout_s
     last_error = ""
     while time.time() < deadline:
         try:
-            doc = _json_http_request(url, timeout=20)
+            doc = _json_http_request(url, method=method, payload=payload, timeout=20)
             if expected_key is None or expected_key in doc:
                 return doc
             last_error = f"missing key {expected_key}"
@@ -733,19 +751,26 @@ class LocalDomdiffHost:
         health_url = (self.state.chromiumrl_url or self.state.reward_url).rstrip("/") + "/health"
         health = wait_http_json(health_url, timeout_s=120, expected_key="status")
         reward_base = (self.state.chromiumrl_url or self.state.reward_url).rstrip("/")
-        submit = _json_http_request(
+        submit = wait_http_json(
             reward_base + "/evaluate_async",
             method="POST",
             payload={"target_url": "https://example.com", "timeout_sec": 120},
-            timeout=60,
+            timeout_s=120,
+            expected_key="job_id",
         )
         job_id = str(submit.get("job_id") or "")
         if not job_id:
             raise DomdiffError("Reward adapter did not return a job_id")
         deadline = time.time() + self.config.verify_timeout_s
         result: dict[str, Any] = {}
+        last_error = ""
         while time.time() < deadline:
-            status = _json_http_request(reward_base + f"/evaluate_jobs/{job_id}", timeout=60)
+            try:
+                status = _json_http_request(reward_base + f"/evaluate_jobs/{job_id}", timeout=60)
+            except Exception as exc:  # noqa: BLE001 - quick-tunnel DNS can be briefly inconsistent
+                last_error = str(exc)
+                time.sleep(3)
+                continue
             if status.get("status") == "done":
                 result = status.get("result") if isinstance(status.get("result"), dict) else {}
                 break
@@ -753,7 +778,7 @@ class LocalDomdiffHost:
                 raise DomdiffError(f"Reward adapter job failed: {status.get('error')}")
             time.sleep(3)
         if not result:
-            raise DomdiffError(f"Reward adapter job {job_id} did not finish")
+            raise DomdiffError(f"Reward adapter job {job_id} did not finish: {_tail(last_error)}")
         if result.get("error"):
             raise DomdiffError(f"Reward adapter returned error: {result['error']}")
         report = {
@@ -857,6 +882,8 @@ class LocalDomdiffHost:
             for _ in range(90):
                 quick_url = extract_quick_url(log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else "")
                 if quick_url:
+                    break
+                if proc.poll() is not None:
                     break
                 time.sleep(1)
             if quick_url:
@@ -1322,22 +1349,29 @@ echo $! >{shell_quote(pid_file)}
         self.verify_remote_kvm()
         self.wait_remote_cdp()
         health = wait_http_json(self.state.chromiumrl_url.rstrip("/") + "/health", timeout_s=120, expected_key="status")
-        submit = _json_http_request(
+        submit = wait_http_json(
             self.state.chromiumrl_url.rstrip("/") + "/evaluate_async",
             method="POST",
             payload={"target_url": "https://example.com", "timeout_sec": 120},
-            timeout=60,
+            timeout_s=120,
+            expected_key="job_id",
         )
         job_id = str(submit.get("job_id") or "")
         if not job_id:
             raise DomdiffError("Reward adapter did not return a job_id")
         deadline = time.time() + 420
         result: dict[str, Any] = {}
+        last_error = ""
         while time.time() < deadline:
-            status = _json_http_request(
-                self.state.chromiumrl_url.rstrip("/") + f"/evaluate_jobs/{job_id}",
-                timeout=60,
-            )
+            try:
+                status = _json_http_request(
+                    self.state.chromiumrl_url.rstrip("/") + f"/evaluate_jobs/{job_id}",
+                    timeout=60,
+                )
+            except Exception as exc:  # noqa: BLE001 - quick-tunnel DNS can be briefly inconsistent
+                last_error = str(exc)
+                time.sleep(3)
+                continue
             if status.get("status") == "done":
                 result = status.get("result") if isinstance(status.get("result"), dict) else {}
                 break
@@ -1345,7 +1379,7 @@ echo $! >{shell_quote(pid_file)}
                 raise DomdiffError(f"Reward adapter job failed: {status.get('error')}")
             time.sleep(3)
         if not result:
-            raise DomdiffError(f"Reward adapter job {job_id} did not finish")
+            raise DomdiffError(f"Reward adapter job {job_id} did not finish: {_tail(last_error)}")
         if result.get("error"):
             raise DomdiffError(f"Reward adapter returned error: {result['error']}")
         report = {"success": True, "health": health, "evaluate": result}
