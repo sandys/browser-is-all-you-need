@@ -28,7 +28,7 @@ from .constants import (
     DEFAULT_GPU_CONTAINER_IMAGE,
     DEFAULT_RENDER_DIR,
 )
-from .gcp_auth import GcpAuthError, service_account_env
+from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .harbor import tasks as harbor_tasks
 from .harbor.docker_runner import HarborDockerTaskRunner, run_oracle_smoke
 from .harbor.skyrl_dataset import prepare_harbor_skyrl_dataset
@@ -52,6 +52,8 @@ domdiff_app.add_typer(domdiff_local_app, name="local")
 app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(harbor_app, name="harbor")
 console = Console()
+
+SKYPILOT_GCP_LAUNCH_PERMISSIONS = ("resourcemanager.projects.setIamPolicy",)
 
 
 def _project_id(credentials: str) -> str:
@@ -289,6 +291,21 @@ def doctor(
         except json.JSONDecodeError:
             enabled_summary = {}
         sky_gcp_enabled = "gcp" in json.dumps(enabled_summary).lower()
+        try:
+            missing_launch_permissions = check_project_permissions(
+                credentials,
+                project_id=project_id,
+                permissions=SKYPILOT_GCP_LAUNCH_PERMISSIONS,
+            )
+        except GcpAuthError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        if missing_launch_permissions:
+            console.print(
+                "[red]GCP service account lacks SkyPilot launch permissions: "
+                + ", ".join(missing_launch_permissions)
+                + "[/red]"
+            )
+            raise typer.Exit(1)
         if domdiff_checks:
             config = _domdiff_config(
                 run_id="doctor",

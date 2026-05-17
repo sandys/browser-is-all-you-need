@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import yaml
 from typer.testing import CliRunner
 
+import w8_biayn.cli as cli_mod
 from w8_biayn.cli import app
 from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE
 from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
@@ -57,6 +59,27 @@ def test_cli_launch_dry_run_prints_commands(tmp_path):
     assert "gcloud auth activate-service-account" not in result.output
     assert "gcloud config set project" not in result.output
     assert "sky launch" in result.output
+
+
+def test_cli_doctor_cloud_rejects_missing_skypilot_launch_permission(monkeypatch, tmp_path):
+    credentials = service_account(tmp_path)
+
+    monkeypatch.setattr(cli_mod, "run_command", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        cli_mod.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, '{"gcp": true}', ""),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "check_project_permissions",
+        lambda *args, **kwargs: ["resourcemanager.projects.setIamPolicy"],
+    )
+
+    result = CliRunner().invoke(app, ["doctor", "--credentials", str(credentials), "--cloud"])
+
+    assert result.exit_code == 1
+    assert "resourcemanager.projects.setIamPolicy" in result.output
 
 
 def test_cli_launch_r3_with_domdiff_dry_run_prints_domdiff_plan(tmp_path):

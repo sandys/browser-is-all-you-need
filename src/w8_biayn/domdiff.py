@@ -31,7 +31,7 @@ from .constants import (
     DEFAULT_DOMDIFF_VOLUME_GB,
     DEFAULT_DOMDIFF_ZONE,
 )
-from .gcp_auth import GcpAuthError, service_account_access_token, service_account_env, service_account_env_exports
+from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env, service_account_env_exports
 from .secrets import CredentialError, get_project_id
 from .shell import format_command
 
@@ -973,26 +973,21 @@ class GcpDomdiffHost:
     def preflight_permissions(self) -> list[str]:
         self.authenticate()
         try:
-            token = service_account_access_token(self.config.credentials_path)
+            missing = check_project_permissions(
+                self.config.credentials_path,
+                project_id=self.project_id,
+                permissions=REQUIRED_GCP_PERMISSIONS,
+            )
         except GcpAuthError as exc:
             raise DomdiffError(str(exc)) from exc
-        body = json.dumps({"permissions": list(REQUIRED_GCP_PERMISSIONS)}).encode("utf-8")
-        request = urllib.request.Request(
-            f"https://cloudresourcemanager.googleapis.com/v1/projects/{self.project_id}:testIamPermissions",
-            data=body,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                doc = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise DomdiffError(f"GCP permission preflight failed: {exc.code} {_tail(detail)}") from exc
-        allowed = set(doc.get("permissions", []))
-        missing = [permission for permission in REQUIRED_GCP_PERMISSIONS if permission not in allowed]
         (self.run_dir / "gcp-permission-preflight.json").write_text(
-            json.dumps({"required": REQUIRED_GCP_PERMISSIONS, "allowed": sorted(allowed), "missing": missing}, indent=2),
+            json.dumps(
+                {
+                    "required": REQUIRED_GCP_PERMISSIONS,
+                    "missing": missing,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
         if missing:

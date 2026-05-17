@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import json
 import shlex
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -77,3 +80,29 @@ def service_account_access_token(
     if not credentials.token:
         raise GcpAuthError("Service-account token refresh returned no token.")
     return credentials.token
+
+
+def check_project_permissions(
+    credentials_path: str,
+    *,
+    project_id: str,
+    permissions: Iterable[str],
+) -> list[str]:
+    """Return project-level IAM permissions missing from the service account."""
+    requested = list(permissions)
+    token = service_account_access_token(credentials_path)
+    body = json.dumps({"permissions": requested}).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://cloudresourcemanager.googleapis.com/v1/projects/{project_id}:testIamPermissions",
+        data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            doc = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise GcpAuthError(f"GCP permission preflight failed: {exc.code} {detail}") from exc
+    allowed = set(doc.get("permissions", []))
+    return [permission for permission in requested if permission not in allowed]
