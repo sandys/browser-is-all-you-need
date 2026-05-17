@@ -22,7 +22,7 @@ Run the real MiniWoB smoke:
 uv run w8-biayn launch miniwob
 ```
 
-The launch command renders a SkyPilot YAML into `.w8-biayn/rendered/`, activates the local service account, launches with `sky launch -y --down`, and tears down the cluster after a successful job.
+The launch command renders a SkyPilot YAML into `.w8-biayn/rendered/`, runs SkyPilot with scoped environment variables from `.gcp-service-account.json`, launches with `sky launch -y --down`, and tears down the cluster after a successful job. It does not run `gcloud auth activate-service-account` or mutate global `gcloud config`.
 
 Run the real DOMDiff reward-host smoke:
 
@@ -69,6 +69,8 @@ uv run w8-biayn domdiff smoke \
 ## GCP Requirements
 
 `.gcp-service-account.json` is local-only and ignored by git. The service account must be able to pass `sky check gcp`.
+
+`w8-biayn` reads that JSON directly and passes it to SkyPilot/GCP tooling through `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, and `CLOUDSDK_CORE_PROJECT`. Do not pre-authenticate with `gcloud auth`; the CLI is designed to work from a fresh machine with only the service-account JSON present.
 
 At minimum, SkyPilot needs permissions to inspect and use GCP services, create/delete compute instances, networks/firewalls/disks, use service accounts, and create/delete storage buckets. If `doctor --cloud` reports GCP disabled, fix IAM before launching.
 
@@ -248,7 +250,8 @@ Recommended order:
 ```mermaid
 flowchart LR
   user[User / Operator] --> cli[w8-biayn CLI]
-  cli --> doctor[doctor / auth checks]
+  cli --> doctor[doctor / service-account checks]
+  cli --> sa[.gcp-service-account.json scoped env]
   cli --> render[SkyPilot YAML renderer]
   cli --> data[BrowserGym dataset prep]
   cli --> bench[benchmark scorecard]
@@ -261,7 +264,8 @@ flowchart LR
   upstreams --> rllm[rLLM pinned source]
   upstreams --> skyrl[SkyRL pinned source]
 
-  render --> sky[SkyPilot]
+  sa --> sky[SkyPilot]
+  render --> sky
   sky --> gcp[GCP trainer VM]
   gcp --> setup[Remote trainer setup]
   setup --> skyrl_remote[SkyRL trainer]
@@ -294,7 +298,7 @@ flowchart LR
 sequenceDiagram
   participant U as User
   participant CLI as w8-biayn
-  participant GC as gcloud
+  participant SA as Service-account JSON
   participant DO as Local Docker
   participant CF as Cloudflare Quick Tunnels
   participant SKY as SkyPilot
@@ -306,8 +310,8 @@ sequenceDiagram
   participant HT as Harbor Task Container
 
   U->>CLI: doctor --cloud --domdiff
-  CLI->>GC: activate service account
-  CLI->>SKY: sky check gcp
+  CLI->>SA: read project_id and build scoped credential env
+  CLI->>SKY: sky check gcp with service-account env
   CLI->>DO: inspect android-world-domdiff:local and /dev/kvm
   SKY-->>CLI: GCP enabled or IAM blocker
   U->>CLI: domdiff local up --image android-world-domdiff:local

@@ -97,7 +97,11 @@ def test_artifact_push_plan_contains_gar_commands(tmp_path):
     )
 
     assert "gcloud artifacts repositories create w8-biayn" in plan
-    assert "gcloud auth configure-docker us-central1-docker.pkg.dev --quiet" in plan
+    assert "export GOOGLE_APPLICATION_CREDENTIALS=" in plan
+    assert "export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=" in plan
+    assert "gcloud auth activate-service-account" not in plan
+    assert "gcloud auth configure-docker" not in plan
+    assert "docker login https://us-central1-docker.pkg.dev -u _json_key --password-stdin" in plan
     assert "docker push us-central1-docker.pkg.dev/proj/w8-biayn/android-world-domdiff:test" in plan
 
 

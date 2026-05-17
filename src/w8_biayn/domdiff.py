@@ -31,6 +31,7 @@ from .constants import (
     DEFAULT_DOMDIFF_VOLUME_GB,
     DEFAULT_DOMDIFF_ZONE,
 )
+from .gcp_auth import GcpAuthError, service_account_access_token, service_account_env, service_account_env_exports
 from .secrets import CredentialError, get_project_id
 from .shell import format_command
 
@@ -451,8 +452,8 @@ def artifact_push_plan(config: ArtifactImageConfig) -> str:
         "# DOMDiff Artifact Registry image push dry run",
         f"source_image={config.source_image}",
         f"target_image={target}",
+        *service_account_env_exports(config.credentials_path, project_id=project),
         format_command(["docker", "image", "inspect", config.source_image]),
-        format_command(["gcloud", "auth", "activate-service-account", f"--key-file={config.credentials_path}", "--project", project, "--quiet"]),
         format_command(["gcloud", "artifacts", "repositories", "describe", config.repository, "--location", config.location, "--project", project]),
     ]
     if config.create_repository:
@@ -476,7 +477,7 @@ def artifact_push_plan(config: ArtifactImageConfig) -> str:
         )
     lines.extend(
         [
-            format_command(["gcloud", "auth", "configure-docker", host, "--quiet"]),
+            f"{format_command(['docker', 'login', f'https://{host}', '-u', '_json_key', '--password-stdin'])} < {shell_quote(config.credentials_path)}",
             format_command(["docker", "tag", config.source_image, target]),
             format_command(["docker", "push", target]),
         ]
@@ -497,25 +498,12 @@ def push_local_image_to_artifact_registry(config: ArtifactImageConfig, *, dry_ru
     if dry_run:
         return target
     local_docker_image_id(config.source_image)
-    env = os.environ.copy()
-    env["CLOUDSDK_CONFIG"] = config.gcloud_config_dir
-    env["CLOUDSDK_CORE_DISABLE_PROMPTS"] = "1"
-    env["GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(config.credentials_path).resolve())
-    Path(config.gcloud_config_dir).mkdir(parents=True, exist_ok=True)
-    _run_local(
-        [
-            "gcloud",
-            "auth",
-            "activate-service-account",
-            "--key-file",
-            str(Path(config.credentials_path).resolve()),
-            "--project",
-            project,
-            "--quiet",
-        ],
-        env=env,
-        timeout=120,
+    env = service_account_env(
+        config.credentials_path,
+        project_id=project,
+        cloud_sdk_config_dir=config.gcloud_config_dir,
     )
+    Path(config.gcloud_config_dir).mkdir(parents=True, exist_ok=True)
     describe = _run_local(
         [
             "gcloud",
@@ -556,7 +544,16 @@ def push_local_image_to_artifact_registry(config: ArtifactImageConfig, *, dry_ru
             env=env,
             timeout=180,
         )
-    _run_local(["gcloud", "auth", "configure-docker", artifact_registry_host(config.location), "--quiet"], env=env, timeout=120)
+    credentials_path = Path(config.credentials_path)
+    try:
+        credential_text = credentials_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise DomdiffError(f"Could not read GCP credentials for Artifact Registry login: {credentials_path}") from exc
+    _run_local(
+        ["docker", "login", f"https://{artifact_registry_host(config.location)}", "-u", "_json_key", "--password-stdin"],
+        input_text=credential_text,
+        timeout=120,
+    )
     _run_local(["docker", "tag", config.source_image, target], timeout=600)
     _run_local(["docker", "push", target], timeout=3600)
     return target
@@ -942,11 +939,11 @@ class GcpDomdiffHost:
         return self.state.write(self.run_dir)
 
     def _gcloud_env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        env["CLOUDSDK_CONFIG"] = self.state.gcloud_config_dir
-        env["CLOUDSDK_CORE_DISABLE_PROMPTS"] = "1"
-        env["GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(self.config.credentials_path).resolve())
-        return env
+        return service_account_env(
+            self.config.credentials_path,
+            project_id=self.project_id,
+            cloud_sdk_config_dir=self.state.gcloud_config_dir,
+        )
 
     def _gcloud(
         self,
@@ -971,25 +968,14 @@ class GcpDomdiffHost:
         return result
 
     def authenticate(self) -> None:
-        self._gcloud(
-            "gcloud_auth",
-            [
-                "auth",
-                "activate-service-account",
-                "--key-file",
-                str(Path(self.config.credentials_path).resolve()),
-                "--project",
-                self.project_id,
-                "--quiet",
-            ],
-            timeout=120,
-        )
-        self._gcloud("gcloud_set_project", ["config", "set", "project", self.project_id, "--quiet"], timeout=60)
-        self._gcloud("gcloud_set_zone", ["config", "set", "compute/zone", self.config.zone, "--quiet"], timeout=60)
+        Path(self.state.gcloud_config_dir).mkdir(parents=True, exist_ok=True)
 
     def preflight_permissions(self) -> list[str]:
         self.authenticate()
-        token = self._gcloud("gcloud_print_access_token", ["auth", "print-access-token"], timeout=60).stdout.strip()
+        try:
+            token = service_account_access_token(self.config.credentials_path)
+        except GcpAuthError as exc:
+            raise DomdiffError(str(exc)) from exc
         body = json.dumps({"permissions": list(REQUIRED_GCP_PERMISSIONS)}).encode("utf-8")
         request = urllib.request.Request(
             f"https://cloudresourcemanager.googleapis.com/v1/projects/{self.project_id}:testIamPermissions",
@@ -1691,7 +1677,7 @@ def dry_run_plan(config: DomdiffConfig) -> str:
         "# DOMDiff dry run",
         f"run_id={config.run_id}",
         f"reward_image={config.reward_image}",
-        format_command(["gcloud", "auth", "activate-service-account", f"--key-file={config.credentials_path}", "--project", project]),
+        *service_account_env_exports(config.credentials_path, project_id=project),
         format_command(
             [
                 "gcloud",

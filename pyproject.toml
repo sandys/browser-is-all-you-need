@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Command and control CLI for BrowserGym RL pipelines on rLLM, SkyRL, and Google Cloud."
 requires-python = ">=3.10"
 dependencies = [
+    "google-auth[requests]>=2.29",
     "pydantic>=2.7",
     "PyYAML>=6.0",
     "rich>=13.7",

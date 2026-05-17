@@ -49,6 +49,8 @@ uv run w8-biayn upstreams clone
 
 Keep cloud commands dry-run capable. Real launches must go through `w8-biayn launch`, not raw `sky launch`, unless debugging a failing rendered command.
 
+Cloud commands must use `.gcp-service-account.json` directly through scoped environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, `CLOUDSDK_CORE_PROJECT`). Do not run `gcloud auth activate-service-account`, do not call `gcloud config set project`, and do not depend on a preconfigured global gcloud account. Python code that needs an OAuth token should mint it from the service-account JSON, not from `gcloud auth print-access-token`.
+
 Do not vendor AndroidWorld, WootzApp, APKs, or browser source. DOMDiff uses a prebuilt image, defaulting to:
 
 ```text

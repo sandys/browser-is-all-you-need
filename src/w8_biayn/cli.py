@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import json
 import shutil
 import subprocess
@@ -29,6 +28,7 @@ from .constants import (
     DEFAULT_GPU_CONTAINER_IMAGE,
     DEFAULT_RENDER_DIR,
 )
+from .gcp_auth import GcpAuthError, service_account_env
 from .harbor import tasks as harbor_tasks
 from .harbor.docker_runner import HarborDockerTaskRunner, run_oracle_smoke
 from .harbor.skyrl_dataset import prepare_harbor_skyrl_dataset
@@ -58,6 +58,13 @@ def _project_id(credentials: str) -> str:
     try:
         return get_project_id(credentials)
     except CredentialError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _service_account_env(credentials: str, *, project_id: Optional[str] = None) -> dict[str, str]:
+    try:
+        return service_account_env(credentials, project_id=project_id)
+    except GcpAuthError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
 
@@ -267,9 +274,8 @@ def doctor(
 
     if cloud:
         project_id = _project_id(credentials)
-        env = {**os.environ, "GOOGLE_APPLICATION_CREDENTIALS": str(Path(credentials).resolve())}
-        run_command(["gcloud", "auth", "activate-service-account", f"--key-file={credentials}"], env=env)
-        run_command(["gcloud", "config", "set", "project", project_id], env=env)
+        env = _service_account_env(credentials, project_id=project_id)
+        console.print("cloud credentials: service-account JSON env override; gcloud auth/config is not modified.")
         run_command(["sky", "check", "gcp"], env=env)
         check_json = subprocess.run(
             ["sky", "check", "gcp", "-o", "json"],
@@ -449,7 +455,6 @@ def launch(
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
-    skip_auth: bool = typer.Option(False, help="Do not run gcloud service-account activation first."),
 ) -> None:
     """Render config and launch a SkyPilot job."""
     domdiff_state: domdiff.DomdiffState | None = None
@@ -554,17 +559,7 @@ def launch(
         gpu_container_image,
     )
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
-    env = {
-        **os.environ,
-        "GOOGLE_APPLICATION_CREDENTIALS": str(Path(credentials).resolve()),
-    }
-    if not skip_auth:
-        run_command(
-            ["gcloud", "auth", "activate-service-account", f"--key-file={credentials}"],
-            env=env,
-            dry_run=dry_run,
-        )
-        run_command(["gcloud", "config", "set", "project", options.project_id], env=env, dry_run=dry_run)
+    env = _service_account_env(credentials, project_id=options.project_id)
     sky_args = ["sky", "launch", "-c", options.name]
     if yes:
         sky_args.append("-y")
@@ -1089,24 +1084,33 @@ def harbor_oracle_smoke(
 
 
 @app.command()
-def status(cluster: Optional[str] = typer.Option(None, help="Optional cluster name.")) -> None:
+def status(
+    cluster: Optional[str] = typer.Option(None, help="Optional cluster name."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+) -> None:
     """Show SkyPilot status."""
     args = ["sky", "status"]
     if cluster:
         args.append(cluster)
-    run_command(args)
+    run_command(args, env=_service_account_env(credentials))
 
 
 @app.command()
-def logs(cluster: str = typer.Argument("w8-biayn-miniwob", help="Cluster name.")) -> None:
+def logs(
+    cluster: str = typer.Argument("w8-biayn-miniwob", help="Cluster name."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+) -> None:
     """Tail SkyPilot logs."""
-    run_command(["sky", "logs", cluster])
+    run_command(["sky", "logs", cluster], env=_service_account_env(credentials))
 
 
 @app.command()
-def down(cluster: str = typer.Argument("w8-biayn-miniwob", help="Cluster name.")) -> None:
+def down(
+    cluster: str = typer.Argument("w8-biayn-miniwob", help="Cluster name."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+) -> None:
     """Tear down a SkyPilot cluster."""
-    run_command(["sky", "down", "-y", cluster])
+    run_command(["sky", "down", "-y", cluster], env=_service_account_env(credentials))
 
 
 if __name__ == "__main__":

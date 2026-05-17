@@ -54,7 +54,8 @@ def test_cli_launch_dry_run_prints_commands(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "gcloud auth activate-service-account" in result.output
+    assert "gcloud auth activate-service-account" not in result.output
+    assert "gcloud config set project" not in result.output
     assert "sky launch" in result.output
 
 

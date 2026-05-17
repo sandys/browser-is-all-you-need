@@ -73,7 +73,8 @@ All GCP/SkyPilot workflows must support dry-run rendering before launching resou
 
 Any command that provisions cloud resources must:
 
-- Use `.gcp-service-account.json` through `GOOGLE_APPLICATION_CREDENTIALS`.
+- Use `.gcp-service-account.json` through scoped environment variables such as `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, and `CLOUDSDK_CORE_PROJECT`.
+- Never run `gcloud auth activate-service-account` or mutate the user's global `gcloud config`.
 - Avoid printing credential contents.
 - Render the SkyPilot YAML into an ignored path.
 - Provide status, logs, and teardown commands through `w8-biayn`.
