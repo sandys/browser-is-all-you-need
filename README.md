@@ -280,6 +280,8 @@ Recommended order:
 
 Honest framing: the Harbor R3 step is ~89% generation and fixed-cost-bound, so custom *training* kernels are accepted on **isolated-op parity plus speed/memory** (microbenchmark), decoupled from end-to-end step time. The richer target is Megatron/Transformer-Engine local ops — MLA attention (FlashAttention has no MLA path) and the MoE grouped GEMM — reached through Megatron's ModuleSpec/provider seam in a **single-device lab**. Only fusing across the multi-GPU TP/EP collectives is out of scope.
 
+**Status — Phase 0 validated on an A100.** The full SkyRL Megatron/Transformer-Engine environment builds and imports, the injection seam is `provider.transformer_layer_spec` on `GPTModelProvider`, and a no-op identity swap produces a **bit-identical** forward on the tiny MoE model (`scripts/kernel_phase0.py` discovers the API; `scripts/kernel_identity_swap.py` proves the swap). Tier-B Triton kernels (MoE grouped GEMM on the tiny MoE; MLA needs an MLA tiny model) are the next phase.
+
 Kernel work needs a CUDA GPU, which a typical workstation lacks, so the lab provisions one A100 on GCP with the service-account JSON (`torch`/`megatron` only run there — there is no local CPU path):
 
 ```bash
@@ -289,6 +291,8 @@ uv run w8-biayn kernels lab --kernel mla --remote \
   --model eatang/qwen3-moe-tiny-random --credentials .gcp-service-account.json   # paid; tears down by default (--keep to hold warm)
 uv run w8-biayn kernels bench --kernel logprob --remote --credentials .gcp-service-account.json
 ```
+
+The lab provisions a **single A100** (`A100:1`), labeled `w8-biayn=kernel-lab`, with idle **autodown** (20 min; 60 with `--keep`) so a crashed or abandoned run self-deletes — find any orphan with `gcloud compute instances list --filter="labels.w8-biayn=kernel-lab"`. The render carries the env fixes a bare GPU VM needs for the SkyRL Megatron build (validated on an A100-SXM4-40GB): `CUDA_HOME`/`PATH`, `libnccl-dev` (Transformer-Engine compiles from source and needs `nccl.h`), and `LD_LIBRARY_PATH` into the venv's `nvidia/*/lib` (TE dlopens `libcudnn_graph.so.9` at import). The single-GPU build uses `parallel_state.initialize_model_parallel(1,1,1,1)` + `provider.provide_distributed_model(wrap_with_ddp=False, bf16=True)` with `gradient_accumulation_fusion=False`.
 
 Activate the gated kernels in a render with the optimization profile (a correctness gate — it must not change rewards):
 
@@ -303,9 +307,9 @@ The default pipeline data flow is unchanged (baseline is byte-identical); the ke
 ```mermaid
 flowchart LR
   cli[w8-biayn kernels lab --remote] --> sky[SkyPilot]
-  sky --> a100[Single GCP A100: TP=EP=PP=CP=1]
-  a100 --> setup[clone SkyRL @ pin / uv sync --extra megatron]
-  setup --> spec[Megatron-Bridge provider ModuleSpec swap]
+  sky --> a100[Single GCP A100: TP=EP=PP=CP=1, labeled + idle-autodown]
+  a100 --> setup[clone SkyRL @ pin / libnccl-dev / uv sync --extra megatron / LD_LIBRARY_PATH]
+  setup --> spec[provider.transformer_layer_spec ModuleSpec swap]
   spec --> tritonB[Tier-B Triton: MLA attention / MoE grouped GEMM]
   a100 --> microbench[Tier-A microbench: logprob / entropy / PPO vs torch reference]
   tritonB --> parity[numeric-tolerance parity + speed/memory]
