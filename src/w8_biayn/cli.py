@@ -28,6 +28,7 @@ from .constants import (
     DEFAULT_DOMDIFF_ZONE,
     DEFAULT_GPU_CONTAINER_IMAGE,
     DEFAULT_HARBOR_R3_ACCELERATORS,
+    DEFAULT_OPTIMIZATION_PROFILE,
     DEFAULT_RENDER_DIR,
 )
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
@@ -36,7 +37,15 @@ from .harbor.docker_runner import HarborDockerTaskRunner, run_oracle_smoke
 from .harbor.skyrl_dataset import prepare_harbor_skyrl_dataset
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
-from .sky_config import Pipeline, RenderOptions, default_accelerators_for, validate_remote_runtime_urls, write_sky_yaml
+from .sky_config import (
+    OptimizationProfile,
+    Pipeline,
+    RenderOptions,
+    default_accelerators_for,
+    render_kernel_lab_yaml,
+    validate_remote_runtime_urls,
+    write_sky_yaml,
+)
 
 app = typer.Typer(help="Command and control for BrowserGym RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
@@ -46,6 +55,7 @@ domdiff_app = typer.Typer(help="Manage DOMDiff reward images and hosts.")
 domdiff_local_app = typer.Typer(help="Run a local DOMDiff container and expose it with quick tunnels.")
 benchmarks_app = typer.Typer(help="Inspect benchmark targets for the R3 pipeline.")
 harbor_app = typer.Typer(help="Inspect and smoke packaged Harbor DOMDiff tasks.")
+kernels_app = typer.Typer(help="Custom Triton-kernel R&D: list, microbench, and single-device lab (GCP A100).")
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
@@ -53,6 +63,7 @@ app.add_typer(domdiff_app, name="domdiff")
 domdiff_app.add_typer(domdiff_local_app, name="local")
 app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(harbor_app, name="harbor")
+app.add_typer(kernels_app, name="kernels")
 console = Console()
 
 SKYPILOT_GCP_LAUNCH_PERMISSIONS = (
@@ -124,6 +135,7 @@ def _render_options(
     harbor_task_ids: Optional[list[str]] = None,
     harbor_oracle: bool = True,
     gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE,
+    optimization_profile: str = DEFAULT_OPTIMIZATION_PROFILE,
 ) -> RenderOptions:
     project_id = _project_id(credentials)
     normalized_harbor_task_ids = tuple(harbor_task_ids or harbor_tasks.DEFAULT_HARBOR_TASK_IDS)
@@ -148,6 +160,7 @@ def _render_options(
         harbor_task_ids=normalized_harbor_task_ids,
         harbor_oracle=harbor_oracle,
         gpu_container_image=gpu_container_image,
+        optimization_profile=optimization_profile,
     )
     try:
         validate_remote_runtime_urls(options)
@@ -451,6 +464,11 @@ def config_render(
     harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
     harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
     gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
+    optimization_profile: OptimizationProfile = typer.Option(
+        DEFAULT_OPTIMIZATION_PROFILE,
+        "--optimization-profile",
+        help="Kernel R&D profile: baseline (identical render), a100-kernel-lab (gated kernels), a100-safe (observability).",
+    ),
 ) -> None:
     """Render a SkyPilot YAML file."""
     options = _render_options(
@@ -470,6 +488,7 @@ def config_render(
         harbor_task,
         harbor_oracle,
         gpu_container_image,
+        optimization_profile,
     )
     output_path = output or f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml"
     written = write_sky_yaml(options, output_path)
@@ -532,6 +551,11 @@ def launch(
     harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
     harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
     gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
+    optimization_profile: OptimizationProfile = typer.Option(
+        DEFAULT_OPTIMIZATION_PROFILE,
+        "--optimization-profile",
+        help="Kernel R&D profile: baseline (identical render), a100-kernel-lab (gated kernels), a100-safe (observability).",
+    ),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
@@ -637,6 +661,7 @@ def launch(
         list(selected_harbor_tasks),
         harbor_oracle,
         gpu_container_image,
+        optimization_profile,
     )
     _warn_if_harbor_r3_accelerator_risk(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
@@ -1161,6 +1186,119 @@ def harbor_oracle_smoke(
             "terminal_state": outcome.terminal_state,
             "reward": outcome.reward_doc,
         }
+    )
+
+
+@kernels_app.command("list")
+def kernels_list() -> None:
+    """List custom-kernel R&D targets and their maturity."""
+    from .kernels.registry import KERNELS
+
+    table = Table(title="w8-biayn kernels")
+    for column in ("kernel", "tier", "target", "seam", "status"):
+        table.add_column(column, overflow="fold")
+    for spec in KERNELS:
+        table.add_row(spec.name, spec.tier, spec.target, spec.seam, spec.status)
+    console.print(table)
+
+
+def _run_kernel_job(
+    *,
+    mode: str,
+    kernel: str,
+    model: str,
+    dtype: str,
+    remote: bool,
+    keep: bool,
+    dry_run: bool,
+    credentials: str,
+    accelerators: str,
+) -> None:
+    from .kernels.registry import get_kernel
+
+    try:
+        get_kernel(kernel)
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if not remote:
+        raise typer.BadParameter(
+            "Local kernel execution needs a CUDA GPU, which this host lacks. "
+            "Use --remote to provision a GCP A100, or run on a CUDA host."
+        )
+    project_id = _project_id(credentials)
+    yaml_text = render_kernel_lab_yaml(
+        project_id=project_id,
+        kernel=kernel,
+        credentials_path=credentials,
+        model=model,
+        dtype=dtype,
+        mode=mode,
+        accelerators=accelerators,
+    )
+    output = Path(DEFAULT_RENDER_DIR) / f"kernel-{mode}-{kernel}.sky.yaml"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(yaml_text, encoding="utf-8")
+    cluster = f"w8-biayn-kernel-{mode}-{kernel}"
+    sky_args = ["sky", "launch", "-c", cluster, "-y"]
+    if not keep:
+        sky_args.append("--down")
+    sky_args.append(str(output))
+    if dry_run:
+        console.print(yaml_text)
+        console.print(f"# rendered: {output}")
+        console.print(f"# would run: {' '.join(sky_args)}")
+        return
+    env = _service_account_env(credentials, project_id=project_id)
+    run_command(sky_args, env=env)
+
+
+@kernels_app.command("bench")
+def kernels_bench(
+    kernel: str = typer.Option(..., "--kernel", help="Kernel to microbench (see `kernels list`)."),
+    model: str = typer.Option("eatang/qwen3-moe-tiny-random", "--model", help="Tiny MoE model for Tier-B kernels (ignored by Tier-A)."),
+    dtype: str = typer.Option("bf16", help="Input dtype for the microbench."),
+    accelerators: str = typer.Option("A100:1", help="SkyPilot accelerator request for the lab VM."),
+    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (required: this host has no GPU)."),
+    keep: bool = typer.Option(False, "--keep", help="Leave the lab VM running for iterative dev (otherwise tear down)."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    dry_run: bool = typer.Option(False, help="Print the A100 SkyPilot plan without launching."),
+) -> None:
+    """Microbench a kernel (parity + speed/memory) on a single GCP A100."""
+    _run_kernel_job(
+        mode="bench",
+        kernel=kernel,
+        model=model,
+        dtype=dtype,
+        remote=remote,
+        keep=keep,
+        dry_run=dry_run,
+        credentials=credentials,
+        accelerators=accelerators,
+    )
+
+
+@kernels_app.command("lab")
+def kernels_lab(
+    kernel: str = typer.Option(..., "--kernel", help="Tier-B kernel to integrate (mla, moe-gemm)."),
+    model: str = typer.Option("eatang/qwen3-moe-tiny-random", "--model", help="Tiny MoE model for the single-device lab."),
+    dtype: str = typer.Option("bf16", help="Input dtype."),
+    accelerators: str = typer.Option("A100:1", help="SkyPilot accelerator request for the lab VM."),
+    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (required: this host has no GPU)."),
+    keep: bool = typer.Option(False, "--keep", help="Leave the lab VM running for iterative dev."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    dry_run: bool = typer.Option(False, help="Print the A100 SkyPilot plan without launching."),
+) -> None:
+    """Single-device tiny-model integration + parity for a Tier-B kernel on a GCP A100."""
+    _run_kernel_job(
+        mode="lab",
+        kernel=kernel,
+        model=model,
+        dtype=dtype,
+        remote=remote,
+        keep=keep,
+        dry_run=dry_run,
+        credentials=credentials,
+        accelerators=accelerators,
     )
 
 

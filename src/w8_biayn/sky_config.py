@@ -16,6 +16,8 @@ from .constants import (
     DEFAULT_DOMDIFF_IMAGE,
     DEFAULT_HARBOR_R3_ACCELERATORS,
     DEFAULT_GPU_CONTAINER_IMAGE,
+    DEFAULT_KERNEL_LAB_SPEC,
+    DEFAULT_OPTIMIZATION_PROFILE,
     SKYRL_PIN,
     SKYRL_REPO,
 )
@@ -23,6 +25,27 @@ from .harbor.tasks import DEFAULT_HARBOR_TASK_IDS, DEFAULT_HARBOR_TASK_ROOT
 from .secrets import default_bucket_for_project
 
 Pipeline = Literal["miniwob", "webarena", "r3"]
+OptimizationProfile = Literal["baseline", "a100-kernel-lab", "a100-safe"]
+
+
+def kernel_spec_for_profile(profile: str) -> str:
+    """Kernels to activate for a profile.
+
+    Empty (no activation, baseline behavior) unless the kernel-lab profile is
+    selected. Returning "" keeps renders byte-for-byte identical to the stock path.
+    Only Tier-A SkyRL numerics run inside the full Harbor trainer; Tier-B MLA/MoE
+    kernels run in the single-device lab.
+    """
+    return DEFAULT_KERNEL_LAB_SPEC if profile == "a100-kernel-lab" else ""
+
+
+def _kernels_env_export(options: RenderOptions) -> str:
+    """`export W8_BIAYN_KERNELS=...` line (trailing newline) for a run script.
+
+    Empty string for baseline so the rendered script stays byte-for-byte identical.
+    """
+    spec = kernel_spec_for_profile(options.optimization_profile)
+    return f'export W8_BIAYN_KERNELS="{spec}"\n' if spec else ""
 
 
 class LiteralStr(str):
@@ -55,6 +78,7 @@ class RenderOptions:
     harbor_task_ids: tuple[str, ...] = DEFAULT_HARBOR_TASK_IDS
     harbor_oracle: bool = True
     gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE
+    optimization_profile: str = DEFAULT_OPTIMIZATION_PROFILE
 
     @property
     def artifact_bucket(self) -> str:
@@ -353,10 +377,11 @@ def run_script(options: RenderOptions) -> LiteralStr:
     overrides = " \\\n  ".join(skyrl_overrides(options))
     webarena_exports = webarena_env_exports() if options.pipeline == "webarena" else ""
     domdiff_enabled = "1" if options.chromiumrl_url or options.cdp_url else "0"
+    kernels_export = _kernels_env_export(options)
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
-export ARTIFACT_BUCKET="{options.artifact_bucket}"
+{kernels_export}export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_WEBARENA_ARCHIVES_GCS="{options.webarena_archives_gcs or ""}"
 export W8_BIAYN_DOMDIFF_ENABLED="{domdiff_enabled}"
 export W8_BIAYN_DOMDIFF_REWARD_IMAGE="{options.domdiff_reward_image}"
@@ -381,10 +406,14 @@ def harbor_run_script(options: RenderOptions) -> LiteralStr:
     accelerator_name = options.accelerators.split(":", maxsplit=1)[0].strip().upper()
     optimizer_cpu_offload = "true" if accelerator_name == "A100" else "false"
     optimizer_offload_fraction = "1.0" if optimizer_cpu_offload == "true" else "0.0"
+    kernels_export = _kernels_env_export(options)
+    kernels_docker_env = (
+        "-e W8_BIAYN_KERNELS \\\n  " if kernel_spec_for_profile(options.optimization_profile) else ""
+    )
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
-export ARTIFACT_BUCKET="{options.artifact_bucket}"
+{kernels_export}export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_BIAYN_BENCHMARK="{options.benchmark or ""}"
 export W8_HARBOR_TASK_ROOT="{DEFAULT_HARBOR_TASK_ROOT}"
 export W8_HARBOR_TASK_IDS="{task_ids}"
@@ -402,7 +431,7 @@ docker run --rm --gpus all --network host --shm-size=32g \\
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
   -e CHROMIUMRL_URL \\
   -e CHROMIUMRL_API_URL \\
-  -e W8_REPO_ROOT=/workspace \\
+  {kernels_docker_env}-e W8_REPO_ROOT=/workspace \\
   -e W8_HARBOR_TASK_ROOT=/workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
   -e W8_HARBOR_TASK_IDS \\
   -e W8_HARBOR_ORACLE \\
@@ -562,4 +591,96 @@ def write_sky_yaml(options: RenderOptions, output: str | Path) -> Path:
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(render_sky_yaml(options), encoding="utf-8")
+    return output_path
+
+
+# --- Single-GPU custom-kernel lab (Tier-B MLA/MoE + Tier-A microbench) ----------------
+#
+# Kernel R&D needs an actual A100; this workstation is CPU-only. The lab provisions ONE
+# A100 (no model parallelism, so Megatron ops are local and swappable), syncs SkyRL with
+# the megatron extra, then runs `w8-biayn kernels <mode> --local` on the VM. Teardown is
+# the caller's responsibility via `sky launch --down` (default) unless `--keep`.
+
+DEFAULT_KERNEL_LAB_ACCELERATORS = "A100:1"
+
+
+def kernel_lab_setup_script() -> LiteralStr:
+    return LiteralStr(
+        f"""set -euxo pipefail
+export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+W8_WORKDIR="$PWD"
+SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
+mkdir -p "$(dirname "$SKYRL_DIR")"
+if [ ! -d "$SKYRL_DIR/.git" ]; then
+  git clone {SKYRL_REPO} "$SKYRL_DIR"
+fi
+git -C "$SKYRL_DIR" fetch origin {SKYRL_PIN} --depth 1 || git -C "$SKYRL_DIR" fetch --all --tags
+git -C "$SKYRL_DIR" checkout {SKYRL_PIN}
+cd "$SKYRL_DIR"
+uv venv --python 3.12 --seed
+source .venv/bin/activate
+uv sync --extra megatron --extra gcp
+uv pip install -e "$W8_WORKDIR"
+"""
+    )
+
+
+def kernel_lab_run_script(*, kernel: str, model: str, dtype: str, mode: str, bucket: str) -> LiteralStr:
+    return LiteralStr(
+        f"""set -euxo pipefail
+export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+export ARTIFACT_BUCKET="{bucket}"
+cd "$HOME/.cache/w8-biayn/upstreams/SkyRL"
+source .venv/bin/activate
+nvidia-smi -L
+w8-biayn kernels {mode} \\
+  --kernel {kernel} \\
+  --model {model} \\
+  --dtype {dtype} \\
+  --local \\
+  --out "$HOME/.w8-biayn/perf"
+"""
+    )
+
+
+def render_kernel_lab_yaml(
+    *,
+    project_id: str,
+    kernel: str,
+    credentials_path: str = DEFAULT_CREDENTIALS_PATH,
+    model: str = "eatang/qwen3-moe-tiny-random",
+    dtype: str = "bf16",
+    mode: str = "lab",
+    accelerators: str = DEFAULT_KERNEL_LAB_ACCELERATORS,
+    bucket: str | None = None,
+) -> str:
+    """Render a single-A100 SkyPilot job that runs the kernel lab/microbench on the VM."""
+
+    resolved_bucket = bucket or default_bucket_for_project(project_id)
+    config: dict[str, Any] = {
+        "name": f"w8-biayn-kernel-{mode}-{kernel}",
+        "resources": {"infra": "gcp", "accelerators": accelerators, "memory": "64+"},
+        "num_nodes": 1,
+        "workdir": ".",
+        "file_mounts": {"/tmp/w8-gcp-service-account.json": credentials_path},
+        "envs": {
+            "W8_BIAYN_PIPELINE": "kernel-lab",
+            "W8_BIAYN_ARTIFACT_BUCKET": resolved_bucket,
+        },
+        "setup": kernel_lab_setup_script(),
+        "run": kernel_lab_run_script(
+            kernel=kernel, model=model, dtype=dtype, mode=mode, bucket=resolved_bucket
+        ),
+    }
+    return yaml.safe_dump(config, sort_keys=False)
+
+
+def write_kernel_lab_yaml(output: str | Path, **kwargs: Any) -> Path:
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(render_kernel_lab_yaml(**kwargs), encoding="utf-8")
     return output_path

@@ -27,6 +27,15 @@ DEFAULT_DOMDIFF_BOOT_DISK_TYPE = "pd-balanced"
 DEFAULT_DOMDIFF_VOLUME_GB = 100
 DEFAULT_GPU_CONTAINER_IMAGE = "us-docker.pkg.dev/deeplearning-platform-release/gcr.io/pytorch-cu124.2-4.py310"
 
+# Custom-kernel R&D lane. `baseline` renders byte-for-byte identically to the
+# stock path; `a100-kernel-lab` activates gated Triton patches; `a100-safe` is
+# observability-only (numerics unchanged).
+OPTIMIZATION_PROFILES = ("baseline", "a100-kernel-lab", "a100-safe")
+DEFAULT_OPTIMIZATION_PROFILE = "baseline"
+# Tier-A SkyRL-numerics kernels safe to activate inside the full Harbor R3 trainer
+# (correctness gate only). Tier-B MLA/MoE kernels run in the single-device lab.
+DEFAULT_KERNEL_LAB_SPEC = "logprob,entropy,ppo"
+
 
 @dataclass(frozen=True)
 class Upstream:

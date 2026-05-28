@@ -8,8 +8,10 @@ from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
 from w8_biayn.sky_config import (
     RenderOptions,
     accelerator_count,
+    harbor_run_script,
     is_private_runtime_url,
     render_sky_yaml,
+    run_script,
     skyrl_overrides,
 )
 
@@ -173,3 +175,74 @@ def test_render_harbor_r3_h100_eight_gpu_topology():
     assert "trainer.policy.megatron_config.expert_model_parallel_size=8" in config["run"]
     assert "trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_cpu_offload=false" in config["run"]
     assert "trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_offload_fraction=0.0" in config["run"]
+
+
+def _harbor_opts(profile: str) -> RenderOptions:
+    return RenderOptions(
+        pipeline="r3",
+        project_id="proj",
+        benchmark="harbor-domdiff-browser-swe",
+        chromiumrl_url="https://reward.trycloudflare.com",
+        optimization_profile=profile,
+    )
+
+
+def test_baseline_profile_is_the_default_and_injects_no_kernels():
+    default_render = harbor_run_script(_harbor_opts("baseline"))
+    # The default (no profile arg) must equal the explicit baseline render.
+    omitted = harbor_run_script(
+        RenderOptions(
+            pipeline="r3",
+            project_id="proj",
+            benchmark="harbor-domdiff-browser-swe",
+            chromiumrl_url="https://reward.trycloudflare.com",
+        )
+    )
+    assert default_render == omitted
+    assert "W8_BIAYN_KERNELS" not in default_render
+
+
+def test_kernel_lab_profile_is_exactly_baseline_plus_injected_fragments():
+    base = harbor_run_script(_harbor_opts("baseline"))
+    lab = harbor_run_script(_harbor_opts("a100-kernel-lab"))
+
+    assert 'export W8_BIAYN_KERNELS="logprob,entropy,ppo"' in lab
+    assert "-e W8_BIAYN_KERNELS \\" in lab
+    # Additive-only guarantee: remove the two injected fragments and the rest must be
+    # byte-for-byte identical to the baseline render.
+    reconstructed = lab.replace(
+        'export W8_BIAYN_KERNELS="logprob,entropy,ppo"\n', ""
+    ).replace("-e W8_BIAYN_KERNELS \\\n  ", "")
+    assert reconstructed == base
+
+
+def test_kernel_lab_profile_injects_export_in_generic_r3_run_script():
+    base = run_script(RenderOptions(pipeline="r3", project_id="proj"))
+    lab = run_script(RenderOptions(pipeline="r3", project_id="proj", optimization_profile="a100-kernel-lab"))
+
+    assert "W8_BIAYN_KERNELS" not in base
+    assert 'export W8_BIAYN_KERNELS="logprob,entropy,ppo"' in lab
+    reconstructed = lab.replace('export W8_BIAYN_KERNELS="logprob,entropy,ppo"\n', "")
+    assert reconstructed == base
+
+
+def test_a100_safe_profile_leaves_numerics_unchanged():
+    safe = harbor_run_script(_harbor_opts("a100-safe"))
+    assert "W8_BIAYN_KERNELS" not in safe
+    assert safe == harbor_run_script(_harbor_opts("baseline"))
+
+
+def test_render_kernel_lab_yaml_provisions_single_a100():
+    from w8_biayn.sky_config import render_kernel_lab_yaml
+
+    text = render_kernel_lab_yaml(project_id="proj", kernel="mla")
+    config = yaml.safe_load(text)
+
+    assert config["name"] == "w8-biayn-kernel-lab-mla"
+    assert config["resources"]["accelerators"] == "A100:1"
+    assert config["resources"]["infra"] == "gcp"
+    assert "git clone https://github.com/NovaSky-AI/SkyRL.git" in config["setup"]
+    assert "uv sync --extra megatron --extra gcp" in config["setup"]
+    assert "nvidia-smi" in config["run"]
+    assert "w8-biayn kernels lab" in config["run"]
+    assert "--kernel mla" in config["run"]

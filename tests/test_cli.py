@@ -430,3 +430,60 @@ def test_cli_benchmarks_list():
     assert result.exit_code == 0, result.output
     assert "webvoyager-domdiff-heldout" in result.output
     assert "androidworld-transfer" in result.output
+
+
+def test_cli_kernels_list():
+    result = CliRunner().invoke(app, ["kernels", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "logprob" in result.output
+    assert "mla" in result.output
+
+
+def test_cli_kernels_lab_remote_dry_run_renders_single_a100(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        ["kernels", "lab", "--kernel", "mla", "--remote", "--dry-run", "--credentials", str(credentials)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "w8-biayn-kernel-lab-mla" in result.output
+    assert "A100:1" in result.output
+    assert "uv sync --extra megatron --extra gcp" in result.output
+    assert "w8-biayn kernels lab" in result.output
+    assert "sky launch" in result.output
+    assert "--down" in result.output  # teardown by default
+
+
+def test_cli_kernels_lab_keep_skips_teardown(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        ["kernels", "lab", "--kernel", "moe-gemm", "--remote", "--keep", "--dry-run", "--credentials", str(credentials)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "--down" not in result.output
+
+
+def test_cli_kernels_requires_remote_on_cpu_host(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        ["kernels", "bench", "--kernel", "logprob", "--credentials", str(credentials)],
+    )
+
+    assert result.exit_code != 0
+    assert "needs a CUDA GPU" in result.output
+
+
+def test_cli_kernels_rejects_unknown_kernel(tmp_path):
+    credentials = service_account(tmp_path)
+    result = CliRunner().invoke(
+        app,
+        ["kernels", "lab", "--kernel", "bogus", "--remote", "--dry-run", "--credentials", str(credentials)],
+    )
+
+    assert result.exit_code != 0
+    assert "unknown kernel" in result.output
