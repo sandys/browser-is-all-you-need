@@ -107,6 +107,16 @@ Infrastructure changes are not sufficient unless they preserve a runnable benchm
 
 The default scorecard is MiniWoB smoke, DOMDiff local live smoke, WebVoyager DOMDiff held-out, Harbor DOMDiff browser/SWE tasks, WebArena, and AndroidWorld transfer.
 
+## Custom-Kernel R&D Rules
+
+The custom Triton-kernel lane (`w8-biayn kernels ...` and the `--optimization-profile` flag) must stay opt-in and off by default.
+
+- `baseline` renders byte-for-byte identically to the stock pipeline; never change default numerics or rendered output. `a100-kernel-lab` may only add the `W8_BIAYN_KERNELS` activation (an export plus a docker `-e` forwarding); `a100-safe` is observability-only.
+- Activate kernels by setting `W8_BIAYN_KERNELS` and patching inside SkyRL's Ray entrypoint (`integrations/skyrl_harbor_main._skyrl_entrypoint`), beside `register_harbor_env()` — narrow and explicit. Do not ship a broad `sitecustomize`/`.pth` hook unless explicit entrypoint patching is proven not to reach Ray worker subprocesses, and then keep it gated and loud.
+- Every patch self-checks parity against a pure-torch reference before applying; on mismatch it skips and keeps upstream (guards `SKYRL_PIN` drift). Bit-identical is acceptable only for a pass-through wrapper; real kernels are judged by numeric tolerances on forward, backward, and an optimizer-step delta where applicable.
+- Do not vendor or edit SkyRL/Megatron. Inject Tier-B kernels through the Megatron-Bridge provider ModuleSpec seam (`workers/megatron/megatron_worker` provider plus `transformer_config_kwargs`). Fusing across TP/EP collectives in the full topology is out of scope; Tier-B kernels run only in the single-device lab (`kernels lab`, all parallel sizes = 1) on a tiny MoE model (`eatang/qwen3-moe-tiny-random`).
+- Kernel numerics need a CUDA GPU; the lab provisions one A100 on GCP through `.gcp-service-account.json` (scoped env, dry-run support, teardown by default). Acceptance is isolated-op parity plus speed/memory — do not claim end-to-end speedups, because the Harbor R3 step is generation-bound. Fused Adam stays deferred (the A100 optimizer is CPU-offloaded).
+
 ## Tests And Validation
 
 Before handing off changes, run:

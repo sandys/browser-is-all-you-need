@@ -274,6 +274,47 @@ Recommended order:
 - `webarena-browsergym`: reproducible self-hosted web benchmark through BrowserGym.
 - `androidworld-transfer`: mobile transfer check for the claim that browser-use RL generalizes to app UI.
 
+## Custom-Kernel R&D (A100)
+
+`w8-biayn` includes an opt-in lane for custom Triton-kernel research against the SkyRL training stack. It is gated and **off by default**: the `baseline` optimization profile renders byte-for-byte identically to the stock pipeline.
+
+Honest framing: the Harbor R3 step is ~89% generation and fixed-cost-bound, so custom *training* kernels are accepted on **isolated-op parity plus speed/memory** (microbenchmark), decoupled from end-to-end step time. The richer target is Megatron/Transformer-Engine local ops — MLA attention (FlashAttention has no MLA path) and the MoE grouped GEMM — reached through Megatron's ModuleSpec/provider seam in a **single-device lab**. Only fusing across the multi-GPU TP/EP collectives is out of scope.
+
+Kernel work needs a CUDA GPU, which a typical workstation lacks, so the lab provisions one A100 on GCP with the service-account JSON (`torch`/`megatron` only run there — there is no local CPU path):
+
+```bash
+uv run w8-biayn kernels list
+uv run w8-biayn kernels lab --kernel mla --remote --dry-run            # review the A100 plan, no spend
+uv run w8-biayn kernels lab --kernel mla --remote \
+  --model eatang/qwen3-moe-tiny-random --credentials .gcp-service-account.json   # paid; tears down by default (--keep to hold warm)
+uv run w8-biayn kernels bench --kernel logprob --remote --credentials .gcp-service-account.json
+```
+
+Activate the gated kernels in a render with the optimization profile (a correctness gate — it must not change rewards):
+
+```bash
+uv run w8-biayn config render r3 --benchmark harbor-domdiff-browser-swe --optimization-profile a100-kernel-lab --dry-run
+uv run w8-biayn launch r3 --with-local-domdiff --benchmark harbor-domdiff-browser-swe --optimization-profile a100-kernel-lab
+uv run w8-biayn perf report .w8-biayn/perf/<run-id>
+```
+
+The default pipeline data flow is unchanged (baseline is byte-identical); the kernel lab is a separate, optional side-flow:
+
+```mermaid
+flowchart LR
+  cli[w8-biayn kernels lab --remote] --> sky[SkyPilot]
+  sky --> a100[Single GCP A100: TP=EP=PP=CP=1]
+  a100 --> setup[clone SkyRL @ pin / uv sync --extra megatron]
+  setup --> spec[Megatron-Bridge provider ModuleSpec swap]
+  spec --> tritonB[Tier-B Triton: MLA attention / MoE grouped GEMM]
+  a100 --> microbench[Tier-A microbench: logprob / entropy / PPO vs torch reference]
+  tritonB --> parity[numeric-tolerance parity + speed/memory]
+  microbench --> parity
+  parity --> artifacts[.w8-biayn/perf -> perf report]
+```
+
+The `a100-kernel-lab` profile sets `W8_BIAYN_KERNELS` so the gated patches activate inside SkyRL's Ray trainer entrypoint; `baseline` and `a100-safe` leave numerics unchanged.
+
 ## Architecture
 
 ```mermaid

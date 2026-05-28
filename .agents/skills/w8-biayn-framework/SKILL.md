@@ -31,6 +31,7 @@ Main responsibilities:
 - SkyRL-Gym adapter: `src/w8_biayn/integrations/browsergym_env.py`
 - SkyRL registration entrypoint: `src/w8_biayn/integrations/skyrl_browsergym_main.py`
 - Harbor SkyRL registration entrypoint: `src/w8_biayn/integrations/skyrl_harbor_main.py`
+- Custom-kernel R&D lane: `src/w8_biayn/kernels/` (+ `src/w8_biayn/perf/`), the `--optimization-profile` flag, and the `kernels`/`perf` CLI groups
 - Tests: `tests/`
 
 ## Development Rules
@@ -72,6 +73,14 @@ Never render local/private DOMDiff URLs into SkyPilot configs. `localhost`, `127
 Keep the benchmark ladder runnable and documented. If R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld behavior changes, update `src/w8_biayn/benchmarks.py`, README benchmark guidance, and rendered benchmark metadata.
 
 For Harbor DOMDiff R3, do not use Tinker or Thinking Machines as the backend. Use self-hosted SkyRL on the SkyPilot/GCP side. The rendered path should install Docker and Cloudflare on the GCP host, start the Google GPU container with `--shm-size=32g` and `/var/run/docker.sock` mounted, reuse an existing Harbor virtualenv when complete and recreate it when incomplete, prepare Harbor parquet data with `w8-biayn harbor prepare-data`, and run `w8_biayn.integrations.skyrl_harbor_main`. That entrypoint must register `harbor-domdiff` inside SkyRL's Ray entrypoint task before constructing `BasePPOExp`; registering only in the local driver does not reach the trainer process. The default R3 smoke model is `moonshotai/Moonlight-16B-A3B-Instruct`; its `DeepseekV3ForCausalLM` architecture is supported by Megatron Bridge, unlike `Qwen2MoeForCausalLM` models. Harbor DOMDiff R3 defaults to `H100:8`, matching SkyRL's Moonlight router replay recipe. A100 40GB overrides can reach Harbor rollout and DOMDiff reward scoring, but need CPU optimizer offload for the Megatron optimizer step; keep the CLI warning and rendered offload before paid A100 40GB Harbor R3 launches. Render the SkyRL GPU count from the requested accelerator string; do not depend on SkyPilot host-only shell variables inside the Google GPU container. R3 routing replay must run `uv sync --active --extra megatron --extra gcp` from the SkyRL checkout so upstream `tool.uv` overrides resolve Megatron dependencies, set `trainer.strategy=megatron`, set Megatron TP/PP/CP/EP values, set vLLM MoE expert parallelism, set `generator.inference_engine.distributed_executor_backend=mp`, disable flash attention for Moonlight's MLA attention, and disable KL loss for the smoke. SkyRL rejects FSDP or Ray for router replay. Do not require `TINKER_API_KEY`, Daytona, GitHub tokens, or copied browser source. Harbor task containers need collision-resistant names because SkyRL may evaluate multiple samples from the same task at the same time. Copy Harbor verifier assets file-by-file into `/tests`; Docker directory-copy behavior differs by Docker version. Harbor task previews must publish Cloudflare quick tunnels so the laptop-local ChromiumRL reward service can score them.
+
+## Custom-Kernel R&D Lane
+
+Opt-in Triton-kernel research, off by default. `--optimization-profile baseline` must render byte-for-byte identically to the stock pipeline; `a100-kernel-lab` only adds the `W8_BIAYN_KERNELS` activation; `a100-safe` is observability-only.
+
+The Harbor R3 step is generation-bound, so accept training kernels on isolated-op parity plus speed/memory (microbench), decoupled from end-to-end step time. The real R&D target is Megatron/TE local ops — MLA attention and the MoE grouped GEMM — injected via the Megatron-Bridge provider ModuleSpec seam in a single-device lab (`kernels lab`, all parallel sizes = 1, tiny MoE `eatang/qwen3-moe-tiny-random`). Fusing across TP/EP collectives in the full topology is out of scope.
+
+Prove the ModuleSpec seam first with a no-op identity swap (bit-identical under fixed seed/eval/dropout-off); only then write Triton, judged by numeric tolerances on forward, backward, and an optimizer-step delta. Patch inside `skyrl_harbor_main._skyrl_entrypoint` beside `register_harbor_env()`; never vendor SkyRL/Megatron. Kernel numerics need a CUDA GPU — there is no local CPU path — so the lab runs on a single GCP A100 via `w8-biayn kernels lab/bench --remote` (scoped service-account env, dry-run, teardown by default; `--keep` to hold warm). Fused Adam stays deferred (the A100 optimizer is CPU-offloaded).
 
 ## Documentation Rule
 
