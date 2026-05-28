@@ -608,10 +608,16 @@ def kernel_lab_setup_script() -> LiteralStr:
     return LiteralStr(
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+export CUDA_HOME=/usr/local/cuda-12.4
+export PATH="$CUDA_HOME/bin:$HOME/.local/bin:$PATH"
+export NVTE_FRAMEWORK=pytorch
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
   export PATH="$HOME/.local/bin:$PATH"
 fi
+# transformer-engine builds from source and needs NCCL dev headers (nccl.h).
+sudo apt-get update -y || true
+sudo apt-get install -y libnccl2 libnccl-dev || true
 W8_WORKDIR="$PWD"
 SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
 mkdir -p "$(dirname "$SKYRL_DIR")"
@@ -619,9 +625,9 @@ if [ ! -d "$SKYRL_DIR/.git" ]; then
   git clone {SKYRL_REPO} "$SKYRL_DIR"
 fi
 git -C "$SKYRL_DIR" fetch origin {SKYRL_PIN} --depth 1 || git -C "$SKYRL_DIR" fetch --all --tags
-git -C "$SKYRL_DIR" checkout {SKYRL_PIN}
+git -C "$SKYRL_DIR" checkout -f {SKYRL_PIN}
 cd "$SKYRL_DIR"
-uv venv --python 3.12 --seed
+uv venv --python 3.12 --seed --clear
 source .venv/bin/activate
 uv sync --extra megatron --extra gcp
 uv pip install -e "$W8_WORKDIR"
@@ -634,8 +640,13 @@ def kernel_lab_run_script(*, kernel: str, model: str, dtype: str, mode: str, buc
         f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
 export ARTIFACT_BUCKET="{bucket}"
+export CUDA_HOME=/usr/local/cuda-12.4
+export PATH="$CUDA_HOME/bin:$HOME/.local/bin:$PATH"
 cd "$HOME/.cache/w8-biayn/upstreams/SkyRL"
 source .venv/bin/activate
+# Expose pip-wheel CUDA libs (cuDNN/NCCL/cuBLAS under nvidia/*/lib) so transformer-engine
+# can dlopen libcudnn_graph.so.9 etc. at import time.
+export LD_LIBRARY_PATH="$(python -c 'import os,nvidia; b=list(nvidia.__path__)[0]; print(":".join(os.path.join(b,d,"lib") for d in sorted(os.listdir(b)) if os.path.isdir(os.path.join(b,d,"lib"))))'):${{LD_LIBRARY_PATH:-}}"
 nvidia-smi -L
 w8-biayn kernels {mode} \\
   --kernel {kernel} \\
