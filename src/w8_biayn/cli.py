@@ -1211,10 +1211,12 @@ def _run_kernel_job(
     model: str,
     dtype: str,
     remote: bool,
+    local: bool,
     keep: bool,
     dry_run: bool,
     credentials: str,
     accelerators: str,
+    out: str,
 ) -> None:
     from .kernels.registry import get_kernel
 
@@ -1222,10 +1224,21 @@ def _run_kernel_job(
         get_kernel(kernel)
     except KeyError as exc:
         raise typer.BadParameter(str(exc)) from exc
+    if remote and local:
+        raise typer.BadParameter("choose either --remote (provision a GCP A100) or --local (run here), not both")
+    if local:
+        from .kernels.lab import run_local
+
+        try:
+            run_local(mode=mode, kernel=kernel, model=model, dtype=dtype, out=out)
+        except (RuntimeError, NotImplementedError) as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
+        return
     if not remote:
         raise typer.BadParameter(
-            "Local kernel execution needs a CUDA GPU, which this host lacks. "
-            "Use --remote to provision a GCP A100, or run on a CUDA host."
+            "kernel execution needs a CUDA GPU, which this host lacks. "
+            "Use --remote to provision a GCP A100, or --local on a CUDA host."
         )
     project_id = _project_id(credentials)
     yaml_text = render_kernel_lab_yaml(
@@ -1260,9 +1273,11 @@ def kernels_bench(
     model: str = typer.Option("eatang/qwen3-moe-tiny-random", "--model", help="Tiny MoE model for Tier-B kernels (ignored by Tier-A)."),
     dtype: str = typer.Option("bf16", help="Input dtype for the microbench."),
     accelerators: str = typer.Option("A100:1", help="SkyPilot accelerator request for the lab VM."),
-    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (required: this host has no GPU)."),
+    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (this host has no GPU)."),
+    local: bool = typer.Option(False, "--local", help="Run on the current host's GPU (used by the lab VM)."),
     keep: bool = typer.Option(False, "--keep", help="Leave the lab VM running for iterative dev (otherwise tear down)."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    out: str = typer.Option(".w8-biayn/perf", "--out", help="Output dir for results on the run host."),
     dry_run: bool = typer.Option(False, help="Print the A100 SkyPilot plan without launching."),
 ) -> None:
     """Microbench a kernel (parity + speed/memory) on a single GCP A100."""
@@ -1272,10 +1287,12 @@ def kernels_bench(
         model=model,
         dtype=dtype,
         remote=remote,
+        local=local,
         keep=keep,
         dry_run=dry_run,
         credentials=credentials,
         accelerators=accelerators,
+        out=out,
     )
 
 
@@ -1285,9 +1302,11 @@ def kernels_lab(
     model: str = typer.Option("eatang/qwen3-moe-tiny-random", "--model", help="Tiny MoE model for the single-device lab."),
     dtype: str = typer.Option("bf16", help="Input dtype."),
     accelerators: str = typer.Option("A100:1", help="SkyPilot accelerator request for the lab VM."),
-    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (required: this host has no GPU)."),
+    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (this host has no GPU)."),
+    local: bool = typer.Option(False, "--local", help="Run on the current host's GPU (used by the lab VM)."),
     keep: bool = typer.Option(False, "--keep", help="Leave the lab VM running for iterative dev."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    out: str = typer.Option(".w8-biayn/perf", "--out", help="Output dir for results on the run host."),
     dry_run: bool = typer.Option(False, help="Print the A100 SkyPilot plan without launching."),
 ) -> None:
     """Single-device tiny-model integration + parity for a Tier-B kernel on a GCP A100."""
@@ -1297,10 +1316,12 @@ def kernels_lab(
         model=model,
         dtype=dtype,
         remote=remote,
+        local=local,
         keep=keep,
         dry_run=dry_run,
         credentials=credentials,
         accelerators=accelerators,
+        out=out,
     )
 
 

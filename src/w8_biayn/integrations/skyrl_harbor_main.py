@@ -9,8 +9,13 @@ def _skyrl_entrypoint(cfg: Any) -> None:
     from skyrl.train.entrypoints.main_base import BasePPOExp
 
     from w8_biayn.integrations.harbor_env import register_harbor_env
+    from w8_biayn.kernels.patch import apply_kernel_patches_from_env
 
     register_harbor_env()
+    # Gated custom-kernel activation. No-op unless W8_BIAYN_KERNELS is set. Applied here,
+    # inside the Ray entrypoint, so patches reach the trainer worker process (not just the
+    # local driver) — mirroring how register_harbor_env must run here.
+    apply_kernel_patches_from_env()
     exp = BasePPOExp(cfg)
     exp.run()
 
