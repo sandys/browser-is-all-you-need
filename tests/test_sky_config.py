@@ -241,6 +241,8 @@ def test_render_kernel_lab_yaml_provisions_single_a100():
     assert config["name"] == "w8-biayn-kernel-lab-mla"
     assert config["resources"]["accelerators"] == "A100:1"
     assert config["resources"]["infra"] == "gcp"
+    assert config["resources"]["labels"]["w8-biayn"] == "kernel-lab"
+    assert config["resources"]["labels"]["w8-biayn-kernel"] == "mla"
     assert "git clone https://github.com/NovaSky-AI/SkyRL.git" in config["setup"]
     assert "uv sync --extra megatron --extra gcp" in config["setup"]
     assert "nvidia-smi" in config["run"]

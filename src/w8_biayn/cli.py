@@ -1254,17 +1254,20 @@ def _run_kernel_job(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml_text, encoding="utf-8")
     cluster = f"w8-biayn-kernel-{mode}-{kernel}"
-    sky_args = ["sky", "launch", "-c", cluster, "-y"]
-    if not keep:
-        sky_args.append("--down")
-    sky_args.append(str(output))
+    # Always set an idle autodown so a crashed/abandoned session still tears the A100 down
+    # on the shared GCP account (`--down` turns the idle autostop into an autodown). `--keep`
+    # only lengthens the idle window for iterative dev; it never disables the safety net.
+    idle_minutes = 60 if keep else 20
+    sky_args = ["sky", "launch", "-c", cluster, "-y", "-i", str(idle_minutes), "--down", str(output)]
     if dry_run:
         console.print(yaml_text)
         console.print(f"# rendered: {output}")
         console.print(f"# would run: {' '.join(sky_args)}")
+        console.print(f"# autodown after {idle_minutes} idle min; explicit teardown: sky down {cluster}")
         return
     env = _service_account_env(credentials, project_id=project_id)
     run_command(sky_args, env=env)
+    console.print(f"teardown when done: sky down {cluster}")
 
 
 @kernels_app.command("bench")

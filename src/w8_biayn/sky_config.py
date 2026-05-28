@@ -663,7 +663,15 @@ def render_kernel_lab_yaml(
     resolved_bucket = bucket or default_bucket_for_project(project_id)
     config: dict[str, Any] = {
         "name": f"w8-biayn-kernel-{mode}-{kernel}",
-        "resources": {"infra": "gcp", "accelerators": accelerators, "memory": "64+"},
+        "resources": {
+            "infra": "gcp",
+            "accelerators": accelerators,
+            "memory": "64+",
+            # GCP instance labels so the VM is findable/deletable on the shared account,
+            # even if the driving session dies: gcloud compute instances list
+            #   --filter="labels.w8-biayn=kernel-lab"
+            "labels": {"w8-biayn": "kernel-lab", "w8-biayn-kernel": kernel, "w8-biayn-mode": mode},
+        },
         "num_nodes": 1,
         "workdir": ".",
         "file_mounts": {"/tmp/w8-gcp-service-account.json": credentials_path},

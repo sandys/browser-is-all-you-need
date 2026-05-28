@@ -454,9 +454,10 @@ def test_cli_kernels_lab_remote_dry_run_renders_single_a100(tmp_path):
     assert "w8-biayn kernels lab" in result.output
     assert "sky launch" in result.output
     assert "--down" in result.output  # teardown by default
+    assert "autodown after 20 idle min" in result.output  # idle autodown safety net
 
 
-def test_cli_kernels_lab_keep_skips_teardown(tmp_path):
+def test_cli_kernels_lab_keep_keeps_idle_autodown_net(tmp_path):
     credentials = service_account(tmp_path)
     result = CliRunner().invoke(
         app,
@@ -464,7 +465,9 @@ def test_cli_kernels_lab_keep_skips_teardown(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "--down" not in result.output
+    # --keep only lengthens the idle window; the autodown safety net stays on.
+    assert "autodown after 60 idle min" in result.output
+    assert "--down" in result.output
 
 
 def test_cli_kernels_requires_remote_on_cpu_host(tmp_path):
