@@ -56,6 +56,7 @@ domdiff_local_app = typer.Typer(help="Run a local DOMDiff container and expose i
 benchmarks_app = typer.Typer(help="Inspect benchmark targets for the R3 pipeline.")
 harbor_app = typer.Typer(help="Inspect and smoke packaged Harbor DOMDiff tasks.")
 kernels_app = typer.Typer(help="Custom Triton-kernel R&D: list, microbench, and single-device lab (GCP A100).")
+perf_app = typer.Typer(help="Profile and report SkyRL training performance.")
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
@@ -64,6 +65,7 @@ domdiff_app.add_typer(domdiff_local_app, name="local")
 app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(harbor_app, name="harbor")
 app.add_typer(kernels_app, name="kernels")
+app.add_typer(perf_app, name="perf")
 console = Console()
 
 SKYPILOT_GCP_LAUNCH_PERMISSIONS = (
@@ -1300,6 +1302,68 @@ def kernels_lab(
         credentials=credentials,
         accelerators=accelerators,
     )
+
+
+@perf_app.command("report")
+def perf_report(
+    run_dir: str = typer.Argument(..., help="Run directory with metrics.json and/or *.log files."),
+) -> None:
+    """Parse SkyRL timing/* and vLLM metrics from a run directory."""
+    from .perf.report import load_run_metrics, summarize
+
+    try:
+        metrics = load_run_metrics(run_dir)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if not metrics:
+        console.print(f"[yellow]No SkyRL metrics found under {run_dir}.[/yellow]")
+        raise typer.Exit(0)
+    table = Table(title=f"perf report: {run_dir}")
+    table.add_column("metric", no_wrap=True)
+    table.add_column("value", justify="right")
+    for key in sorted(metrics):
+        table.add_row(key, f"{metrics[key]:.4f}")
+    console.print(table)
+    for key, value in summarize(metrics).items():
+        console.print(f"{key}: {value:.4f}")
+    console.print(
+        "[dim]note: Harbor R3 step time is generation-bound; training-kernel work is "
+        "not expected to move timing/step.[/dim]"
+    )
+
+
+@perf_app.command("profile")
+def perf_profile(
+    target: str = typer.Argument("harbor-r3", help="Profiling target (only harbor-r3 for now)."),
+    optimization_profile: OptimizationProfile = typer.Option(
+        DEFAULT_OPTIMIZATION_PROFILE,
+        "--optimization-profile",
+        help="Kernel R&D profile to render for the profiling run.",
+    ),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML path."),
+) -> None:
+    """Render the Harbor R3 profiling plan for a profile (dry-run only)."""
+    if target != "harbor-r3":
+        raise typer.BadParameter("only the 'harbor-r3' profiling target is supported")
+    options = _render_options(
+        "r3",
+        credentials,
+        None,
+        None,
+        1,
+        None,
+        "console",
+        False,
+        benchmark="harbor-domdiff-browser-swe",
+        optimization_profile=optimization_profile,
+    )
+    output_path = output or f"{DEFAULT_RENDER_DIR}/perf-{optimization_profile}.sky.yaml"
+    written = write_sky_yaml(options, output_path)
+    console.print(f"rendered: {written}")
+    console.print("launch with: w8-biayn launch r3 --benchmark harbor-domdiff-browser-swe "
+                  f"--optimization-profile {optimization_profile} --with-local-domdiff")
+    console.print("after the run, parse metrics with: w8-biayn perf report <run-dir>")
 
 
 @app.command()
