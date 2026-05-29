@@ -123,6 +123,7 @@ Before handing off changes, run:
 
 ```bash
 uv run --extra dev pytest
+uv run --extra dev ruff check src tests scripts
 uv run python -m compileall src tests
 ```
 

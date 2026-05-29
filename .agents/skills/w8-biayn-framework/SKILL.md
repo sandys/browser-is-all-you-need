@@ -151,6 +151,7 @@ Before finishing repo changes, run:
 
 ```bash
 uv run --extra dev pytest
+uv run --extra dev ruff check src tests scripts
 uv run python -m compileall src tests
 python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
