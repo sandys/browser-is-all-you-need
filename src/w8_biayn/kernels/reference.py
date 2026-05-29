@@ -18,13 +18,12 @@ def grouped_gemm_ref(x: Any, w: Any, group_sizes: Any) -> Any:
     """
     import torch
 
-    T, K = x.shape
-    E, _, N = w.shape
-    y = torch.empty((T, N), device=x.device, dtype=x.dtype)
-    off = 0
+    E = w.shape[0]
+    outs, off = [], 0
     for e in range(E):
         n = int(group_sizes[e].item())
-        if n:
-            y[off : off + n] = x[off : off + n] @ w[e]
+        outs.append(x[off : off + n] @ w[e])
         off += n
-    return y
+    # torch.cat (not in-place slice assignment) so the reference is autograd-safe and
+    # usable as the gradient oracle for the Triton kernel's backward.
+    return torch.cat(outs, 0)

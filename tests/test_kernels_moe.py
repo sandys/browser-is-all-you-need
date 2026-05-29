@@ -40,10 +40,22 @@ def test_grouped_gemm_parity_gpu():
     E, K, N = 8, 256, 512
     sizes = torch.tensor([3, 64, 1, 128, 50, 200, 7, 99], dtype=torch.int32, device="cuda")
     total = int(sizes.sum())
-    x = torch.randn(total, K, device="cuda", dtype=torch.bfloat16)
-    w = torch.randn(E, K, N, device="cuda", dtype=torch.bfloat16) * (K**-0.5)
+    x0 = torch.randn(total, K, device="cuda", dtype=torch.bfloat16)
+    w0 = torch.randn(E, K, N, device="cuda", dtype=torch.bfloat16) * (K**-0.5)
+    g = torch.randn(total, N, device="cuda", dtype=torch.bfloat16)
 
-    y_ref = grouped_gemm_ref(x, w, sizes)
-    y_tri = grouped_gemm(x, w, sizes)
-    rel = (y_ref.float() - y_tri.float()).abs().max() / (y_ref.float().abs().max() + 1e-6)
-    assert rel.item() < 2e-2, rel.item()
+    def rel(a, b):
+        return ((a.float() - b.float()).abs().max() / (a.float().abs().max() + 1e-6)).item()
+
+    # forward parity
+    xr, wr = x0.clone().requires_grad_(True), w0.clone().requires_grad_(True)
+    yr = grouped_gemm_ref(xr, wr, sizes)
+    xt, wt = x0.clone().requires_grad_(True), w0.clone().requires_grad_(True)
+    yt = grouped_gemm(xt, wt, sizes)
+    assert rel(yr, yt) < 2e-2
+
+    # backward grad parity (dX, dW)
+    yr.backward(g)
+    yt.backward(g)
+    assert rel(xr.grad, xt.grad) < 3e-2
+    assert rel(wr.grad, wt.grad) < 3e-2
