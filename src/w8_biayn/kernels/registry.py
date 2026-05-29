@@ -59,7 +59,7 @@ KERNELS: tuple[KernelSpec, ...] = (
         "B",
         "Megatron MoE grouped GEMM / experts module",
         "Megatron-Bridge provider experts ModuleSpec (single-device lab, EP=1)",
-        "planned",
+        "fwd validated (parity + 3.4x on A100); bwd + integration pending",
     ),
 )
 
