@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import types
 
-import pytest
 
 from w8_biayn.integrations.browsergym_env import BrowserGymEnv, extract_action, serialize_observation
 

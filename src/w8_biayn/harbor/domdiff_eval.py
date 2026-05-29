@@ -126,7 +126,7 @@ def _json_http_request(
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError:
         raise
-    except Exception as exc:
+    except Exception:
         connect_to_args = trycloudflare_connect_to_args(url)
         if not connect_to_args:
             raise

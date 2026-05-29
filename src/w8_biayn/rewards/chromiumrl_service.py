@@ -748,7 +748,6 @@ class CDPManager:
             compute_dom_comparison_score,
             enable_chromiumrl_tracing,
             get_main_frame_id,
-            save_dom_state,
         )
 
         if extra_headers:

@@ -24,6 +24,7 @@ browser = [
 ]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.6",
 ]
 domdiff = [
     "aiohttp>=3.9",
@@ -44,3 +45,8 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+# Operational probe/dev scripts deliberately interleave imports with GPU/distributed
+# setup (e.g. import megatron after env vars are set), so E402 doesn't apply there.
+"scripts/*" = ["E402"]

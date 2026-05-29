@@ -496,7 +496,7 @@ class CDPClient:
         except asyncio.TimeoutError:
             self._pending.pop(msg_id, None)
             raise TimeoutError(f"CDP command '{method}' timed out after {timeout}s")
-        except Exception as e:
+        except Exception:
             self._pending.pop(msg_id, None)
             raise
 
