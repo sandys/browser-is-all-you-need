@@ -1,23 +1,52 @@
 # Repository Development Guide
 
-## Fresh-Machine Bootstrap Is Required
+`AGENTS.md` and `CLAUDE.md` must stay symlinks to this file. Update this file once; do not fork the guidance.
 
-This repository is shipped to other people. Development must assume a fresh third-party computer, not this local workstation.
+## Active Project
 
-Every feature that requires a tool, cloud CLI, Python extra, environment variable, generated config, upstream clone, or local setup step must be represented in one of these places:
+This repository is now a C++ performance-RL project. The inherited codebase is only the baseline infrastructure for GCP/SkyPilot/SkyRL/rLLM.
 
-- `pyproject.toml` / `uv.lock` for Python package dependencies.
-- `scripts/bootstrap.sh` for machine bootstrap and external CLI setup.
-- `w8-biayn doctor` for validation and actionable diagnostics.
-- `README.md` for user-facing setup, command usage, architecture, and workflow diagrams.
-- `.agents/skills/` for AI-facing repo workflow guidance.
-- `.gitignore` for local-only generated files, secrets, caches, upstream clones, task pools, logs, and checkpoints.
+Phase 1 goal: train an open-weight model that rewrites correct C++ programs to run faster while preserving behavior, then evaluate it on held-out PIE tasks against base open models and Claude baselines.
 
-Do not rely on globally installed tools unless bootstrap installs them or `doctor` reports a clear missing prerequisite with the exact next action.
+Out of scope unless a later phase is explicitly requested:
 
-## Required User Path
+- BrowserGym
+- DOMDiff
+- Harbor
+- WebArena
+- MiniWoB
+- AndroidWorld
+- Go
 
-A new user must be able to start from a clean clone and run:
+## Required Reading
+
+Before changing behavior, read:
+
+1. `README.md`
+2. `/tmp/ENGINEERING_SPEC_v2_cpp_only.md`
+3. `.agents/skills/w8-biayn-framework/SKILL.md`
+4. The relevant implementation files under `src/w8_biayn/`
+
+## Non-Negotiable Boundaries
+
+Do not write a custom trainer.
+
+Do not use PIE's old Hugging Face Trainer path or any SuperCoder training path as the active trainer.
+
+Do not replace SkyRL/rLLM with another framework.
+
+Allowed upstream use:
+
+- PIE: source C++ slower-to-faster pairs and eval/data lessons.
+- LearningOpt PIE: gem5 reference and calibration environment.
+- SuperCoder: reference schema, correctness/eval lessons, and examples.
+- SkyRL/rLLM: actual SFT and GRPO training stack.
+
+If upstream code must be studied, use `uv run w8-biayn upstreams clone` for pinned repo copies under `.cache/upstreams/`. Temporary study clones may live under `/tmp`; do not vendor upstream repos or data into this repo.
+
+## Fresh-Machine Contract
+
+This repository is shipped to outside users and coding agents. A clean clone must be able to run:
 
 ```bash
 ./scripts/bootstrap.sh
@@ -25,25 +54,20 @@ cp /secure/path/service-account.json .gcp-service-account.json
 uv run w8-biayn doctor --cloud --cpp-perf
 uv run w8-biayn data doctor
 uv run w8-biayn upstreams clone
-uv run w8-biayn launch cpp-smoke --dry-run
+uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
 ```
 
-The real GCP smoke path is:
+If a change invalidates any command, update the implementation, tests, README, and this file in the same logical change.
 
-```bash
-uv run w8-biayn launch cpp-smoke
-```
+Do not rely on globally installed tools unless bootstrap installs them or `doctor` reports a clear missing prerequisite with the exact next action.
 
-The first local reward-harness path is:
+## Data Discipline
 
-```bash
-uv run w8-biayn cpp harness run --task path/to/task.json --candidate path/to/candidate.cpp --dry-run
-uv run w8-biayn cpp reward score --task path/to/task.json --model-output path/to/output.md --dry-run
-```
+Dataset conversion is a deliverable. No one-off PIE or SuperCoder munging is allowed.
 
-If any development change invalidates those commands, update bootstrap, CLI help, tests, README, and this file in the same change.
+All source downloads, archive normalization, test generation, coverage manifests, task construction, SkyRL conversion, GCS upload, and GCS restore must be represented as `w8-biayn data ...` commands with tests and docs.
 
-The repeatable dataset setup path is:
+Current repeatable path:
 
 ```bash
 uv run w8-biayn data pie download --out .w8-biayn/data/pie
@@ -55,109 +79,150 @@ uv run w8-biayn data skyrl build --tasks-dir .w8-biayn/data/tasks --out .w8-biay
 uv run w8-biayn data cache upload --path .w8-biayn/data/skyrl --credentials .gcp-service-account.json
 ```
 
-No PIE or SuperCoder conversion may be performed as a one-off. If a conversion or data cleanup is needed, implement it in `w8-biayn data ...`, record schema/checksum metadata, update docs, and add tests.
+Known remaining data work:
 
-## Documentation And Diagrams Must Stay Current
+- Add CLI-backed raw PIE archive normalization if local archives do not already provide `train.jsonl`, `validation.jsonl`, and case directories.
+- Add CLI-backed oracle-case generation from PIE `v1`.
+- Add CLI-backed coverage measurement and gating instead of relying on a manually supplied coverage JSON.
+- Add gem5 calibration/final eval commands through LearningOpt PIE.
 
-`README.md` is the canonical user-facing entrypoint. Keep it current whenever commands, setup steps, cloud behavior, supported pipelines, IAM requirements, data flow, task schema, measurement flow, or operational workflows change.
+Default schema version: `cpp-perf-v1`.
 
-The README must include Mermaid architecture and workflow diagrams. When implementation changes affect task construction, sandbox measurement, launch flow, cloud boundaries, upstream responsibilities, or teardown behavior, update the diagrams in the same change.
+Default GCS prefix:
 
-AI-facing skills must also stay current. When repo-specific workflows change, update `.agents/skills/w8-biayn-framework/` and preserve the symlinked skill discovery paths. If the change is generic to skill authoring, update `.agents/skills/agent-skills-framework/` as well.
+```text
+gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/skyrl
+```
+
+SkyRL bundles must include GRPO parquet, SFT JSONL, copied task JSON, and `_w8_data_manifest.json` with schema version, sources, options, byte sizes, and checksums.
+
+## Task Rules
+
+Preserve PIE task discipline:
+
+- `v0` slower C++ becomes the prompt program.
+- `v1` faster C++ is not shown during GRPO.
+- `v1` may be used as the SFT target, oracle generator, and reference material.
+- Train/validation/test splits stay by problem.
+- A task requires visible tests, hidden tests, reference performance, and at least 95 percent line / 85 percent branch coverage.
+
+The prompt may include visible tests and `v0`. It must not include hidden tests or `v1`.
+
+## Reward Rules
+
+The reward is correctness gated:
+
+- Invalid format is negative.
+- Compile or sanitizer failure is negative.
+- Partial tests remain below any fully correct answer.
+- Fully correct answers get a base reward plus bounded instruction-count efficiency.
+- `perf stat -e instructions:u` is the fast RL reward metric.
+- gem5 is the calibration and final-eval reference only.
+
+Model outputs must contain exactly one `<reasoning>...</reasoning>` block and exactly one fenced C++ code block.
+
+For real scoring, the sandbox image must contain `g++`, `bash`, `taskset`, and `perf`. The CLI default is `gcc:13`; pass `--image` if the target machine needs a project-specific image.
+
+## Training Rules
+
+Training runs through SkyPilot on GCP and delegates to SkyRL/rLLM.
+
+Render before launch:
+
+```bash
+uv run w8-biayn config render cpp-sft --credentials .gcp-service-account.json
+uv run w8-biayn config render cpp-grpo --credentials .gcp-service-account.json
+```
+
+Launch examples:
+
+```bash
+uv run w8-biayn launch cpp-sft --credentials .gcp-service-account.json --accelerators A100:8 --train-batch-size 16 --no-down-after
+uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --accelerators A100:8 --train-batch-size 16 --n-samples-per-prompt 4 --no-down-after
+```
+
+`launch` passes SkyPilot `--down` by default. Use `--no-down-after` for training runs that need inspection after completion.
+
+The GRPO entrypoint is `python -m w8_biayn.integrations.skyrl_cpp_perf_main`. It registers `cpp-perf` and delegates to SkyRL `BasePPOExp(cfg).run()`.
+
+The default GRPO launch is a one-step smoke path and must keep `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1` unless checkpoint storage has been deliberately configured.
+
+GRPO rewards use Docker-outside-Docker. The rendered SkyPilot YAML must mount `/var/run/docker.sock` and host `/tmp` into the GPU training container.
+
+## Cloud Rules
+
+Cloud commands must:
+
+- Support dry-run rendering before paid launches.
+- Use `.gcp-service-account.json` through scoped env vars.
+- Avoid `gcloud auth activate-service-account`.
+- Avoid mutating global `gcloud config`.
+- Avoid printing credential contents.
+- Render YAML into `.w8-biayn/rendered/`.
+- Provide operations through `w8-biayn status`, `w8-biayn logs`, and `w8-biayn down`.
+
+`doctor --cloud` must check the full SkyPilot launch permission set before paid runs.
+
+## Repo Responsibilities
+
+```text
+scripts/bootstrap.sh                         bootstrap
+src/w8_biayn/cli.py                          CLI
+src/w8_biayn/cpp_perf/data.py                data downloads/manifests/cache
+src/w8_biayn/cpp_perf/pie.py                 PIE parsing and task construction
+src/w8_biayn/cpp_perf/skyrl_dataset.py       SkyRL data conversion
+src/w8_biayn/cpp_perf/schema.py              task and harness schema
+src/w8_biayn/cpp_perf/sandbox.py             C++ Docker harness
+src/w8_biayn/cpp_perf/reward.py              reward function
+src/w8_biayn/integrations/cpp_perf_env.py    SkyRL env adapter
+src/w8_biayn/integrations/skyrl_cpp_perf_main.py
+                                             SkyRL entrypoint glue
+src/w8_biayn/sky_config.py                   SkyPilot rendering
+src/w8_biayn/gcp_auth.py                     scoped GCP auth
+src/w8_biayn/secrets.py                      credential metadata only
+src/w8_biayn/upstreams.py                    upstream pins
+src/w8_biayn/benchmarks.py                   benchmark ladder
+README.md                                    user and operator docs
+.agents/skills/w8-biayn-framework/SKILL.md   AI coding-agent skill
+```
+
+## Documentation Rules
+
+Update docs in the same change when commands, setup, dataset shape, cache behavior, cloud behavior, task schema, reward logic, launch flow, benchmark protocol, or supported pipelines change.
+
+Required doc targets:
+
+1. `README.md`
+2. Mermaid diagrams in `README.md`
+3. `.agents/REPO_GUIDE.md` when repo rules change
+4. `.agents/skills/w8-biayn-framework/SKILL.md`
+5. Tests, when command behavior changes
 
 ## Commit Discipline
 
-Prefer many focused commits over one large commit. Keep each commit internally coherent: include the code, docs, tests, and skill updates needed for that one logical change.
+Prefer focused commits. Each commit should include the code, docs, tests, and skill updates needed for that logical change.
 
-## Secrets And Local State
+Never commit `.env`, `.gcp-service-account.json`, `.w8-biayn/`, `.cache/upstreams/`, PIE data, CodeNet data, SuperCoder data, gem5 outputs, logs, rendered configs, or checkpoints.
 
-`.env` and `.gcp-service-account.json` are local-only and must never be committed.
+## Validation
 
-Upstream source clones belong in `.cache/upstreams/` through:
-
-```bash
-uv run w8-biayn upstreams clone
-```
-
-Do not vendor rLLM, SkyRL, PIE, CodeNet, SuperCoder data, gem5 outputs, model checkpoints, generated task pools, or upstream repositories into this repository.
-
-## C++ Performance-RL Rules
-
-Phase 1 is C++ only. Go, BrowserGym, DOMDiff, Harbor, WebArena, MiniWoB, and AndroidWorld are not part of the active project surface.
-
-Use `/tmp/ENGINEERING_SPEC_v2_cpp_only.md` as the source spec until the equivalent content is moved into repo docs. The project goal is to train an open-weight model to rewrite correct C++ programs so they run faster while preserving correctness.
-
-Training must use SkyRL/rLLM. Do not write a custom trainer, do not use PIE's old Hugging Face Trainer path as the active trainer, and do not use SuperCoder as a replacement trainer. PIE, LearningOpt PIE, and SuperCoder may be studied and ported into this repo's data/reward/eval surfaces only.
-
-Task construction must follow the PIE data discipline:
-
-- Use PIE C++ slower-to-faster pairs.
-- Never expose the fast `v1` solution in the model prompt.
-- Use `v1` only as an oracle for test generation and reference performance.
-- Preserve train/test splits by problem.
-- Do not admit a task without visible tests, hidden tests, reference performance, and coverage of at least 95% line / 85% branch.
-
-Dataset bundles for SkyRL must include GRPO parquet, SFT JSONL, copied task JSON, and `_w8_data_manifest.json` with schema version, sources, options, byte sizes, and checksums. Default schema version is `cpp-perf-v1`; default GCS prefix is `gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/skyrl`.
-
-The reward path must be correctness gated:
-
-- Invalid response format: negative reward.
-- Compile or sanitizer failure: negative reward.
-- Partial tests: shaped but still below a fully correct answer.
-- Correct answers: base reward of 1.0 plus bounded instruction-count efficiency bonus.
-- Instruction count from `perf stat -e instructions:u` is the fast RL reward metric.
-- gem5 remains the deterministic gold reference for calibration and final reporting.
-
-## Cloud Development Rules
-
-All GCP/SkyPilot workflows must support dry-run rendering before launching resources.
-
-Any command that provisions cloud resources must:
-
-- Use `.gcp-service-account.json` through scoped environment variables such as `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, and `CLOUDSDK_CORE_PROJECT`.
-- Never run `gcloud auth activate-service-account` or mutate the user's global `gcloud config`.
-- Check the full project-level SkyPilot GCP launch IAM set before paid launches, including compute, storage, service usage, service-account creation, and project IAM policy update permissions.
-- Avoid printing credential contents.
-- Render the SkyPilot YAML into an ignored path.
-- Provide status, logs, and teardown commands through `w8-biayn`.
-
-SkyPilot is the Phase-1 bridge because the inherited Google training path works. dstack migration is deferred until the one-example gem5/perf/reward loop is stable.
-
-`cpp-sft` and `cpp-grpo` launch through SkyPilot and restore their dataset bundle from GCS before invoking SkyRL. The GRPO entrypoint must register `cpp-perf` inside the SkyRL Ray task and then delegate to SkyRL `BasePPOExp(cfg).run()`.
-
-## Benchmark Rules
-
-Infrastructure changes are not sufficient unless they preserve a runnable benchmark ladder. Keep `w8-biayn benchmarks list`, README benchmark guidance, and rendered benchmark metadata current when changing the C++ task builder, harness, reward, SkyRL/rLLM integration, or eval protocol.
-
-The current scorecard is `pie-one-smoke`, `pie-10-task`, `pie-heldout-effk`, `sft-cold-start`, and `grpo-tiny`.
-
-## Custom-Kernel R&D Rules
-
-The custom Triton-kernel lane remains opt-in and off by default. It is secondary to the C++ reward harness and must not change default training numerics or rendered output unless explicitly selected.
-
-Do not vendor or edit SkyRL/Megatron. Kernel numerics need a CUDA GPU; local CPU-only validation can cover imports and command construction only.
-
-## Tests And Validation
-
-Before handing off changes, run:
+Before handing off:
 
 ```bash
 uv run --extra dev pytest
 uv run --extra dev ruff check src tests scripts
 uv run python -m compileall src tests
+python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
 
-For bootstrap-affecting changes, also run:
+For setup, CLI, cloud, or data changes, also run the relevant dry checks:
 
 ```bash
 ./scripts/bootstrap.sh --no-sky
 uv run w8-biayn --help
 uv run w8-biayn data doctor
+uv run w8-biayn benchmarks list
 uv run w8-biayn doctor --cpp-perf
-uv run w8-biayn config render cpp-smoke --credentials .gcp-service-account.json
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
 uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json
-python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
-
-Use `--no-sky` only for local validation when SkyPilot install is intentionally skipped; the default bootstrap path must install SkyPilot.
