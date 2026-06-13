@@ -5,11 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "browser-is-all-you-need"
 version = "0.1.0"
-description = "Command and control CLI for BrowserGym RL pipelines on rLLM, SkyRL, and Google Cloud."
+description = "Command and control CLI for C++ performance-RL pipelines on rLLM, SkyRL, and Google Cloud."
 requires-python = ">=3.10"
 dependencies = [
+    "datasets>=2.19",
+    "gdown>=5.2",
     "google-auth[requests]>=2.29",
+    "huggingface-hub>=0.24",
     "pydantic>=2.7",
+    "pyarrow>=14.0",
     "PyYAML>=6.0",
     "rich>=13.7",
     "tomli>=2.0 ; python_version < '3.11'",
@@ -17,20 +21,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-browser = [
-    "gymnasium>=0.29",
-    "pandas>=2.0",
-    "pyarrow>=14.0",
-]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
 ]
-domdiff = [
-    "aiohttp>=3.9",
-    "fastapi>=0.110",
-    "uvicorn>=0.29",
-    "websocket-client>=1.7",
+cpp-perf = [
+    "pyarrow>=14.0",
 ]
 
 [project.scripts]

@@ -1,4 +1,4 @@
-"""Benchmark scorecard for the browser-to-mobile RL thesis."""
+"""Benchmark ladder for the C++ performance-RL thesis."""
 
 from __future__ import annotations
 
@@ -22,67 +22,53 @@ class BenchmarkSpec:
 
 BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
-        key="miniwob-smoke",
+        key="pie-one-smoke",
         tier="smoke",
-        harness="BrowserGym + SkyRL",
-        command="uv run w8-biayn launch miniwob",
-        metric="task success / reward",
-        reason="Cheap end-to-end SkyPilot/SkyRL sanity check before spending DOMDiff or larger GPU budget.",
+        harness="PIE + gem5 + perf + SkyRL bridge",
+        command="uv run w8-biayn launch cpp-smoke",
+        metric="GLM-5.1 loads and one C++ optimization prompt generates",
+        reason="Proves the SkyPilot/GCP/SkyRL bridge before reward-loop work scales.",
     ),
     BenchmarkSpec(
-        key="domdiff-local-live",
+        key="pie-10-task",
         tier="smoke",
-        harness="w8-biayn DOMDiff",
-        command="uv run w8-biayn domdiff local smoke --image android-world-domdiff:local",
-        metric="local KVM + CDP + quick tunnel + reward adapter health + live DOMDiff evaluation",
-        reason="Proves the prebuilt WootzApp/Android image works locally before spending GCP training budget.",
+        harness="PIE data conversion + Docker C++ harness",
+        command="uv run w8-biayn data pie build-tasks --limit 10 ...",
+        metric="10 validated tasks with coverage-passing visible and hidden tests",
+        reason="Creates the first runnable RL pool slice without exposing oracle solutions to prompts.",
     ),
     BenchmarkSpec(
-        key="webvoyager-domdiff-heldout",
+        key="skyrl-data-bundle",
+        tier="smoke",
+        harness="Validated task JSON to SkyRL SFT/GRPO data",
+        command="uv run w8-biayn data skyrl build --tasks-dir .w8-biayn/data/tasks --out .w8-biayn/data/skyrl",
+        metric="SFT JSONL, GRPO parquet, task copies, and checksum manifest are written",
+        reason="Makes dataset conversion a reproducible project deliverable before training.",
+    ),
+    BenchmarkSpec(
+        key="pie-heldout-effk",
         tier="eval",
-        harness="SkyRL + WebVoyager DOMDiff",
-        command=(
-            "uv run w8-biayn launch r3 --with-local-domdiff "
-            "--benchmark webvoyager-domdiff-heldout"
-        ),
-        metric="judge success rate on held-out WebVoyager no-anti-bot tasks",
-        reason="Primary browser-use benchmark for live websites through the mobile browser target.",
-        notes="Use the SWE-RL held-out no-anti-bot split as the first target dataset.",
+        harness="PIE held-out tasks + gem5 final measurement",
+        command="uv run w8-biayn benchmarks show pie-heldout-effk",
+        metric="eff@k versus base GLM-5.1 and Claude baselines",
+        reason="Primary public claim metric for correctness plus performance consistency.",
+        notes="Use ENAMEL's estimator for right-censored timeouts and Mercury Beyond as a secondary metric.",
     ),
     BenchmarkSpec(
-        key="harbor-domdiff-browser-swe",
-        tier="eval",
-        harness="Harbor + SkyRL + DOMDiff reward",
-        command=(
-            "uv run w8-biayn launch r3 --with-local-domdiff "
-            "--benchmark harbor-domdiff-browser-swe"
-        ),
-        metric="rubric reward and DOMDiff success over converted browser/SWE tasks",
-        reason="Exercises app-building/browser-preview tasks where DOMDiff is a verifier, not just an observation channel.",
-        notes=(
-            "Uses the two packaged SWE-RL Harbor tasks with definitive DOMDiff rubrics. "
-            "Task containers run on the GCP trainer VM; the local DOMDiff reward service is reached through Cloudflare."
-        ),
+        key="sft-cold-start",
+        tier="train",
+        harness="PIE v0 to v1 supervised fine-tuning",
+        command="uv run w8-biayn launch cpp-sft --accelerators A100:8",
+        metric="valid-format rate and correct-and-faster rate on held-out PIE tasks",
+        reason="Teaches the model the response format and basic C++ optimization before GRPO.",
     ),
     BenchmarkSpec(
-        key="webarena-browsergym",
-        tier="eval",
-        harness="BrowserGym WebArena",
-        command=(
-            "uv run w8-biayn launch webarena "
-            "--webarena-archives-gcs gs://<bucket>/webarena"
-        ),
-        metric="WebArena task success",
-        reason="Reproducible self-hosted web benchmark that is less live-site brittle than WebVoyager.",
-    ),
-    BenchmarkSpec(
-        key="androidworld-transfer",
-        tier="transfer",
-        harness="AndroidWorld",
-        command="uv run w8-biayn benchmarks show androidworld-transfer",
-        metric="AndroidWorld task success rate",
-        reason="Direct test of the pitch that browser-trained policies transfer to mobile-use.",
-        notes="Run after browser benchmarks; use the DOMDiff image or `devjangid/android-world-mobile-tablet` as the target.",
+        key="grpo-tiny",
+        tier="train",
+        harness="SkyRL/rLLM GRPO on a small PIE slice",
+        command="uv run w8-biayn launch cpp-grpo --accelerators A100:8 --train-batch-size 16 --n-samples-per-prompt 4",
+        metric="reward trend up on fixed 10-100 task slice",
+        reason="Confirms the C++ reward environment is wired into GRPO before scaling.",
     ),
 )
 

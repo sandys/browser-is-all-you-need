@@ -1,4 +1,4 @@
-"""CLI entrypoint for w8-biayn."""
+"""CLI entrypoint for w8-biayn C++ performance RL."""
 
 from __future__ import annotations
 
@@ -12,61 +12,67 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import benchmarks, datasets, domdiff, upstreams
+from . import benchmarks, upstreams
 from .constants import (
+    CPP_DATA_SCHEMA_VERSION,
+    DEFAULT_CPP_CONTAINER_IMAGE,
+    DEFAULT_CPP_MODEL,
+    DEFAULT_CPP_SMOKE_ACCELERATORS,
+    DEFAULT_CPP_TRAIN_ACCELERATORS,
+    DEFAULT_CPP_TRAIN_MODEL,
     DEFAULT_CREDENTIALS_PATH,
-    DEFAULT_ACCELERATORS,
-    DEFAULT_DOMDIFF_ARTIFACT_IMAGE,
-    DEFAULT_DOMDIFF_ARTIFACT_LOCATION,
-    DEFAULT_DOMDIFF_ARTIFACT_REPOSITORY,
-    DEFAULT_DOMDIFF_BOOT_DISK_TYPE,
-    DEFAULT_DOMDIFF_IMAGE,
-    DEFAULT_DOMDIFF_LOCAL_IMAGE,
-    DEFAULT_DOMDIFF_MACHINE_TYPE,
-    DEFAULT_DOMDIFF_MIN_CPU_PLATFORM,
-    DEFAULT_DOMDIFF_VOLUME_GB,
-    DEFAULT_DOMDIFF_ZONE,
-    DEFAULT_GPU_CONTAINER_IMAGE,
-    DEFAULT_HARBOR_R3_ACCELERATORS,
-    DEFAULT_OPTIMIZATION_PROFILE,
+    DEFAULT_DATA_ROOT,
     DEFAULT_RENDER_DIR,
+    DEFAULT_SKYRL_DATA_DIR,
+    SUPERCODER_DATASET,
 )
+from .cpp_perf.data import (
+    PIE_DOWNLOADS,
+    SUPERCODER_ALLOW_PATTERNS,
+    build_tests_manifest_from_io,
+    download_pie,
+    download_supercoder,
+    inspect_supercoder_parquet,
+    verify_data_manifest,
+)
+from .cpp_perf.pie import build_tasks, load_tests_manifest, read_pie_pairs
+from .cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
+from .cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE, dry_run_plan, run_in_sandbox
+from .cpp_perf.schema import CppTask
+from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
-from .harbor import tasks as harbor_tasks
-from .harbor.docker_runner import HarborDockerTaskRunner, run_oracle_smoke
-from .harbor.skyrl_dataset import prepare_harbor_skyrl_dataset
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
-from .sky_config import (
-    OptimizationProfile,
-    Pipeline,
-    RenderOptions,
-    default_accelerators_for,
-    render_kernel_lab_yaml,
-    validate_remote_runtime_urls,
-    write_sky_yaml,
-)
+from .sky_config import Pipeline, RenderOptions, write_sky_yaml
 
-app = typer.Typer(help="Command and control for BrowserGym RL on rLLM, SkyRL, and GCP.")
+app = typer.Typer(help="Command and control for C++ performance RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
-data_app = typer.Typer(help="Prepare BrowserGym datasets.")
-config_app = typer.Typer(help="Render SkyPilot and training configs.")
-domdiff_app = typer.Typer(help="Manage DOMDiff reward images and hosts.")
-domdiff_local_app = typer.Typer(help="Run a local DOMDiff container and expose it with quick tunnels.")
-benchmarks_app = typer.Typer(help="Inspect benchmark targets for the R3 pipeline.")
-harbor_app = typer.Typer(help="Inspect and smoke packaged Harbor DOMDiff tasks.")
-kernels_app = typer.Typer(help="Custom Triton-kernel R&D: list, microbench, and single-device lab (GCP A100).")
-perf_app = typer.Typer(help="Profile and report SkyRL training performance.")
+data_app = typer.Typer(help="Download, convert, validate, and cache training datasets.")
+data_pie_app = typer.Typer(help="Prepare PIE C++ data.")
+data_supercoder_app = typer.Typer(help="Download and inspect SuperCoder reference data.")
+data_skyrl_app = typer.Typer(help="Build SkyRL/rLLM dataset files from validated tasks.")
+data_cache_app = typer.Typer(help="Upload and restore versioned dataset bundles from GCS.")
+cpp_app = typer.Typer(help="Build, run, and score C++ performance-RL tasks.")
+task_app = typer.Typer(help="Build PIE-derived C++ task JSON.")
+harness_app = typer.Typer(help="Run C++ candidates in the sandbox harness.")
+reward_app = typer.Typer(help="Score model outputs with the C++ reward function.")
+config_app = typer.Typer(help="Render SkyPilot bridge configs.")
+benchmarks_app = typer.Typer(help="Inspect the C++ performance-RL benchmark ladder.")
+
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
+data_app.add_typer(data_pie_app, name="pie")
+data_app.add_typer(data_supercoder_app, name="supercoder")
+data_app.add_typer(data_skyrl_app, name="skyrl")
+data_app.add_typer(data_cache_app, name="cache")
+app.add_typer(cpp_app, name="cpp")
+cpp_app.add_typer(task_app, name="task")
+cpp_app.add_typer(harness_app, name="harness")
+cpp_app.add_typer(reward_app, name="reward")
 app.add_typer(config_app, name="config")
-app.add_typer(domdiff_app, name="domdiff")
-domdiff_app.add_typer(domdiff_local_app, name="local")
 app.add_typer(benchmarks_app, name="benchmarks")
-app.add_typer(harbor_app, name="harbor")
-app.add_typer(kernels_app, name="kernels")
-app.add_typer(perf_app, name="perf")
 console = Console()
+
 
 SKYPILOT_GCP_LAUNCH_PERMISSIONS = (
     "compute.disks.create",
@@ -120,216 +126,77 @@ def _service_account_env(credentials: str, *, project_id: Optional[str] = None) 
         raise typer.BadParameter(str(exc)) from exc
 
 
-def _render_options(
-    pipeline: Pipeline,
-    credentials: str,
-    bucket: Optional[str],
-    accelerators: Optional[str],
-    num_nodes: int,
-    cluster: Optional[str],
-    logger: str,
-    wandb_secret: bool,
-    webarena_archives_gcs: Optional[str] = None,
-    chromiumrl_url: Optional[str] = None,
-    cdp_url: Optional[str] = None,
-    domdiff_reward_image: str = DEFAULT_DOMDIFF_IMAGE,
-    benchmark: Optional[str] = None,
-    harbor_task_ids: Optional[list[str]] = None,
-    harbor_oracle: bool = True,
-    gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE,
-    optimization_profile: str = DEFAULT_OPTIMIZATION_PROFILE,
-) -> RenderOptions:
+def _data_gcs_prefix(credentials: str, override: Optional[str]) -> str:
+    if override:
+        return override.rstrip("/")
     project_id = _project_id(credentials)
-    normalized_harbor_task_ids = tuple(harbor_task_ids or harbor_tasks.DEFAULT_HARBOR_TASK_IDS)
-    if benchmark == "harbor-domdiff-browser-swe":
-        _validate_harbor_tasks(normalized_harbor_task_ids)
-    effective_accelerators = accelerators or default_accelerators_for(pipeline, benchmark)
-    options = RenderOptions(
-        pipeline=pipeline,
-        project_id=project_id,
-        bucket=bucket,
-        credentials_path=credentials,
-        accelerators=effective_accelerators,
-        num_nodes=num_nodes,
-        cluster_name=cluster,
-        logger=logger,
-        wandb_secret=wandb_secret,
-        webarena_archives_gcs=webarena_archives_gcs,
-        chromiumrl_url=chromiumrl_url,
-        cdp_url=cdp_url,
-        domdiff_reward_image=domdiff_reward_image,
-        benchmark=benchmark,
-        harbor_task_ids=normalized_harbor_task_ids,
-        harbor_oracle=harbor_oracle,
-        gpu_container_image=gpu_container_image,
-        optimization_profile=optimization_profile,
-    )
-    try:
-        validate_remote_runtime_urls(options)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    return options
+    return f"{default_bucket_for_project(project_id)}/datasets/cpp-perf/{CPP_DATA_SCHEMA_VERSION}/skyrl"
 
 
-def _validate_harbor_tasks(task_ids: tuple[str, ...] | list[str]) -> None:
-    try:
-        harbor_tasks.validate_tasks(task_ids=list(task_ids))
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+def _bucket_uri_from_gcs_prefix(prefix: str) -> str:
+    if not prefix.startswith("gs://"):
+        raise typer.BadParameter(f"GCS prefix must start with gs://, got {prefix}")
+    parts = prefix.removeprefix("gs://").split("/", 1)
+    if not parts[0]:
+        raise typer.BadParameter(f"GCS prefix must include a bucket name: {prefix}")
+    return f"gs://{parts[0]}"
 
 
-def _warn_if_harbor_r3_accelerator_risk(options: RenderOptions) -> None:
-    """Warn before spending a paid launch on a topology known to OOM."""
-
-    accelerator_name = options.accelerators.split(":", maxsplit=1)[0].strip().upper()
-    if options.benchmark == "harbor-domdiff-browser-swe" and accelerator_name == "A100":
-        console.print(
-            "[yellow]warning:[/yellow] Harbor DOMDiff R3 on 40GB A100 GPUs can reach DOMDiff reward "
-            "scoring but needs CPU optimizer offload for the Megatron optimizer step. "
-            "This render enables offload automatically; use the default "
-            f"{DEFAULT_HARBOR_R3_ACCELERATORS} topology when H100 quota is available."
-        )
-
-
-def _domdiff_config(
+def _build_tasks_command(
     *,
-    run_id: Optional[str],
-    credentials: str,
-    project: Optional[str],
-    zone: str,
-    machine_type: str,
-    min_cpu_platform: str,
-    network: str,
-    boot_disk_type: str,
-    volume_gb: int,
-    reward_image: str,
-    keep: bool = False,
-) -> domdiff.DomdiffConfig:
-    return domdiff.DomdiffConfig(
-        run_id=run_id or domdiff.default_run_id(),
-        credentials_path=credentials,
-        project_id=project or "",
-        zone=zone,
-        machine_type=machine_type,
-        min_cpu_platform=min_cpu_platform,
-        network=network,
-        boot_disk_type=boot_disk_type,
-        volume_gb=volume_gb,
-        reward_image=reward_image,
-        keep=keep,
-    )
-
-
-def _local_domdiff_config(
-    *,
-    run_id: Optional[str],
-    image: str,
-    container_name: str,
-    host_health_port: int,
-    host_cdp_port: int,
-    reward_port: int,
-    keep_container: bool = False,
-    publish_cdp: bool = False,
-) -> domdiff.LocalDomdiffConfig:
-    return domdiff.LocalDomdiffConfig(
-        run_id=run_id or domdiff.default_run_id("domdiff-local"),
-        image=image,
-        container_name=container_name,
-        host_health_port=host_health_port,
-        host_cdp_port=host_cdp_port,
-        reward_port=reward_port,
-        keep_container=keep_container,
-        publish_cdp=publish_cdp,
-    )
-
-
-def _artifact_image_config(
-    *,
-    source_image: str,
-    credentials: str,
-    project: Optional[str],
-    location: str,
-    repository: str,
-    image_name: str,
-    tag: Optional[str],
-    create_repository: bool,
-) -> domdiff.ArtifactImageConfig:
-    return domdiff.ArtifactImageConfig(
-        source_image=source_image,
-        credentials_path=credentials,
-        project_id=project or "",
-        location=location,
-        repository=repository,
-        image_name=image_name,
-        tag=tag or "",
-        create_repository=create_repository,
-        gcloud_config_dir=f".w8-biayn/domdiff/image-push/{domdiff.safe_name(repository, max_len=40)}-gcloud-config",
-    )
-
-
-def _maybe_push_local_reward_image(
-    *,
-    local_reward_image: Optional[str],
-    reward_image: str,
-    credentials: str,
-    project: Optional[str],
-    artifact_location: str,
-    artifact_repository: str,
-    artifact_image_name: str,
-    artifact_tag: Optional[str],
-    create_repository: bool,
-    dry_run: bool,
-) -> str:
-    if not local_reward_image:
-        return reward_image
-    config = _artifact_image_config(
-        source_image=local_reward_image,
-        credentials=credentials,
-        project=project,
-        location=artifact_location,
-        repository=artifact_repository,
-        image_name=artifact_image_name,
-        tag=artifact_tag,
-        create_repository=create_repository,
-    )
-    if dry_run:
-        console.print(domdiff.artifact_push_plan(config))
-        return domdiff.push_local_image_to_artifact_registry(config, dry_run=True)
-    target = domdiff.push_local_image_to_artifact_registry(config)
-    console.print(f"pushed_reward_image: {target}")
-    return target
+    pie_rows: str,
+    tests_json: str,
+    out: str,
+    split: str,
+    limit: Optional[int],
+    compiler_flags: str,
+) -> None:
+    pairs = read_pie_pairs(pie_rows, limit=limit)
+    manifest = load_tests_manifest(tests_json)
+    tasks = build_tasks(pairs, manifest, split=split, compiler_flags=compiler_flags)  # type: ignore[arg-type]
+    output = Path(out)
+    for task in tasks:
+        task.write_json(output / f"{task.task_id}.json")
+    console.print(f"wrote_tasks: {len(tasks)}")
+    console.print(f"out: {output}")
 
 
 @app.command()
 def doctor(
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    cloud: bool = typer.Option(False, help="Run cloud checks such as `sky check gcp`."),
-    domdiff_checks: bool = typer.Option(False, "--domdiff", help="Include DOMDiff reward-host prerequisites."),
+    cloud: bool = typer.Option(False, help="Run GCP/SkyPilot checks."),
+    cpp_perf: bool = typer.Option(False, "--cpp-perf", help="Check C++ perf-harness prerequisites."),
 ) -> None:
     """Validate local prerequisites without printing secrets."""
+
     table = Table(title="w8-biayn doctor")
     table.add_column("Check")
     table.add_column("Status")
     table.add_column("Detail")
 
-    tools = ["uv", "git", "gcloud", "sky"]
-    if domdiff_checks:
-        tools.extend(["docker", "ssh", "scp", "ssh-keygen", "curl"])
+    tools = ["uv", "git"]
+    if cpp_perf:
+        tools.extend(["docker", "g++", "perf", "taskset", "timeout"])
+    if cloud:
+        tools.extend(["gcloud", "sky"])
     for tool in tools:
         found = shutil.which(tool)
         table.add_row(tool, "ok" if found else "missing", found or "not on PATH")
-    if domdiff_checks:
-        cloudflared = domdiff.find_cloudflared()
-        table.add_row("cloudflared", "ok" if cloudflared else "missing", str(cloudflared or "not on PATH or .local/cloudflared"))
-        docker = shutil.which("docker")
-        if docker:
-            image_ok = domdiff.local_docker_image_exists(DEFAULT_DOMDIFF_LOCAL_IMAGE)
-            table.add_row(
-                DEFAULT_DOMDIFF_LOCAL_IMAGE,
-                "ok" if image_ok else "missing",
-                "local Docker image is available" if image_ok else "build/tag it locally or use the prebuilt remote image",
-            )
-        table.add_row("/dev/kvm", "ok" if Path("/dev/kvm").exists() else "missing", "required for local DOMDiff container")
+
+    if cpp_perf:
+        perf_paranoid = Path("/proc/sys/kernel/perf_event_paranoid")
+        if perf_paranoid.exists():
+            value = perf_paranoid.read_text(encoding="utf-8").strip()
+            status = "ok" if int(value) <= 2 else "warn"
+            table.add_row("perf_event_paranoid", status, value)
+        else:
+            table.add_row("perf_event_paranoid", "missing", "Linux perf sysctl not found")
+        governor = Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+        if governor.exists():
+            value = governor.read_text(encoding="utf-8").strip()
+            table.add_row("cpu governor", "ok" if value == "performance" else "warn", value)
+        else:
+            table.add_row("cpu governor", "warn", "cpufreq governor file not found")
 
     try:
         project_id = get_project_id(credentials)
@@ -337,11 +204,12 @@ def doctor(
         table.add_row("artifact bucket", "default", default_bucket_for_project(project_id))
     except CredentialError as exc:
         table.add_row("credentials", "error", str(exc))
+        project_id = ""
 
     console.print(table)
 
     if cloud:
-        project_id = _project_id(credentials)
+        project_id = project_id or _project_id(credentials)
         env = _service_account_env(credentials, project_id=project_id)
         console.print("cloud credentials: service-account JSON env override; gcloud auth/config is not modified.")
         run_command(["sky", "check", "gcp"], env=env)
@@ -372,22 +240,6 @@ def doctor(
                 + "[/red]"
             )
             raise typer.Exit(1)
-        if domdiff_checks:
-            config = _domdiff_config(
-                run_id="doctor",
-                credentials=credentials,
-                project=None,
-                zone=DEFAULT_DOMDIFF_ZONE,
-                machine_type=DEFAULT_DOMDIFF_MACHINE_TYPE,
-                min_cpu_platform=DEFAULT_DOMDIFF_MIN_CPU_PLATFORM,
-                network="default",
-                boot_disk_type=DEFAULT_DOMDIFF_BOOT_DISK_TYPE,
-                volume_gb=DEFAULT_DOMDIFF_VOLUME_GB,
-                reward_image=DEFAULT_DOMDIFF_IMAGE,
-            )
-            host = domdiff.create_host(config)
-            host.preflight_permissions()
-            console.print("[green]DOMDiff GCP permission preflight passed.[/green]")
         if not sky_gcp_enabled:
             console.print("[red]GCP is not enabled for SkyPilot. Fix the IAM errors above and rerun doctor.[/red]")
             raise typer.Exit(1)
@@ -399,6 +251,7 @@ def upstreams_clone(
     dry_run: bool = typer.Option(False, help="Print git commands without running them."),
 ) -> None:
     """Clone or update pinned upstream repos into `.cache/upstreams`."""
+
     keys = [name] if name else list(upstreams.UPSTREAMS)
     for key in keys:
         if key not in upstreams.UPSTREAMS:
@@ -410,6 +263,7 @@ def upstreams_clone(
 @upstreams_app.command("status")
 def upstreams_status() -> None:
     """Show pinned upstream clone state."""
+
     table = Table(title="Upstreams")
     for column in ("key", "state", "head", "pin", "path"):
         table.add_column(column)
@@ -418,254 +272,336 @@ def upstreams_status() -> None:
     console.print(table)
 
 
-@data_app.command("prepare")
-def data_prepare(
-    benchmark: datasets.Benchmark = typer.Argument(..., help="BrowserGym benchmark."),
-    out: str = typer.Option(..., "--out", help="Output directory for train/validation parquet."),
-    train_ratio: float = typer.Option(0.8, help="Train split ratio."),
-    seed: int = typer.Option(42, help="Deterministic split seed."),
-    limit: Optional[int] = typer.Option(None, help="Optional max env ids for smoke tests."),
+@data_app.command("doctor")
+def data_doctor() -> None:
+    """Validate local dataset-conversion tooling."""
+
+    table = Table(title="w8-biayn data doctor")
+    table.add_column("Check")
+    table.add_column("Status")
+    table.add_column("Detail")
+    for module_name in ("pyarrow", "datasets", "huggingface_hub", "gdown"):
+        try:
+            module = __import__(module_name)
+            detail = getattr(module, "__version__", "installed")
+            table.add_row(module_name, "ok", str(detail))
+        except ImportError:
+            table.add_row(module_name, "missing", f"run ./scripts/bootstrap.sh to install {module_name}")
+    for tool in ("gcloud", "git"):
+        found = shutil.which(tool)
+        table.add_row(tool, "ok" if found else "missing", found or "not on PATH")
+    table.add_row("schema", "ok", CPP_DATA_SCHEMA_VERSION)
+    console.print(table)
+
+
+@data_pie_app.command("download")
+def data_pie_download(
+    out: str = typer.Option(f"{DEFAULT_DATA_ROOT}/pie", "--out", help="Local PIE data root."),
+    force: bool = typer.Option(False, help="Re-download files that already exist."),
+    dry_run: bool = typer.Option(False, help="Print source URLs and destinations without downloading."),
 ) -> None:
-    """Prepare BrowserGym MiniWoB/WebArena parquet datasets."""
-    train_path, val_path = datasets.prepare_dataset(
-        benchmark,
-        out,
-        train_ratio=train_ratio,
-        seed=seed,
-        limit=limit,
+    """Download PIE source archives into the project data cache."""
+
+    if dry_run:
+        for target in PIE_DOWNLOADS:
+            console.print(f"{target.name}: {target.url} -> {Path(out) / target.relative_path}")
+        return
+    written = download_pie(out, force=force)
+    for path in written:
+        console.print(str(path))
+
+
+@data_pie_app.command("build-tests-manifest")
+def data_pie_build_tests_manifest(
+    inputs_outputs_basepath: str = typer.Option(..., "--inputs-outputs-basepath", help="Directory keyed by problem id."),
+    coverage_json: str = typer.Option(..., "--coverage-json", help="Problem-id keyed coverage JSON."),
+    out: str = typer.Option(..., "--out", help="Output tests manifest JSON path."),
+    problem_id: Optional[list[str]] = typer.Option(None, "--problem-id", help="Problem id to include. Repeatable."),
+    problem_ids_json: Optional[str] = typer.Option(None, "--problem-ids-json", help="JSON list of problem ids."),
+    visible_count: int = typer.Option(1, help="Visible tests per problem."),
+    hidden_count: int = typer.Option(1, help="Hidden tests per problem."),
+) -> None:
+    """Build a task tests manifest from PIE/CodeNet input-output files."""
+
+    selected: list[str] = list(problem_id or [])
+    if problem_ids_json:
+        loaded_ids = json.loads(Path(problem_ids_json).read_text(encoding="utf-8"))
+        if not isinstance(loaded_ids, list):
+            raise typer.BadParameter("--problem-ids-json must contain a JSON list")
+        selected.extend(str(item) for item in loaded_ids)
+    if not selected:
+        selected = [path.name for path in sorted(Path(inputs_outputs_basepath).iterdir()) if path.is_dir()]
+    coverage = json.loads(Path(coverage_json).read_text(encoding="utf-8"))
+    manifest = build_tests_manifest_from_io(
+        selected,
+        inputs_outputs_basepath,
+        coverage,
+        visible_count=visible_count,
+        hidden_count=hidden_count,
     )
-    console.print(f"train: {train_path}")
-    console.print(f"validation: {val_path}")
+    output = Path(out)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    console.print(f"wrote_problems: {len(manifest)}")
+    console.print(f"out: {output}")
+
+
+@data_pie_app.command("build-tasks")
+def data_pie_build_tasks(
+    pairs: str = typer.Option(..., "--pairs", help="PIE TSV or JSONL rows."),
+    tests_json: str = typer.Option(..., "--tests-json", help="Problem-id keyed tests/coverage manifest."),
+    out: str = typer.Option(..., "--out", help="Output directory for task JSON files."),
+    split: str = typer.Option("train", help="Task split to write: train, test, or validation."),
+    limit: Optional[int] = typer.Option(None, help="Optional maximum PIE rows to inspect."),
+    compiler_flags: str = typer.Option("-O3 -std=c++20", help="Compiler flags recorded in each task."),
+) -> None:
+    """Build validated task JSON from PIE rows and a tests manifest."""
+
+    _build_tasks_command(
+        pie_rows=pairs,
+        tests_json=tests_json,
+        out=out,
+        split=split,
+        limit=limit,
+        compiler_flags=compiler_flags,
+    )
+
+
+@data_skyrl_app.command("build")
+def data_skyrl_build(
+    tasks_dir: str = typer.Option(..., "--tasks-dir", help="Directory containing validated task JSON."),
+    out: str = typer.Option(DEFAULT_SKYRL_DATA_DIR, "--out", help="Output SkyRL dataset bundle directory."),
+) -> None:
+    """Build SkyRL GRPO parquet and SFT JSONL from task JSON."""
+
+    written = build_skyrl_datasets(tasks_dir, out)
+    for key, path in written.items():
+        console.print(f"{key}: {path}")
+
+
+@data_supercoder_app.command("download")
+def data_supercoder_download(
+    out: str = typer.Option(f"{DEFAULT_DATA_ROOT}/supercoder", "--out", help="Local SuperCoder data root."),
+    dataset: str = typer.Option(SUPERCODER_DATASET, help="Hugging Face dataset id."),
+    force: bool = typer.Option(False, help="Re-download resolved files."),
+    dry_run: bool = typer.Option(False, help="Print Hugging Face dataset/patterns without downloading."),
+) -> None:
+    """Download SuperCoder reference parquet splits for study/eval conversion."""
+
+    if dry_run:
+        console.print(f"dataset: {dataset}")
+        console.print(f"out: {out}")
+        console.print(f"allow_patterns: {list(SUPERCODER_ALLOW_PATTERNS)}")
+        return
+    path = download_supercoder(out, dataset=dataset, force=force)
+    console.print(str(path))
+
+
+@data_supercoder_app.command("inspect")
+def data_supercoder_inspect(
+    parquet: str = typer.Option(..., "--parquet", help="Resolved SuperCoder parquet file."),
+) -> None:
+    """Inspect a SuperCoder parquet schema and row count."""
+
+    console.print_json(data=inspect_supercoder_parquet(parquet))
+
+
+@data_cache_app.command("upload")
+def data_cache_upload(
+    path: str = typer.Option(DEFAULT_SKYRL_DATA_DIR, "--path", help="Local data bundle directory."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    gcs_prefix: Optional[str] = typer.Option(None, "--gcs-prefix", help="Destination GCS prefix."),
+    dry_run: bool = typer.Option(False, help="Print gcloud command without uploading."),
+) -> None:
+    """Upload a versioned dataset bundle to GCS using scoped credentials."""
+
+    local_path = Path(path)
+    if not dry_run:
+        errors = verify_data_manifest(local_path)
+        if errors:
+            raise typer.BadParameter("; ".join(errors))
+    prefix = _data_gcs_prefix(credentials, gcs_prefix)
+    env = _service_account_env(credentials)
+    bucket_uri = _bucket_uri_from_gcs_prefix(prefix)
+    if dry_run:
+        run_command(["gcloud", "storage", "buckets", "describe", bucket_uri], env=env, dry_run=True)
+        run_command(
+            ["gcloud", "storage", "buckets", "create", bucket_uri, "--project", _project_id(credentials)],
+            env=env,
+            dry_run=True,
+        )
+    else:
+        describe = subprocess.run(
+            ["gcloud", "storage", "buckets", "describe", bucket_uri],
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if describe.returncode != 0:
+            run_command(["gcloud", "storage", "buckets", "create", bucket_uri, "--project", _project_id(credentials)], env=env)
+    run_command(["gcloud", "storage", "rsync", "--recursive", str(local_path), prefix], env=env, dry_run=dry_run)
+
+
+@data_cache_app.command("restore")
+def data_cache_restore(
+    path: str = typer.Option(DEFAULT_SKYRL_DATA_DIR, "--path", help="Local restore directory."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    gcs_prefix: Optional[str] = typer.Option(None, "--gcs-prefix", help="Source GCS prefix."),
+    dry_run: bool = typer.Option(False, help="Print gcloud command without restoring."),
+) -> None:
+    """Restore and verify a versioned dataset bundle from GCS."""
+
+    prefix = _data_gcs_prefix(credentials, gcs_prefix)
+    local_path = Path(path)
+    local_path.mkdir(parents=True, exist_ok=True)
+    env = _service_account_env(credentials)
+    run_command(["gcloud", "storage", "rsync", "--recursive", prefix, str(local_path)], env=env, dry_run=dry_run)
+    if not dry_run:
+        errors = verify_data_manifest(local_path)
+        if errors:
+            raise typer.BadParameter("; ".join(errors))
+        console.print("manifest: ok")
+
+
+@task_app.command("build")
+def cpp_task_build(
+    pie_tsv: str = typer.Option(..., "--pie-tsv", help="PIE trajectory TSV to parse."),
+    tests_json: str = typer.Option(..., "--tests-json", help="Problem-id keyed tests/coverage manifest."),
+    out: str = typer.Option(..., "--out", help="Output directory for task JSON files."),
+    split: str = typer.Option("train", help="Task split to write: train, test, or validation."),
+    limit: Optional[int] = typer.Option(None, help="Optional maximum PIE rows to inspect."),
+    compiler_flags: str = typer.Option("-O3 -std=c++20", help="Compiler flags recorded in each task."),
+) -> None:
+    """Build validated PIE-derived C++ task JSON files."""
+
+    _build_tasks_command(
+        pie_rows=pie_tsv,
+        tests_json=tests_json,
+        out=out,
+        split=split,
+        limit=limit,
+        compiler_flags=compiler_flags,
+    )
+
+
+@harness_app.command("run")
+def cpp_harness_run(
+    task: str = typer.Option(..., "--task", help="Task JSON path."),
+    candidate: str = typer.Option(..., "--candidate", help="Candidate C++ file path."),
+    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image containing g++, perf, taskset, and bash."),
+    cpu: str = typer.Option(DEFAULT_CPU, help="Isolated CPU id used for taskset."),
+    work_dir: Optional[str] = typer.Option(None, help="Optional scratch directory to keep logs/artifacts."),
+    dry_run: bool = typer.Option(False, help="Print sandbox commands without running Docker."),
+) -> None:
+    """Compile, test, and measure a candidate."""
+
+    loaded_task = CppTask.read_json(task)
+    if dry_run:
+        console.print(dry_run_plan(loaded_task, image=image, cpu=cpu))
+        return
+    code = Path(candidate).read_text(encoding="utf-8")
+    result = run_in_sandbox(loaded_task, code, image=image, cpu=cpu, work_dir=work_dir)
+    console.print_json(data=result.model_dump())
+
+
+@reward_app.command("score")
+def cpp_reward_score(
+    task: str = typer.Option(..., "--task", help="Task JSON path."),
+    model_output: str = typer.Option(..., "--model-output", help="Model output Markdown path."),
+    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image for harness execution."),
+    cpu: str = typer.Option(DEFAULT_CPU, help="Isolated CPU id used for taskset."),
+    dry_run: bool = typer.Option(False, help="Validate format and print harness commands without scoring."),
+) -> None:
+    """Score one model output with the correctness-gated efficiency reward."""
+
+    loaded_task = CppTask.read_json(task)
+    output_text = Path(model_output).read_text(encoding="utf-8")
+    if dry_run:
+        valid = valid_model_output(output_text)
+        console.print(f"valid_format: {valid}")
+        if valid:
+            code = extract_code_block(output_text)
+            console.print(f"candidate_bytes: {len(code.encode('utf-8'))}")
+            console.print(dry_run_plan(loaded_task, image=image, cpu=cpu))
+        return
+
+    def runner(candidate_task: CppTask, code: str):
+        return run_in_sandbox(candidate_task, code, image=image, cpu=cpu)
+
+    breakdown = compute_reward(loaded_task, output_text, runner=runner)
+    payload = {"reward": breakdown.reward, "reason": breakdown.reason}
+    if breakdown.harness is not None:
+        payload["harness"] = breakdown.harness.model_dump()
+    console.print_json(data=payload)
 
 
 @config_app.command("render")
 def config_render(
-    pipeline: Pipeline = typer.Argument(..., help="Pipeline to render."),
+    pipeline: Pipeline = typer.Argument(..., help="Pipeline to render: cpp-smoke, cpp-sft, or cpp-grpo."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML path."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
-    accelerators: Optional[str] = typer.Option(
-        None,
-        help=(
-            "SkyPilot accelerator request. Defaults to "
-            f"{DEFAULT_ACCELERATORS}, or {DEFAULT_HARBOR_R3_ACCELERATORS} for Harbor DOMDiff R3."
-        ),
-    ),
+    accelerators: Optional[str] = typer.Option(None, help="SkyPilot accelerator request."),
     num_nodes: int = typer.Option(1, help="SkyPilot node count."),
     cluster: Optional[str] = typer.Option(None, help="SkyPilot cluster name."),
-    logger: str = typer.Option("console", help="SkyRL logger: console or wandb."),
-    wandb_secret: bool = typer.Option(False, help="Include WANDB_API_KEY as a SkyPilot secret."),
-    webarena_archives_gcs: Optional[str] = typer.Option(
-        None,
-        help="GCS prefix containing official WebArena archives for VM-side service provisioning.",
-    ),
-    chromiumrl_url: Optional[str] = typer.Option(None, help="DOMDiff ChromiumRL reward service URL to inject."),
-    cdp_url: Optional[str] = typer.Option(None, help="DOMDiff CDP WebSocket URL to inject."),
-    domdiff_reward_image: str = typer.Option(DEFAULT_DOMDIFF_IMAGE, help="DOMDiff reward image metadata to render."),
-    benchmark: Optional[str] = typer.Option(None, help="Benchmark key to record in the rendered config."),
-    harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
-    harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
-    gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
-    optimization_profile: OptimizationProfile = typer.Option(
-        DEFAULT_OPTIMIZATION_PROFILE,
-        "--optimization-profile",
-        help="Kernel R&D profile: baseline (identical render), a100-kernel-lab (gated kernels), a100-safe (observability).",
-    ),
+    model: Optional[str] = typer.Option(None, help="Open model to load/train."),
+    gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
+    dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
+    train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
+    n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
 ) -> None:
     """Render a SkyPilot YAML file."""
+
     options = _render_options(
-        pipeline,
-        credentials,
-        bucket,
-        accelerators,
-        num_nodes,
-        cluster,
-        logger,
-        wandb_secret,
-        webarena_archives_gcs,
-        chromiumrl_url,
-        cdp_url,
-        domdiff_reward_image,
-        benchmark,
-        harbor_task,
-        harbor_oracle,
-        gpu_container_image,
-        optimization_profile,
+        pipeline=pipeline,
+        credentials=credentials,
+        bucket=bucket,
+        accelerators=accelerators,
+        num_nodes=num_nodes,
+        cluster=cluster,
+        model=model,
+        gpu_container_image=gpu_container_image,
+        dataset_gcs_prefix=dataset_gcs_prefix,
+        train_batch_size=train_batch_size,
+        n_samples_per_prompt=n_samples_per_prompt,
     )
-    output_path = output or f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml"
-    written = write_sky_yaml(options, output_path)
+    written = write_sky_yaml(options, output)
     console.print(str(written))
 
 
 @app.command()
 def launch(
-    pipeline: Pipeline = typer.Argument(..., help="Pipeline to launch."),
+    pipeline: Pipeline = typer.Argument(..., help="Pipeline to launch: cpp-smoke, cpp-sft, or cpp-grpo."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
-    accelerators: Optional[str] = typer.Option(
-        None,
-        help=(
-            "SkyPilot accelerator request. Defaults to "
-            f"{DEFAULT_ACCELERATORS}, or {DEFAULT_HARBOR_R3_ACCELERATORS} for Harbor DOMDiff R3."
-        ),
-    ),
+    accelerators: Optional[str] = typer.Option(None, help="SkyPilot accelerator request."),
     num_nodes: int = typer.Option(1, help="SkyPilot node count."),
     cluster: Optional[str] = typer.Option(None, help="SkyPilot cluster name."),
-    logger: str = typer.Option("console", help="SkyRL logger: console or wandb."),
-    wandb_secret: bool = typer.Option(False, help="Pass WANDB_API_KEY through SkyPilot secrets."),
-    webarena_archives_gcs: Optional[str] = typer.Option(
-        None,
-        help="GCS prefix containing official WebArena archives for VM-side service provisioning.",
-    ),
-    with_domdiff: bool = typer.Option(False, help="Provision a GCP DOMDiff reward host before launching R3."),
-    with_local_domdiff: bool = typer.Option(False, help="Start a local DOMDiff container and expose the reward service through a Cloudflare quick tunnel."),
-    chromiumrl_url: Optional[str] = typer.Option(None, help="Existing DOMDiff ChromiumRL reward service URL."),
-    cdp_url: Optional[str] = typer.Option(None, help="Existing DOMDiff CDP WebSocket URL."),
-    domdiff_run_id: Optional[str] = typer.Option(None, help="Run id for the DOMDiff reward host."),
-    domdiff_project: Optional[str] = typer.Option(None, help="Override GCP project for the DOMDiff reward host."),
-    domdiff_zone: str = typer.Option(DEFAULT_DOMDIFF_ZONE, help="GCP zone for the DOMDiff reward host."),
-    domdiff_machine_type: str = typer.Option(DEFAULT_DOMDIFF_MACHINE_TYPE, help="GCP machine type for DOMDiff."),
-    domdiff_min_cpu_platform: str = typer.Option(DEFAULT_DOMDIFF_MIN_CPU_PLATFORM, help="GCP minimum CPU platform for nested virtualization."),
-    domdiff_network: str = typer.Option("default", help="GCP VPC network for the DOMDiff reward host."),
-    domdiff_boot_disk_type: str = typer.Option(DEFAULT_DOMDIFF_BOOT_DISK_TYPE, help="DOMDiff boot disk type."),
-    domdiff_volume_gb: int = typer.Option(DEFAULT_DOMDIFF_VOLUME_GB, help="DOMDiff boot disk size in GB."),
-    domdiff_reward_image: str = typer.Option(DEFAULT_DOMDIFF_IMAGE, help="Prebuilt DOMDiff reward image."),
-    local_reward_image: Optional[str] = typer.Option(
-        None,
-        "--local-reward-image",
-        help="Local Docker image to push to Google Artifact Registry and use as the DOMDiff reward image.",
-    ),
-    artifact_location: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_LOCATION, help="Artifact Registry location for --local-reward-image."),
-    artifact_repository: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_REPOSITORY, help="Artifact Registry repository for --local-reward-image."),
-    artifact_image_name: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_IMAGE, help="Artifact Registry image name for --local-reward-image."),
-    artifact_tag: Optional[str] = typer.Option(None, help="Artifact Registry tag for --local-reward-image. Defaults to local-<image-id>."),
-    create_artifact_repository: bool = typer.Option(True, "--create-artifact-repository/--no-create-artifact-repository", help="Create the Artifact Registry repository if it is missing."),
-    keep_domdiff: bool = typer.Option(False, help="Leave the DOMDiff VM running after launch exits."),
-    local_domdiff_run_id: Optional[str] = typer.Option(None, help="Run id for --with-local-domdiff state."),
-    local_domdiff_image: str = typer.Option(DEFAULT_DOMDIFF_LOCAL_IMAGE, help="Local Docker image for --with-local-domdiff."),
-    local_domdiff_container: str = typer.Option("android-world-domdiff", help="Local DOMDiff container name."),
-    local_domdiff_health_port: int = typer.Option(5080, help="Local host port for DOMDiff /health."),
-    local_domdiff_cdp_port: int = typer.Option(9224, help="Local host port for DOMDiff CDP."),
-    local_chromiumrl_port: int = typer.Option(8080, help="Local host port for the ChromiumRL reward service."),
-    local_publish_cdp: bool = typer.Option(False, "--local-publish-cdp", help="Also expose local CDP through a Cloudflare quick tunnel for debugging."),
-    keep_local_domdiff: bool = typer.Option(False, help="Leave local DOMDiff processes/container running after launch exits."),
-    benchmark: Optional[str] = typer.Option(None, help="Benchmark key to record for this run."),
-    harbor_task: Optional[list[str]] = typer.Option(None, "--harbor-task", help="Packaged Harbor task id to include. Repeat to select multiple tasks."),
-    harbor_oracle: bool = typer.Option(True, "--harbor-oracle/--no-harbor-oracle", help="Run packaged Harbor oracle patches before verification."),
-    gpu_container_image: str = typer.Option(DEFAULT_GPU_CONTAINER_IMAGE, help="Google GPU Docker image used for Harbor R3 training."),
-    optimization_profile: OptimizationProfile = typer.Option(
-        DEFAULT_OPTIMIZATION_PROFILE,
-        "--optimization-profile",
-        help="Kernel R&D profile: baseline (identical render), a100-kernel-lab (gated kernels), a100-safe (observability).",
-    ),
+    model: Optional[str] = typer.Option(None, help="Open model to load/train."),
+    gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
+    dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
+    train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
+    n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
 ) -> None:
-    """Render config and launch a SkyPilot job."""
-    domdiff_state: domdiff.DomdiffState | None = None
-    local_domdiff_state: domdiff.LocalDomdiffState | None = None
-    if with_domdiff and pipeline != "r3":
-        raise typer.BadParameter("--with-domdiff is currently supported only for the r3 pipeline")
-    if with_local_domdiff and pipeline != "r3":
-        raise typer.BadParameter("--with-local-domdiff is currently supported only for the r3 pipeline")
-    if with_domdiff and with_local_domdiff:
-        raise typer.BadParameter("Use only one of --with-domdiff or --with-local-domdiff")
-    if with_local_domdiff and local_reward_image:
-        raise typer.BadParameter("--local-reward-image uploads to Artifact Registry; use --local-domdiff-image for local tunnel mode")
-    if benchmark:
-        try:
-            benchmarks.get_benchmark(benchmark)
-        except KeyError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-    is_harbor_benchmark = benchmark == "harbor-domdiff-browser-swe"
-    selected_harbor_tasks = tuple(harbor_task or harbor_tasks.DEFAULT_HARBOR_TASK_IDS)
-    if is_harbor_benchmark:
-        if pipeline != "r3":
-            raise typer.BadParameter("harbor-domdiff-browser-swe is supported only for the r3 pipeline")
-        _validate_harbor_tasks(selected_harbor_tasks)
-    domdiff_reward_image = _maybe_push_local_reward_image(
-        local_reward_image=local_reward_image,
-        reward_image=domdiff_reward_image,
-        credentials=credentials,
-        project=domdiff_project,
-        artifact_location=artifact_location,
-        artifact_repository=artifact_repository,
-        artifact_image_name=artifact_image_name,
-        artifact_tag=artifact_tag,
-        create_repository=create_artifact_repository,
-        dry_run=dry_run,
-    )
-    if with_domdiff and not (chromiumrl_url and cdp_url):
-        domdiff_config = _domdiff_config(
-            run_id=domdiff_run_id,
-            credentials=credentials,
-            project=domdiff_project,
-            zone=domdiff_zone,
-            machine_type=domdiff_machine_type,
-            min_cpu_platform=domdiff_min_cpu_platform,
-            network=domdiff_network,
-            boot_disk_type=domdiff_boot_disk_type,
-            volume_gb=domdiff_volume_gb,
-            reward_image=domdiff_reward_image,
-            keep=keep_domdiff,
-        )
-        if dry_run:
-            console.print(domdiff.dry_run_plan(domdiff_config))
-            if benchmark:
-                console.print(f"benchmark: {benchmark}")
-            chromiumrl_url = chromiumrl_url or "https://<domdiff-reward-tunnel>"
-            cdp_url = cdp_url or "wss://<domdiff-cdp-tunnel>"
-        else:
-            domdiff_state = domdiff.up(domdiff_config)
-            chromiumrl_url = chromiumrl_url or domdiff_state.chromiumrl_url
-            cdp_url = cdp_url or domdiff_state.cdp_url
-    if with_local_domdiff and not chromiumrl_url:
-        local_config = _local_domdiff_config(
-            run_id=local_domdiff_run_id,
-            image=local_domdiff_image,
-            container_name=local_domdiff_container,
-            host_health_port=local_domdiff_health_port,
-            host_cdp_port=local_domdiff_cdp_port,
-            reward_port=local_chromiumrl_port,
-            keep_container=keep_local_domdiff,
-            publish_cdp=local_publish_cdp,
-        )
-        if dry_run:
-            console.print(domdiff.local_dry_run_plan(local_config))
-            if benchmark:
-                console.print(f"benchmark: {benchmark}")
-            chromiumrl_url = chromiumrl_url or "https://<local-domdiff-reward-tunnel>"
-            if local_publish_cdp:
-                cdp_url = cdp_url or "wss://<local-domdiff-cdp-tunnel>"
-            console.print(f"CHROMIUMRL_URL={chromiumrl_url}")
-            if cdp_url:
-                console.print(f"CDP_URL={cdp_url}")
-        else:
-            local_domdiff_state = domdiff.local_up(local_config)
-            chromiumrl_url = chromiumrl_url or local_domdiff_state.chromiumrl_url
-            cdp_url = cdp_url or local_domdiff_state.cdp_url
+    """Render config and launch a SkyPilot bridge job."""
 
     options = _render_options(
-        pipeline,
-        credentials,
-        bucket,
-        accelerators,
-        num_nodes,
-        cluster,
-        logger,
-        wandb_secret,
-        webarena_archives_gcs,
-        chromiumrl_url,
-        cdp_url,
-        domdiff_reward_image,
-        benchmark,
-        list(selected_harbor_tasks),
-        harbor_oracle,
-        gpu_container_image,
-        optimization_profile,
+        pipeline=pipeline,
+        credentials=credentials,
+        bucket=bucket,
+        accelerators=accelerators,
+        num_nodes=num_nodes,
+        cluster=cluster,
+        model=model,
+        gpu_container_image=gpu_container_image,
+        dataset_gcs_prefix=dataset_gcs_prefix,
+        train_batch_size=train_batch_size,
+        n_samples_per_prompt=n_samples_per_prompt,
     )
-    _warn_if_harbor_r3_accelerator_risk(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = _service_account_env(credentials, project_id=options.project_id)
     sky_args = ["sky", "launch", "-c", options.name]
@@ -674,427 +610,25 @@ def launch(
     if down_after:
         sky_args.append("--down")
     sky_args.append(str(output))
-    try:
-        run_command(sky_args, env=env, dry_run=dry_run)
-    finally:
-        if domdiff_state is not None and not keep_domdiff:
-            cleanup_config = _domdiff_config(
-                run_id=domdiff_state.run_id,
-                credentials=credentials,
-                project=domdiff_state.project_id,
-                zone=domdiff_state.zone,
-                machine_type=domdiff_machine_type,
-                min_cpu_platform=domdiff_min_cpu_platform,
-                network=domdiff_network,
-                boot_disk_type=domdiff_boot_disk_type,
-                volume_gb=domdiff_volume_gb,
-                reward_image=domdiff_state.reward_image,
-                keep=False,
-            )
-            host = domdiff.create_host_from_state(cleanup_config, domdiff.run_dir_for(domdiff_state.run_id))
-            host.cleanup()
-        if local_domdiff_state is not None and not keep_local_domdiff:
-            local_cleanup_config = _local_domdiff_config(
-                run_id=local_domdiff_state.run_id,
-                image=local_domdiff_state.image,
-                container_name=local_domdiff_state.container_name,
-                host_health_port=local_domdiff_health_port,
-                host_cdp_port=local_domdiff_cdp_port,
-                reward_port=local_chromiumrl_port,
-                keep_container=False,
-                publish_cdp=bool(local_domdiff_state.cdp_url),
-            )
-            host = domdiff.create_local_host_from_state(
-                local_cleanup_config,
-                domdiff.local_run_dir_for(local_domdiff_state.run_id),
-            )
-            host.cleanup()
-
-
-@domdiff_app.command("push-image")
-def domdiff_push_image(
-    source_image: str = typer.Option(DEFAULT_DOMDIFF_LOCAL_IMAGE, help="Local Docker image tag to upload."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    project: Optional[str] = typer.Option(None, help="Override GCP project."),
-    location: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_LOCATION, help="Artifact Registry location."),
-    repository: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_REPOSITORY, help="Artifact Registry repository name."),
-    image_name: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_IMAGE, help="Artifact Registry image name."),
-    tag: Optional[str] = typer.Option(None, help="Artifact Registry tag. Defaults to local-<image-id>."),
-    create_repository: bool = typer.Option(True, "--create-repository/--no-create-repository", help="Create the repository if it is missing."),
-    dry_run: bool = typer.Option(False, help="Print the push plan without uploading."),
-) -> None:
-    """Upload a local DOMDiff Docker image to Google Artifact Registry."""
-    config = _artifact_image_config(
-        source_image=source_image,
-        credentials=credentials,
-        project=project,
-        location=location,
-        repository=repository,
-        image_name=image_name,
-        tag=tag,
-        create_repository=create_repository,
-    )
-    if dry_run:
-        console.print(domdiff.artifact_push_plan(config))
-        return
-    target = domdiff.push_local_image_to_artifact_registry(config)
-    console.print(f"image: {target}")
-    console.print(f"use: uv run w8-biayn domdiff smoke --reward-image {target}")
-
-
-@domdiff_local_app.command("up")
-def domdiff_local_up(
-    run_id: Optional[str] = typer.Option(None, help="Run id for state under .w8-biayn/domdiff-local."),
-    image: str = typer.Option(DEFAULT_DOMDIFF_LOCAL_IMAGE, help="Local DOMDiff Docker image."),
-    container_name: str = typer.Option("android-world-domdiff", help="Local Docker container name."),
-    health_port: int = typer.Option(5080, help="Host port for DOMDiff /health."),
-    cdp_port: int = typer.Option(9224, help="Host port for CDP /json/version."),
-    reward_port: int = typer.Option(8080, help="Host port for the local ChromiumRL reward service."),
-    publish_cdp: bool = typer.Option(False, "--publish-cdp", help="Also expose local CDP through a Cloudflare quick tunnel for debugging."),
-    keep_container: bool = typer.Option(False, "--keep-container/--no-keep-container", help="Keep the Docker container if startup fails before tunnels are ready."),
-    dry_run: bool = typer.Option(False, help="Print the local container/tunnel plan without starting anything."),
-) -> None:
-    """Start a local DOMDiff container, reward service, and Cloudflare quick tunnel."""
-    config = _local_domdiff_config(
-        run_id=run_id,
-        image=image,
-        container_name=container_name,
-        host_health_port=health_port,
-        host_cdp_port=cdp_port,
-        reward_port=reward_port,
-        keep_container=keep_container,
-        publish_cdp=publish_cdp,
-    )
-    if dry_run:
-        console.print(domdiff.local_dry_run_plan(config))
-        return
-    state = domdiff.local_up(config)
-    console.print(f"run_id: {state.run_id}")
-    console.print(f"chromiumrl_url: {state.chromiumrl_url}")
-    if state.cdp_url:
-        console.print(f"cdp_url: {state.cdp_url}")
-    console.print(f"local_reward_url: {state.reward_url}")
-    console.print(f"state: {domdiff.local_run_dir_for(state.run_id)}")
-
-
-@domdiff_local_app.command("verify")
-def domdiff_local_verify(
-    run_id: Optional[str] = typer.Option(None, help="Run id to verify. Defaults to latest local run."),
-    image: str = typer.Option(DEFAULT_DOMDIFF_LOCAL_IMAGE, help="Local DOMDiff Docker image metadata for state reconstruction."),
-    health_port: int = typer.Option(5080, help="Host port for DOMDiff /health."),
-    cdp_port: int = typer.Option(9224, help="Host port for CDP /json/version."),
-    reward_port: int = typer.Option(8080, help="Host port for the local ChromiumRL reward service."),
-) -> None:
-    """Verify local KVM, CDP, reward tunnel, and one live DOMDiff evaluation."""
-    run_dir = domdiff.resolve_local_run_dir(run_id)
-    state = domdiff.LocalDomdiffState.read(run_dir)
-    config = _local_domdiff_config(
-        run_id=state.run_id,
-        image=image,
-        container_name=state.container_name,
-        host_health_port=health_port,
-        host_cdp_port=cdp_port,
-        reward_port=reward_port,
-    )
-    report = domdiff.create_local_host_from_state(config, run_dir).verify()
-    console.print_json(data=report)
-
-
-@domdiff_local_app.command("logs")
-def domdiff_local_logs(
-    run_id: Optional[str] = typer.Option(None, help="Run id to collect logs from. Defaults to latest local run."),
-) -> None:
-    """Collect local Docker, reward service, and cloudflared logs."""
-    run_dir = domdiff.resolve_local_run_dir(run_id)
-    state = domdiff.LocalDomdiffState.read(run_dir)
-    config = _local_domdiff_config(
-        run_id=state.run_id,
-        image=state.image,
-        container_name=state.container_name,
-        host_health_port=5080,
-        host_cdp_port=9224,
-        reward_port=8080,
-    )
-    domdiff.create_local_host_from_state(config, run_dir).collect_logs()
-    console.print(str(run_dir))
-
-
-@domdiff_local_app.command("down")
-def domdiff_local_down(
-    run_id: Optional[str] = typer.Option(None, help="Run id to stop. Defaults to latest local run."),
-    keep_container: bool = typer.Option(False, "--keep-container", help="Stop tunnels/reward service but keep the Docker container."),
-) -> None:
-    """Stop local DOMDiff quick tunnels, reward service, and optionally the container."""
-    run_dir = domdiff.resolve_local_run_dir(run_id)
-    state = domdiff.LocalDomdiffState.read(run_dir)
-    config = _local_domdiff_config(
-        run_id=state.run_id,
-        image=state.image,
-        container_name=state.container_name,
-        host_health_port=5080,
-        host_cdp_port=9224,
-        reward_port=8080,
-        keep_container=keep_container,
-    )
-    domdiff.create_local_host_from_state(config, run_dir).cleanup(keep_container=keep_container)
-    console.print(f"stopped: {state.run_id}")
-
-
-@domdiff_local_app.command("smoke")
-def domdiff_local_smoke(
-    run_id: Optional[str] = typer.Option(None, help="Run id for state under .w8-biayn/domdiff-local."),
-    image: str = typer.Option(DEFAULT_DOMDIFF_LOCAL_IMAGE, help="Local DOMDiff Docker image."),
-    container_name: str = typer.Option("android-world-domdiff", help="Local Docker container name."),
-    health_port: int = typer.Option(5080, help="Host port for DOMDiff /health."),
-    cdp_port: int = typer.Option(9224, help="Host port for CDP /json/version."),
-    reward_port: int = typer.Option(8080, help="Host port for the local ChromiumRL reward service."),
-    publish_cdp: bool = typer.Option(False, "--publish-cdp", help="Also expose local CDP through a Cloudflare quick tunnel for debugging."),
-    keep_running: bool = typer.Option(False, help="Leave local container, reward service, and tunnels running after verification."),
-    dry_run: bool = typer.Option(False, help="Print the local container/tunnel plan without starting anything."),
-) -> None:
-    """Run a local DOMDiff smoke and tear it down by default."""
-    config = _local_domdiff_config(
-        run_id=run_id,
-        image=image,
-        container_name=container_name,
-        host_health_port=health_port,
-        host_cdp_port=cdp_port,
-        reward_port=reward_port,
-        keep_container=keep_running,
-        publish_cdp=publish_cdp,
-    )
-    if dry_run:
-        console.print(domdiff.local_dry_run_plan(config))
-        return
-    state: domdiff.LocalDomdiffState | None = None
-    try:
-        state = domdiff.local_up(config)
-        host = domdiff.create_local_host_from_state(config, domdiff.local_run_dir_for(state.run_id))
-        report = host.verify()
-        console.print_json(data=report)
-    finally:
-        if state is not None and not keep_running:
-            host = domdiff.create_local_host_from_state(config, domdiff.local_run_dir_for(state.run_id))
-            host.cleanup()
-
-
-@domdiff_app.command("up")
-def domdiff_up(
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    run_id: Optional[str] = typer.Option(None, help="Run id for state under .w8-biayn/domdiff."),
-    project: Optional[str] = typer.Option(None, help="Override GCP project."),
-    zone: str = typer.Option(DEFAULT_DOMDIFF_ZONE, help="GCP zone."),
-    machine_type: str = typer.Option(DEFAULT_DOMDIFF_MACHINE_TYPE, help="GCP machine type."),
-    min_cpu_platform: str = typer.Option(DEFAULT_DOMDIFF_MIN_CPU_PLATFORM, help="GCP minimum CPU platform."),
-    network: str = typer.Option("default", help="GCP VPC network."),
-    boot_disk_type: str = typer.Option(DEFAULT_DOMDIFF_BOOT_DISK_TYPE, help="Boot disk type."),
-    volume_gb: int = typer.Option(DEFAULT_DOMDIFF_VOLUME_GB, help="Boot disk size in GB."),
-    reward_image: str = typer.Option(DEFAULT_DOMDIFF_IMAGE, help="Prebuilt DOMDiff reward image."),
-    local_reward_image: Optional[str] = typer.Option(
-        None,
-        "--local-reward-image",
-        help="Local Docker image to push to Google Artifact Registry and use as the DOMDiff reward image.",
-    ),
-    artifact_location: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_LOCATION, help="Artifact Registry location for --local-reward-image."),
-    artifact_repository: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_REPOSITORY, help="Artifact Registry repository for --local-reward-image."),
-    artifact_image_name: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_IMAGE, help="Artifact Registry image name for --local-reward-image."),
-    artifact_tag: Optional[str] = typer.Option(None, help="Artifact Registry tag for --local-reward-image. Defaults to local-<image-id>."),
-    create_artifact_repository: bool = typer.Option(True, "--create-artifact-repository/--no-create-artifact-repository", help="Create the Artifact Registry repository if it is missing."),
-    keep: bool = typer.Option(False, help="Record the host as intentionally kept for debugging."),
-    dry_run: bool = typer.Option(False, help="Print the GCP/container plan without launching."),
-) -> None:
-    """Create a GCP nested-virtualization DOMDiff reward host."""
-    reward_image = _maybe_push_local_reward_image(
-        local_reward_image=local_reward_image,
-        reward_image=reward_image,
-        credentials=credentials,
-        project=project,
-        artifact_location=artifact_location,
-        artifact_repository=artifact_repository,
-        artifact_image_name=artifact_image_name,
-        artifact_tag=artifact_tag,
-        create_repository=create_artifact_repository,
-        dry_run=dry_run,
-    )
-    config = _domdiff_config(
-        run_id=run_id,
-        credentials=credentials,
-        project=project,
-        zone=zone,
-        machine_type=machine_type,
-        min_cpu_platform=min_cpu_platform,
-        network=network,
-        boot_disk_type=boot_disk_type,
-        volume_gb=volume_gb,
-        reward_image=reward_image,
-        keep=keep,
-    )
-    if dry_run:
-        console.print(domdiff.dry_run_plan(config))
-        return
-    state = domdiff.up(config)
-    console.print(f"run_id: {state.run_id}")
-    console.print(f"chromiumrl_url: {state.chromiumrl_url}")
-    console.print(f"cdp_url: {state.cdp_url}")
-
-
-@domdiff_app.command("verify")
-def domdiff_verify(
-    run_id: Optional[str] = typer.Option(None, help="Run id to verify. Defaults to latest run."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-) -> None:
-    """Verify KVM, CDP, reward adapter health, and one live DOMDiff evaluation."""
-    run_dir = domdiff.resolve_run_dir(run_id)
-    state = domdiff.DomdiffState.read(run_dir)
-    config = _domdiff_config(
-        run_id=state.run_id,
-        credentials=credentials,
-        project=state.project_id,
-        zone=state.zone,
-        machine_type=DEFAULT_DOMDIFF_MACHINE_TYPE,
-        min_cpu_platform=DEFAULT_DOMDIFF_MIN_CPU_PLATFORM,
-        network="default",
-        boot_disk_type=DEFAULT_DOMDIFF_BOOT_DISK_TYPE,
-        volume_gb=DEFAULT_DOMDIFF_VOLUME_GB,
-        reward_image=state.reward_image,
-    )
-    report = domdiff.create_host_from_state(config, run_dir).verify()
-    console.print_json(data=report)
-
-
-@domdiff_app.command("logs")
-def domdiff_logs(
-    run_id: Optional[str] = typer.Option(None, help="Run id to collect logs from. Defaults to latest run."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-) -> None:
-    """Collect DOMDiff VM, Docker, tunnel, and reward adapter logs."""
-    run_dir = domdiff.resolve_run_dir(run_id)
-    state = domdiff.DomdiffState.read(run_dir)
-    config = _domdiff_config(
-        run_id=state.run_id,
-        credentials=credentials,
-        project=state.project_id,
-        zone=state.zone,
-        machine_type=DEFAULT_DOMDIFF_MACHINE_TYPE,
-        min_cpu_platform=DEFAULT_DOMDIFF_MIN_CPU_PLATFORM,
-        network="default",
-        boot_disk_type=DEFAULT_DOMDIFF_BOOT_DISK_TYPE,
-        volume_gb=DEFAULT_DOMDIFF_VOLUME_GB,
-        reward_image=state.reward_image,
-    )
-    domdiff.create_host_from_state(config, run_dir).collect_logs()
-    console.print(str(run_dir))
-
-
-@domdiff_app.command("down")
-def domdiff_down(
-    run_id: Optional[str] = typer.Option(None, help="Run id to delete. Defaults to latest run."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-) -> None:
-    """Delete a DOMDiff reward host and stop its tunnels/container."""
-    run_dir = domdiff.resolve_run_dir(run_id)
-    state = domdiff.DomdiffState.read(run_dir)
-    config = _domdiff_config(
-        run_id=state.run_id,
-        credentials=credentials,
-        project=state.project_id,
-        zone=state.zone,
-        machine_type=DEFAULT_DOMDIFF_MACHINE_TYPE,
-        min_cpu_platform=DEFAULT_DOMDIFF_MIN_CPU_PLATFORM,
-        network="default",
-        boot_disk_type=DEFAULT_DOMDIFF_BOOT_DISK_TYPE,
-        volume_gb=DEFAULT_DOMDIFF_VOLUME_GB,
-        reward_image=state.reward_image,
-    )
-    domdiff.create_host_from_state(config, run_dir).cleanup()
-    console.print(f"deleted: {state.run_id}")
-
-
-@domdiff_app.command("smoke")
-def domdiff_smoke(
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    run_id: Optional[str] = typer.Option(None, help="Run id for state under .w8-biayn/domdiff."),
-    project: Optional[str] = typer.Option(None, help="Override GCP project."),
-    zone: str = typer.Option(DEFAULT_DOMDIFF_ZONE, help="GCP zone."),
-    machine_type: str = typer.Option(DEFAULT_DOMDIFF_MACHINE_TYPE, help="GCP machine type."),
-    min_cpu_platform: str = typer.Option(DEFAULT_DOMDIFF_MIN_CPU_PLATFORM, help="GCP minimum CPU platform."),
-    network: str = typer.Option("default", help="GCP VPC network."),
-    reward_image: str = typer.Option(DEFAULT_DOMDIFF_IMAGE, help="Prebuilt DOMDiff reward image."),
-    local_reward_image: Optional[str] = typer.Option(
-        None,
-        "--local-reward-image",
-        help="Local Docker image to push to Google Artifact Registry and use as the DOMDiff reward image.",
-    ),
-    artifact_location: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_LOCATION, help="Artifact Registry location for --local-reward-image."),
-    artifact_repository: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_REPOSITORY, help="Artifact Registry repository for --local-reward-image."),
-    artifact_image_name: str = typer.Option(DEFAULT_DOMDIFF_ARTIFACT_IMAGE, help="Artifact Registry image name for --local-reward-image."),
-    artifact_tag: Optional[str] = typer.Option(None, help="Artifact Registry tag for --local-reward-image. Defaults to local-<image-id>."),
-    create_artifact_repository: bool = typer.Option(True, "--create-artifact-repository/--no-create-artifact-repository", help="Create the Artifact Registry repository if it is missing."),
-    keep: bool = typer.Option(False, help="Leave the VM running after verification."),
-    dry_run: bool = typer.Option(False, help="Print the GCP/container plan without launching."),
-) -> None:
-    """Run the real GCP DOMDiff smoke and tear down by default."""
-    reward_image = _maybe_push_local_reward_image(
-        local_reward_image=local_reward_image,
-        reward_image=reward_image,
-        credentials=credentials,
-        project=project,
-        artifact_location=artifact_location,
-        artifact_repository=artifact_repository,
-        artifact_image_name=artifact_image_name,
-        artifact_tag=artifact_tag,
-        create_repository=create_artifact_repository,
-        dry_run=dry_run,
-    )
-    config = _domdiff_config(
-        run_id=run_id,
-        credentials=credentials,
-        project=project,
-        zone=zone,
-        machine_type=machine_type,
-        min_cpu_platform=min_cpu_platform,
-        network=network,
-        boot_disk_type=DEFAULT_DOMDIFF_BOOT_DISK_TYPE,
-        volume_gb=DEFAULT_DOMDIFF_VOLUME_GB,
-        reward_image=reward_image,
-        keep=keep,
-    )
-    if dry_run:
-        console.print(domdiff.dry_run_plan(config))
-        return
-    state: domdiff.DomdiffState | None = None
-    try:
-        state = domdiff.up(config)
-        host = domdiff.create_host_from_state(config, domdiff.run_dir_for(state.run_id))
-        report = host.verify()
-        console.print_json(data=report)
-    finally:
-        if state is not None and not keep:
-            host = domdiff.create_host_from_state(config, domdiff.run_dir_for(state.run_id))
-            host.cleanup()
+    run_command(sky_args, env=env, dry_run=dry_run)
 
 
 @benchmarks_app.command("list")
 def benchmarks_list() -> None:
-    """List benchmark targets and the command to run each one."""
-    table = Table(title="w8-biayn benchmarks")
-    table.add_column("key", no_wrap=True)
-    for column in ("tier", "harness", "metric", "command"):
+    """List the benchmark ladder."""
+
+    table = Table(title="w8-biayn C++ performance-RL benchmarks")
+    for column in ("key", "tier", "harness", "metric"):
         table.add_column(column)
     for benchmark in benchmarks.list_benchmarks():
-        table.add_row(
-            benchmark.key,
-            benchmark.tier,
-            benchmark.harness,
-            benchmark.metric,
-            benchmark.command,
-        )
+        table.add_row(benchmark.key, benchmark.tier, benchmark.harness, benchmark.metric)
     console.print(table)
 
 
 @benchmarks_app.command("show")
 def benchmarks_show(key: str = typer.Argument(..., help="Benchmark key.")) -> None:
-    """Show why a benchmark exists and how it should be run."""
+    """Show benchmark details."""
+
     try:
         benchmark = benchmarks.get_benchmark(key)
     except KeyError as exc:
@@ -1102,323 +636,54 @@ def benchmarks_show(key: str = typer.Argument(..., help="Benchmark key.")) -> No
     console.print_json(data=benchmark.__dict__)
 
 
-@harbor_app.command("list")
-def harbor_list(
-    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
-) -> None:
-    """List packaged Harbor DOMDiff tasks."""
-    table = Table(title="w8-biayn Harbor DOMDiff tasks")
-    table.add_column("task_id", no_wrap=True, overflow="ignore")
-    for column in ("difficulty", "language", "build", "preview_path"):
-        table.add_column(column)
-    for task_id in harbor_tasks.discover_task_ids(task_root):
-        task = harbor_tasks.load_task(task_id, task_root)
-        metadata = task.task_config.get("metadata", {})
-        env = task.task_config.get("verifier", {}).get("env", {})
-        build = str(env.get("BUILD_COMMAND", "") if isinstance(env, dict) else "")
-        table.add_row(
-            task.task_id,
-            str(metadata.get("difficulty", "")),
-            str(metadata.get("language", "")),
-            build,
-            task.preview_path,
-        )
-    console.print(table)
-
-
-@harbor_app.command("validate")
-def harbor_validate(
-    task: Optional[list[str]] = typer.Option(None, "--task", help="Task id to validate. Repeat to validate multiple tasks."),
-    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
-) -> None:
-    """Validate packaged Harbor task structure and DOMDiff rubrics."""
-    table = Table(title="Harbor validation")
-    table.add_column("task_id", no_wrap=True, overflow="ignore")
-    for column in ("status", "preview_path"):
-        table.add_column(column)
-    for item in harbor_tasks.validate_tasks(task_root=task_root, task_ids=task):
-        table.add_row(item.task_id, "ok", item.preview_path)
-    console.print(table)
-
-
-@harbor_app.command("prepare-data")
-def harbor_prepare_data(
-    out: str = typer.Option(..., "--out", help="Output directory for SkyRL train/validation parquet files."),
-    task: Optional[list[str]] = typer.Option(None, "--task", help="Task id to include. Repeat to include multiple tasks."),
-    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
-    oracle: bool = typer.Option(False, "--oracle/--no-oracle", help="Mark dataset rows to use packaged oracle patches for infrastructure smoke runs."),
-) -> None:
-    """Prepare packaged Harbor tasks as a SkyRL-Gym dataset."""
-    train_path, val_path = prepare_harbor_skyrl_dataset(
-        out,
-        task_root=task_root,
-        task_ids=task,
-        oracle=oracle,
-    )
-    console.print(f"train: {train_path}")
-    console.print(f"validation: {val_path}")
-
-
-@harbor_app.command("oracle-smoke")
-def harbor_oracle_smoke(
-    task: str = typer.Option(harbor_tasks.DEFAULT_HARBOR_TASK_IDS[0], "--task", help="Task id to run."),
-    task_root: Optional[str] = typer.Option(None, help="Harbor task root. Defaults to the packaged smoke task root."),
-    chromiumrl_url: Optional[str] = typer.Option(None, help="ChromiumRL reward URL. Omit to run verifier setup without live DOMDiff scoring."),
-    keep_container: bool = typer.Option(False, "--keep-container", help="Leave the task container running for debugging."),
-    dry_run: bool = typer.Option(False, help="Print Docker build/run/verifier commands without running them."),
-) -> None:
-    """Run one Harbor task with the packaged oracle patch in Docker."""
-    loaded = harbor_tasks.load_task(task, task_root)
-    if dry_run:
-        runner = HarborDockerTaskRunner(chromiumrl_url=chromiumrl_url, oracle=True, keep_containers=keep_container)
-        console.print(runner.dry_run_plan(loaded))
-        return
-    outcome = run_oracle_smoke(
-        loaded.task_id,
-        task_root=task_root,
-        chromiumrl_url=chromiumrl_url,
-        keep_container=keep_container,
-    )
-    console.print_json(
-        data={
-            "task_id": outcome.task_id,
-            "container": outcome.container,
-            "image": outcome.image,
-            "preview_url": outcome.preview_url,
-            "terminal_state": outcome.terminal_state,
-            "reward": outcome.reward_doc,
-        }
-    )
-
-
-@kernels_app.command("list")
-def kernels_list() -> None:
-    """List custom-kernel R&D targets and their maturity."""
-    from .kernels.registry import KERNELS
-
-    table = Table(title="w8-biayn kernels")
-    for column in ("kernel", "tier", "target", "seam", "status"):
-        table.add_column(column, overflow="fold")
-    for spec in KERNELS:
-        table.add_row(spec.name, spec.tier, spec.target, spec.seam, spec.status)
-    console.print(table)
-
-
-def _run_kernel_job(
-    *,
-    mode: str,
-    kernel: str,
-    model: str,
-    dtype: str,
-    remote: bool,
-    local: bool,
-    keep: bool,
-    dry_run: bool,
-    credentials: str,
-    accelerators: str,
-    out: str,
-) -> None:
-    from .kernels.registry import get_kernel
-
-    try:
-        get_kernel(kernel)
-    except KeyError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    if remote and local:
-        raise typer.BadParameter("choose either --remote (provision a GCP A100) or --local (run here), not both")
-    if local:
-        from .kernels.lab import run_local
-
-        try:
-            run_local(mode=mode, kernel=kernel, model=model, dtype=dtype, out=out)
-        except (RuntimeError, NotImplementedError) as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(1) from exc
-        return
-    if not remote:
-        raise typer.BadParameter(
-            "kernel execution needs a CUDA GPU, which this host lacks. "
-            "Use --remote to provision a GCP A100, or --local on a CUDA host."
-        )
-    project_id = _project_id(credentials)
-    yaml_text = render_kernel_lab_yaml(
-        project_id=project_id,
-        kernel=kernel,
-        credentials_path=credentials,
-        model=model,
-        dtype=dtype,
-        mode=mode,
-        accelerators=accelerators,
-    )
-    output = Path(DEFAULT_RENDER_DIR) / f"kernel-{mode}-{kernel}.sky.yaml"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(yaml_text, encoding="utf-8")
-    cluster = f"w8-biayn-kernel-{mode}-{kernel}"
-    # Always set an idle autodown so a crashed/abandoned session still tears the A100 down
-    # on the shared GCP account (`--down` turns the idle autostop into an autodown). `--keep`
-    # only lengthens the idle window for iterative dev; it never disables the safety net.
-    idle_minutes = 60 if keep else 20
-    sky_args = ["sky", "launch", "-c", cluster, "-y", "-i", str(idle_minutes), "--down", str(output)]
-    if dry_run:
-        console.print(yaml_text)
-        console.print(f"# rendered: {output}")
-        console.print(f"# would run: {' '.join(sky_args)}")
-        console.print(f"# autodown after {idle_minutes} idle min; explicit teardown: sky down {cluster}")
-        return
-    env = _service_account_env(credentials, project_id=project_id)
-    run_command(sky_args, env=env)
-    console.print(f"teardown when done: sky down {cluster}")
-
-
-@kernels_app.command("bench")
-def kernels_bench(
-    kernel: str = typer.Option(..., "--kernel", help="Kernel to microbench (see `kernels list`)."),
-    model: str = typer.Option("eatang/qwen3-moe-tiny-random", "--model", help="Tiny MoE model for Tier-B kernels (ignored by Tier-A)."),
-    dtype: str = typer.Option("bf16", help="Input dtype for the microbench."),
-    accelerators: str = typer.Option("A100:1", help="SkyPilot accelerator request for the lab VM."),
-    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (this host has no GPU)."),
-    local: bool = typer.Option(False, "--local", help="Run on the current host's GPU (used by the lab VM)."),
-    keep: bool = typer.Option(False, "--keep", help="Leave the lab VM running for iterative dev (otherwise tear down)."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    out: str = typer.Option(".w8-biayn/perf", "--out", help="Output dir for results on the run host."),
-    dry_run: bool = typer.Option(False, help="Print the A100 SkyPilot plan without launching."),
-) -> None:
-    """Microbench a kernel (parity + speed/memory) on a single GCP A100."""
-    _run_kernel_job(
-        mode="bench",
-        kernel=kernel,
-        model=model,
-        dtype=dtype,
-        remote=remote,
-        local=local,
-        keep=keep,
-        dry_run=dry_run,
-        credentials=credentials,
-        accelerators=accelerators,
-        out=out,
-    )
-
-
-@kernels_app.command("lab")
-def kernels_lab(
-    kernel: str = typer.Option(..., "--kernel", help="Tier-B kernel to integrate (mla, moe-gemm)."),
-    model: str = typer.Option("eatang/qwen3-moe-tiny-random", "--model", help="Tiny MoE model for the single-device lab."),
-    dtype: str = typer.Option("bf16", help="Input dtype."),
-    accelerators: str = typer.Option("A100:1", help="SkyPilot accelerator request for the lab VM."),
-    remote: bool = typer.Option(False, "--remote", help="Provision a GCP A100 and run there (this host has no GPU)."),
-    local: bool = typer.Option(False, "--local", help="Run on the current host's GPU (used by the lab VM)."),
-    keep: bool = typer.Option(False, "--keep", help="Leave the lab VM running for iterative dev."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    out: str = typer.Option(".w8-biayn/perf", "--out", help="Output dir for results on the run host."),
-    dry_run: bool = typer.Option(False, help="Print the A100 SkyPilot plan without launching."),
-) -> None:
-    """Single-device tiny-model integration + parity for a Tier-B kernel on a GCP A100."""
-    _run_kernel_job(
-        mode="lab",
-        kernel=kernel,
-        model=model,
-        dtype=dtype,
-        remote=remote,
-        local=local,
-        keep=keep,
-        dry_run=dry_run,
-        credentials=credentials,
-        accelerators=accelerators,
-        out=out,
-    )
-
-
-@perf_app.command("report")
-def perf_report(
-    run_dir: str = typer.Argument(..., help="Run directory with metrics.json and/or *.log files."),
-) -> None:
-    """Parse SkyRL timing/* and vLLM metrics from a run directory."""
-    from .perf.report import load_run_metrics, summarize
-
-    try:
-        metrics = load_run_metrics(run_dir)
-    except FileNotFoundError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    if not metrics:
-        console.print(f"[yellow]No SkyRL metrics found under {run_dir}.[/yellow]")
-        raise typer.Exit(0)
-    table = Table(title=f"perf report: {run_dir}")
-    table.add_column("metric", no_wrap=True)
-    table.add_column("value", justify="right")
-    for key in sorted(metrics):
-        table.add_row(key, f"{metrics[key]:.4f}")
-    console.print(table)
-    for key, value in summarize(metrics).items():
-        console.print(f"{key}: {value:.4f}")
-    console.print(
-        "[dim]note: Harbor R3 step time is generation-bound; training-kernel work is "
-        "not expected to move timing/step.[/dim]"
-    )
-
-
-@perf_app.command("profile")
-def perf_profile(
-    target: str = typer.Argument("harbor-r3", help="Profiling target (only harbor-r3 for now)."),
-    optimization_profile: OptimizationProfile = typer.Option(
-        DEFAULT_OPTIMIZATION_PROFILE,
-        "--optimization-profile",
-        help="Kernel R&D profile to render for the profiling run.",
-    ),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML path."),
-) -> None:
-    """Render the Harbor R3 profiling plan for a profile (dry-run only)."""
-    if target != "harbor-r3":
-        raise typer.BadParameter("only the 'harbor-r3' profiling target is supported")
-    options = _render_options(
-        "r3",
-        credentials,
-        None,
-        None,
-        1,
-        None,
-        "console",
-        False,
-        benchmark="harbor-domdiff-browser-swe",
-        optimization_profile=optimization_profile,
-    )
-    output_path = output or f"{DEFAULT_RENDER_DIR}/perf-{optimization_profile}.sky.yaml"
-    written = write_sky_yaml(options, output_path)
-    console.print(f"rendered: {written}")
-    console.print("launch with: w8-biayn launch r3 --benchmark harbor-domdiff-browser-swe "
-                  f"--optimization-profile {optimization_profile} --with-local-domdiff")
-    console.print("after the run, parse metrics with: w8-biayn perf report <run-dir>")
-
-
 @app.command()
-def status(
-    cluster: Optional[str] = typer.Option(None, help="Optional cluster name."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-) -> None:
+def status() -> None:
     """Show SkyPilot status."""
-    args = ["sky", "status"]
-    if cluster:
-        args.append(cluster)
-    run_command(args, env=_service_account_env(credentials))
+
+    run_command(["sky", "status"])
 
 
 @app.command()
-def logs(
-    cluster: str = typer.Argument("w8-biayn-miniwob", help="Cluster name."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-) -> None:
-    """Tail SkyPilot logs."""
-    run_command(["sky", "logs", cluster], env=_service_account_env(credentials))
+def logs(cluster: str = typer.Argument("w8-biayn-cpp-smoke", help="SkyPilot cluster name.")) -> None:
+    """Show SkyPilot logs for a cluster."""
+
+    run_command(["sky", "logs", cluster])
 
 
 @app.command()
-def down(
-    cluster: str = typer.Argument("w8-biayn-miniwob", help="Cluster name."),
-    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-) -> None:
+def down(cluster: str = typer.Argument("w8-biayn-cpp-smoke", help="SkyPilot cluster name.")) -> None:
     """Tear down a SkyPilot cluster."""
-    run_command(["sky", "down", "-y", cluster], env=_service_account_env(credentials))
+
+    run_command(["sky", "down", "-y", cluster])
 
 
-if __name__ == "__main__":
-    app()
+def _render_options(
+    *,
+    pipeline: Pipeline,
+    credentials: str,
+    bucket: Optional[str],
+    accelerators: Optional[str],
+    num_nodes: int,
+    cluster: Optional[str],
+    model: Optional[str],
+    gpu_container_image: str,
+    dataset_gcs_prefix: Optional[str],
+    train_batch_size: int,
+    n_samples_per_prompt: int,
+) -> RenderOptions:
+    project_id = _project_id(credentials)
+    is_training = pipeline in ("cpp-sft", "cpp-grpo")
+    return RenderOptions(
+        pipeline=pipeline,
+        project_id=project_id,
+        bucket=bucket,
+        credentials_path=credentials,
+        accelerators=accelerators or (DEFAULT_CPP_TRAIN_ACCELERATORS if is_training else DEFAULT_CPP_SMOKE_ACCELERATORS),
+        num_nodes=num_nodes,
+        cluster_name=cluster,
+        model=model or (DEFAULT_CPP_TRAIN_MODEL if is_training else DEFAULT_CPP_MODEL),
+        gpu_container_image=gpu_container_image,
+        dataset_gcs_prefix=dataset_gcs_prefix,
+        train_batch_size=train_batch_size,
+        n_samples_per_prompt=n_samples_per_prompt,
+    )

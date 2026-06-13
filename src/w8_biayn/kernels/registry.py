@@ -63,7 +63,7 @@ KERNELS: tuple[KernelSpec, ...] = (
     ),
 )
 
-# Tier-A kernels safe to activate inside the full Harbor R3 trainer (correctness gate).
+# Tier-A kernels safe to activate inside a full SkyRL trainer correctness gate.
 TIER_A = tuple(k.name for k in KERNELS if k.tier == "A")
 
 

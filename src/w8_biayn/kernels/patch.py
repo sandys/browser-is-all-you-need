@@ -72,8 +72,8 @@ def apply_kernel_patches_from_env(
 ) -> list[str]:
     """Activate kernels named in ``W8_BIAYN_KERNELS``. No-op when unset.
 
-    Called inside SkyRL's Ray entrypoint (beside ``register_harbor_env``) so patches reach
-    the trainer worker process, never the local driver only.
+    Call this inside the SkyRL trainer entrypoint so patches reach the trainer worker
+    process, never the local driver only.
     """
 
     environ = os.environ if env is None else env

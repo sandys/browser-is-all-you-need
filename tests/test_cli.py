@@ -1,492 +1,242 @@
 from __future__ import annotations
 
 import json
-import subprocess
 
 import yaml
 from typer.testing import CliRunner
 
-import w8_biayn.cli as cli_mod
-from w8_biayn.cli import SKYPILOT_GCP_LAUNCH_PERMISSIONS, app
-from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE, DEFAULT_HARBOR_R3_ACCELERATORS
-from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
+from w8_biayn.cli import app
 
 
-def service_account(tmp_path):
-    path = tmp_path / "sa.json"
-    path.write_text(
-        json.dumps({"type": "service_account", "project_id": "proj", "private_key": "SECRET"}),
+def write_credentials(path):
+    path.write_text(json.dumps({"type": "service_account", "project_id": "proj"}), encoding="utf-8")
+
+
+def test_cli_help_exposes_new_surface_only():
+    result = CliRunner().invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "cpp" in result.output
+    assert "data" in result.output
+    assert "benchmarks" in result.output
+    assert "domdiff" not in result.output
+    assert "harbor" not in result.output
+    assert "miniwob" not in result.output
+    assert "webarena" not in result.output
+
+
+def test_cli_config_render_cpp_smoke(tmp_path):
+    credentials = tmp_path / "sa.json"
+    write_credentials(credentials)
+    output = tmp_path / "cpp.sky.yaml"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-smoke",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load(output.read_text(encoding="utf-8"))
+    rendered = output.read_text(encoding="utf-8")
+    assert config["name"] == "w8-biayn-cpp-smoke"
+    assert config["resources"]["infra"] == "gcp"
+    assert config["envs"]["W8_BIAYN_MODEL"] == "zai-org/GLM-5.1"
+    assert "vllm" in config["run"]
+    assert "SkyRL" in config["setup"]
+    assert "domdiff" not in rendered.lower()
+    assert "harbor" not in rendered.lower()
+
+
+def test_cli_launch_cpp_smoke_dry_run_prints_sky_command(tmp_path):
+    credentials = tmp_path / "sa.json"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        ["launch", "cpp-smoke", "--credentials", str(credentials), "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "sky launch -c w8-biayn-cpp-smoke" in result.output
+    assert ".w8-biayn/rendered/cpp-smoke.sky.yaml" in result.output
+
+
+def test_cli_render_cpp_grpo_defaults_to_training_model_and_a100(tmp_path):
+    credentials = tmp_path / "sa.json"
+    write_credentials(credentials)
+    output = tmp_path / "grpo.sky.yaml"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load(output.read_text(encoding="utf-8"))
+    assert config["resources"]["accelerators"] == "A100:8"
+    assert config["envs"]["W8_BIAYN_MODEL"] == "Qwen/Qwen2.5-Coder-7B-Instruct"
+    assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" in config["run"]
+    assert "environment.env_class=cpp-perf" in config["run"]
+
+
+def test_cli_cpp_task_build_and_reward_dry_run(tmp_path):
+    tsv = tmp_path / "pie.tsv"
+    tsv.write_text("problem_id\tv0\tv1\tcpu_time_v1\np1\tslow\tfast\t100\n", encoding="utf-8")
+    tests = tmp_path / "tests.json"
+    tests.write_text(
+        json.dumps(
+            {
+                "p1": {
+                    "unit_tests": [{"input": "1\n", "expected": "1\n"}],
+                    "hidden_tests": [{"input": "2\n", "expected": "2\n"}],
+                    "coverage": {"line": 0.96, "branch": 0.86},
+                }
+            }
+        ),
         encoding="utf-8",
     )
-    return path
+    out = tmp_path / "tasks"
 
-
-def test_cli_config_render(tmp_path):
-    credentials = service_account(tmp_path)
-    output = tmp_path / "task.yaml"
-    result = CliRunner().invoke(
+    build_result = CliRunner().invoke(
         app,
-        [
-            "config",
-            "render",
-            "miniwob",
-            "--credentials",
-            str(credentials),
-            "--output",
-            str(output),
-        ],
+        ["cpp", "task", "build", "--pie-tsv", str(tsv), "--tests-json", str(tests), "--out", str(out)],
+    )
+    assert build_result.exit_code == 0, build_result.output
+    task_path = out / "pie_cpp_000001.json"
+    assert task_path.exists()
+
+    candidate = tmp_path / "candidate.cpp"
+    candidate.write_text("int main(){return 0;}\n", encoding="utf-8")
+    harness_result = CliRunner().invoke(
+        app,
+        ["cpp", "harness", "run", "--task", str(task_path), "--candidate", str(candidate), "--dry-run"],
+    )
+    assert harness_result.exit_code == 0, harness_result.output
+    assert "C++ performance harness dry run" in harness_result.output
+
+    model_output = tmp_path / "output.md"
+    model_output.write_text("<reasoning>x</reasoning>\n```cpp\nint main(){return 0;}\n```\n", encoding="utf-8")
+    reward_result = CliRunner().invoke(
+        app,
+        ["cpp", "reward", "score", "--task", str(task_path), "--model-output", str(model_output), "--dry-run"],
+    )
+    assert reward_result.exit_code == 0, reward_result.output
+    assert "valid_format: True" in reward_result.output
+
+
+def test_cli_data_build_skyrl_and_cache_dry_run(tmp_path):
+    task_dir = tmp_path / "tasks"
+    data_root = tmp_path / "skyrl"
+    tsv = tmp_path / "pie.tsv"
+    tsv.write_text(
+        "problem_id\tv0\tv1\tcpu_time_v1\n"
+        "p1\tint main(){return 0;}\tint main(){return 0;}\t100\n"
+        "p2\tint main(){return 0;}\tint main(){return 0;}\t200\n",
+        encoding="utf-8",
+    )
+    tests = tmp_path / "tests.json"
+    tests.write_text(
+        json.dumps(
+            {
+                "p1": {
+                    "unit_tests": [{"input": "1\n", "expected": "1\n"}],
+                    "hidden_tests": [{"input": "2\n", "expected": "2\n"}],
+                    "coverage": {"line": 0.96, "branch": 0.86},
+                },
+                "p2": {
+                    "unit_tests": [{"input": "3\n", "expected": "3\n"}],
+                    "hidden_tests": [{"input": "4\n", "expected": "4\n"}],
+                    "coverage": {"line": 0.96, "branch": 0.86},
+                },
+            }
+        ),
+        encoding="utf-8",
     )
 
-    assert result.exit_code == 0, result.output
-    config = yaml.safe_load(output.read_text(encoding="utf-8"))
-    assert config["name"] == "w8-biayn-miniwob"
-
-
-def test_cli_launch_dry_run_prints_commands(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
+    train_result = CliRunner().invoke(
         app,
         [
-            "launch",
-            "miniwob",
+            "data",
+            "pie",
+            "build-tasks",
+            "--pairs",
+            str(tsv),
+            "--tests-json",
+            str(tests),
+            "--out",
+            str(task_dir / "train"),
+            "--split",
+            "train",
+            "--limit",
+            "1",
+        ],
+    )
+    val_result = CliRunner().invoke(
+        app,
+        [
+            "data",
+            "pie",
+            "build-tasks",
+            "--pairs",
+            str(tsv),
+            "--tests-json",
+            str(tests),
+            "--out",
+            str(task_dir / "validation"),
+            "--split",
+            "validation",
+        ],
+    )
+    assert train_result.exit_code == 0, train_result.output
+    assert val_result.exit_code == 0, val_result.output
+
+    skyrl_result = CliRunner().invoke(
+        app,
+        ["data", "skyrl", "build", "--tasks-dir", str(task_dir), "--out", str(data_root)],
+    )
+    assert skyrl_result.exit_code == 0, skyrl_result.output
+    assert (data_root / "grpo" / "train.parquet").exists()
+    assert (data_root / "sft" / "train.jsonl").exists()
+
+    credentials = tmp_path / "sa.json"
+    write_credentials(credentials)
+    upload_result = CliRunner().invoke(
+        app,
+        [
+            "data",
+            "cache",
+            "upload",
+            "--path",
+            str(data_root),
             "--credentials",
             str(credentials),
             "--dry-run",
         ],
     )
-
-    assert result.exit_code == 0, result.output
-    assert "gcloud auth activate-service-account" not in result.output
-    assert "gcloud config set project" not in result.output
-    assert "sky launch" in result.output
+    assert upload_result.exit_code == 0, upload_result.output
+    assert "gcloud storage rsync --recursive" in upload_result.output
+    assert "gs://proj-w8-biayn/datasets/cpp-perf/cpp-perf-v1/skyrl" in upload_result.output
 
 
-def test_cli_doctor_cloud_rejects_missing_skypilot_launch_permission(monkeypatch, tmp_path):
-    credentials = service_account(tmp_path)
-
-    monkeypatch.setattr(cli_mod, "run_command", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        cli_mod.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, '{"gcp": true}', ""),
-    )
-    monkeypatch.setattr(
-        cli_mod,
-        "check_project_permissions",
-        lambda *args, **kwargs: ["resourcemanager.projects.setIamPolicy"],
-    )
-
-    result = CliRunner().invoke(app, ["doctor", "--credentials", str(credentials), "--cloud"])
-
-    assert result.exit_code == 1
-    assert "resourcemanager.projects.setIamPolicy" in result.output
-
-
-def test_skypilot_launch_preflight_covers_project_permissions():
-    permissions = set(SKYPILOT_GCP_LAUNCH_PERMISSIONS)
-
-    assert "compute.instances.create" in permissions
-    assert "compute.firewalls.create" in permissions
-    assert "compute.reservations.list" in permissions
-    assert "iam.serviceAccounts.create" in permissions
-    assert "resourcemanager.projects.getIamPolicy" in permissions
-    assert "resourcemanager.projects.setIamPolicy" in permissions
-    assert "serviceusage.services.enable" in permissions
-    assert "storage.buckets.create" in permissions
-
-
-def test_cli_launch_r3_with_domdiff_dry_run_prints_domdiff_plan(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--with-domdiff",
-            "--benchmark",
-            "webvoyager-domdiff-heldout",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "DOMDiff dry run" in result.output
-    assert "sky launch" in result.output
-    assert "webvoyager-domdiff-heldout" in result.output
-
-
-def test_cli_domdiff_push_image_dry_run(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "domdiff",
-            "push-image",
-            "--credentials",
-            str(credentials),
-            "--source-image",
-            "android-world-domdiff:local",
-            "--tag",
-            "test",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "DOMDiff Artifact Registry image push dry run" in result.output
-    assert "docker push us-central1-docker.pkg.dev/proj/w8-biayn/android-world-domdiff:test" in result.output
-
-
-def test_cli_launch_r3_with_local_domdiff_image_dry_run_prints_push_and_domdiff_plan(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--with-domdiff",
-            "--local-reward-image",
-            "android-world-domdiff:local",
-            "--artifact-tag",
-            "test",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "docker push us-central1-docker.pkg.dev/proj/w8-biayn/android-world-domdiff:test" in result.output
-    assert "reward_image=us-central1-docker.pkg.dev/proj/w8-biayn/android-world-domdiff:test" in result.output
-
-
-def test_cli_domdiff_local_up_dry_run():
-    result = CliRunner().invoke(
-        app,
-        [
-            "domdiff",
-            "local",
-            "up",
-            "--image",
-            "android-world-domdiff:local",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "Local DOMDiff dry run" in result.output
-    assert "docker run -d --name android-world-domdiff" in result.output
-    assert "w8_biayn.rewards.chromiumrl_service:app" in result.output
-
-
-def test_cli_launch_r3_with_local_domdiff_dry_run_prints_local_plan(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--with-local-domdiff",
-            "--benchmark",
-            "webvoyager-domdiff-heldout",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "Local DOMDiff dry run" in result.output
-    assert "CHROMIUMRL_URL" in result.output
-    assert "https://<local-domdiff-reward-tunnel>" in result.output
-    assert "CDP_URL=wss://<local-domdiff-cdp-tunnel>" not in result.output
-    assert "wss://<local-domdiff-cdp-tunnel>" not in result.output
-    assert "sky launch" in result.output
-
-
-def test_cli_launch_r3_with_local_domdiff_can_publish_cdp_for_debug(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--with-local-domdiff",
-            "--local-publish-cdp",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "CDP_URL=wss://<local-domdiff-cdp-tunnel>" in result.output
-
-
-def test_cli_launch_r3_rejects_push_option_with_local_domdiff(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--with-local-domdiff",
-            "--local-reward-image",
-            "android-world-domdiff:local",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "--local-reward-image uploads to Artifact Registry" in result.output
-
-
-def test_cli_config_render_rejects_private_domdiff_url(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "config",
-            "render",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--chromiumrl-url",
-            "http://127.0.0.1:8080",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "local/private URL" in result.output
-
-
-def test_cli_config_render_harbor_r3_smoke(tmp_path):
-    credentials = service_account(tmp_path)
-    output = tmp_path / "harbor.sky.yaml"
-    task_id = DEFAULT_HARBOR_TASK_IDS[0]
-    result = CliRunner().invoke(
-        app,
-        [
-            "config",
-            "render",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--output",
-            str(output),
-            "--benchmark",
-            "harbor-domdiff-browser-swe",
-            "--chromiumrl-url",
-            "https://reward.trycloudflare.com",
-            "--harbor-task",
-            task_id,
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    config = yaml.safe_load(output.read_text(encoding="utf-8"))
-    assert "secrets" not in config
-    assert config["resources"]["accelerators"] == DEFAULT_HARBOR_R3_ACCELERATORS
-    assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
-    assert "CDP_URL" not in config["envs"]
-    assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
-    assert "docker run --rm --gpus all --network host --shm-size=32g" in config["run"]
-    assert "w8-biayn harbor prepare-data" in config["run"]
-    assert "w8_biayn.integrations.skyrl_harbor_main" in config["run"]
-    assert "trainer.placement.policy_num_gpus_per_node=8" in config["run"]
-    assert "generator.inference_engine.tensor_parallel_size=8" in config["run"]
-    assert "TINKER_API_KEY" not in config["run"]
-    assert task_id in config["run"]
-    assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]
-
-
-def test_cli_launch_harbor_with_local_domdiff_dry_run(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--with-local-domdiff",
-            "--benchmark",
-            "harbor-domdiff-browser-swe",
-            "--harbor-task",
-            DEFAULT_HARBOR_TASK_IDS[0],
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "Local DOMDiff dry run" in result.output
-    assert "https://<local-domdiff-reward-tunnel>" in result.output
-    assert "wss://<local-domdiff-cdp-tunnel>" not in result.output
-    assert "sky launch" in result.output
-
-
-def test_cli_launch_harbor_warns_for_a100_override(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--benchmark",
-            "harbor-domdiff-browser-swe",
-            "--chromiumrl-url",
-            "https://reward.trycloudflare.com",
-            "--accelerators",
-            "A100:8",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "Harbor DOMDiff R3 on 40GB A100 GPUs" in result.output
-    assert "enables offload automatically" in result.output
-    assert "H100:8" in result.output
-
-
-def test_cli_launch_harbor_allows_a100_80gb_without_memory_warning(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "r3",
-            "--credentials",
-            str(credentials),
-            "--benchmark",
-            "harbor-domdiff-browser-swe",
-            "--chromiumrl-url",
-            "https://reward.trycloudflare.com",
-            "--accelerators",
-            "A100-80GB:8",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "40GB A100" not in result.output
-
-
-def test_cli_launch_harbor_rejects_non_r3_pipeline(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        [
-            "launch",
-            "miniwob",
-            "--credentials",
-            str(credentials),
-            "--benchmark",
-            "harbor-domdiff-browser-swe",
-            "--dry-run",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "supported only for the r3" in result.output
-    assert "pipeline" in result.output
-
-
-def test_cli_harbor_commands_validate_and_dry_run():
-    list_result = CliRunner().invoke(app, ["harbor", "list"])
-    assert list_result.exit_code == 0, list_result.output
-    assert DEFAULT_HARBOR_TASK_IDS[0] in list_result.output
-    assert DEFAULT_HARBOR_TASK_IDS[1] in list_result.output
-
-    validate_result = CliRunner().invoke(app, ["harbor", "validate", "--task", DEFAULT_HARBOR_TASK_IDS[0]])
-    assert validate_result.exit_code == 0, validate_result.output
-    assert "ok" in validate_result.output
-
-    smoke_result = CliRunner().invoke(
-        app,
-        [
-            "harbor",
-            "oracle-smoke",
-            "--task",
-            DEFAULT_HARBOR_TASK_IDS[0],
-            "--chromiumrl-url",
-            "https://reward.trycloudflare.com",
-            "--dry-run",
-        ],
-    )
-    assert smoke_result.exit_code == 0, smoke_result.output
-    assert "Harbor Docker task dry run" in smoke_result.output
-    assert "docker build" in smoke_result.output
-
-
-def test_cli_benchmarks_list():
+def test_cli_benchmarks_list_uses_cpp_ladder():
     result = CliRunner().invoke(app, ["benchmarks", "list"])
 
-    assert result.exit_code == 0, result.output
-    assert "webvoyager-domdiff-heldout" in result.output
-    assert "androidworld-transfer" in result.output
-
-
-def test_cli_kernels_list():
-    result = CliRunner().invoke(app, ["kernels", "list"])
-
-    assert result.exit_code == 0, result.output
-    assert "logprob" in result.output
-    assert "mla" in result.output
-
-
-def test_cli_kernels_lab_remote_dry_run_renders_single_a100(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        ["kernels", "lab", "--kernel", "mla", "--remote", "--dry-run", "--credentials", str(credentials)],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "w8-biayn-kernel-lab-mla" in result.output
-    assert "A100:1" in result.output
-    assert "uv sync --extra megatron --extra gcp" in result.output
-    assert "w8-biayn kernels lab" in result.output
-    assert "sky launch" in result.output
-    assert "--down" in result.output  # teardown by default
-    assert "autodown after 20 idle min" in result.output  # idle autodown safety net
-
-
-def test_cli_kernels_lab_keep_keeps_idle_autodown_net(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        ["kernels", "lab", "--kernel", "moe-gemm", "--remote", "--keep", "--dry-run", "--credentials", str(credentials)],
-    )
-
-    assert result.exit_code == 0, result.output
-    # --keep only lengthens the idle window; the autodown safety net stays on.
-    assert "autodown after 60 idle min" in result.output
-    assert "--down" in result.output
-
-
-def test_cli_kernels_requires_remote_on_cpu_host(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        ["kernels", "bench", "--kernel", "logprob", "--credentials", str(credentials)],
-    )
-
-    assert result.exit_code != 0
-    assert "needs a CUDA GPU" in result.output
-
-
-def test_cli_kernels_rejects_unknown_kernel(tmp_path):
-    credentials = service_account(tmp_path)
-    result = CliRunner().invoke(
-        app,
-        ["kernels", "lab", "--kernel", "bogus", "--remote", "--dry-run", "--credentials", str(credentials)],
-    )
-
-    assert result.exit_code != 0
-    assert "unknown kernel" in result.output
+    assert result.exit_code == 0
+    assert "pie-one-smoke" in result.output
+    assert "harbor" not in result.output.lower()

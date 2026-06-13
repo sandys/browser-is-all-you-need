@@ -1,2 +1,2 @@
-"""Runtime integrations used by remote SkyRL jobs."""
+"""Runtime integrations for upstream training frameworks."""
 

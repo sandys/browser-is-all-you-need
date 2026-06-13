@@ -2,9 +2,10 @@
 
 SkyRL logs ``timing/*`` (Timer) and vLLM Prometheus metrics. This reads them back
 from a run directory — a structured ``metrics.json`` and/or scraped ``*.log`` files —
-so ``w8-biayn perf report`` can show where the step time goes. By construction the
-Harbor R3 step is generation-bound, so training-kernel work is not expected to move
-``timing/step``; the report states this rather than implying a speedup.
+so kernel or trainer experiments can show where the step time goes. C++ performance
+RL is usually rollout and measurement heavy, so this report should be used to identify
+the actual bottleneck instead of assuming a training-kernel speedup moves end-to-end
+time.
 """
 
 from __future__ import annotations
