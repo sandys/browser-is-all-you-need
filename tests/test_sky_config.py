@@ -40,6 +40,11 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     )
     assert "environment.env_class=cpp-perf" in grpo["run"]
     assert "trainer.logger=console" in grpo["run"]
+    assert "trainer.placement.policy_num_gpus_per_node=8" in grpo["run"]
+    assert "generator.inference_engine.num_engines=8" in grpo["run"]
+    assert "generator.inference_engine.tensor_parallel_size=1" in grpo["run"]
+    assert "generator.inference_engine.pipeline_parallel_size=1" in grpo["run"]
+    assert "generator.inference_engine.data_parallel_size=1" in grpo["run"]
     assert "BasePPOExp" not in grpo_text
     assert "domdiff" not in grpo_text.lower()
     assert "harbor" not in grpo_text.lower()

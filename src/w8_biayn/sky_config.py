@@ -266,6 +266,10 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   trainer.max_prompt_length=8192 \\
   generator.max_turns=1 \\
   generator.n_samples_per_prompt={options.n_samples_per_prompt} \\
+  generator.inference_engine.num_engines={options.gpu_count} \\
+  generator.inference_engine.tensor_parallel_size=1 \\
+  generator.inference_engine.pipeline_parallel_size=1 \\
+  generator.inference_engine.data_parallel_size=1 \\
   generator.sampling_params.temperature=0.8
 '
 """
