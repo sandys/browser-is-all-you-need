@@ -259,6 +259,7 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   trainer.strategy=fsdp \\
   trainer.placement.policy_num_nodes={options.num_nodes} \\
   trainer.placement.policy_num_gpus_per_node={options.gpu_count} \\
+  trainer.logger={options.logger} \\
   trainer.train_batch_size={options.train_batch_size} \\
   trainer.policy_mini_batch_size={options.train_batch_size} \\
   trainer.micro_train_batch_size_per_gpu=1 \\

@@ -39,6 +39,7 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
         "python -m w8_biayn.integrations.skyrl_cpp_perf_main"
     )
     assert "environment.env_class=cpp-perf" in grpo["run"]
+    assert "trainer.logger=console" in grpo["run"]
     assert "BasePPOExp" not in grpo_text
     assert "domdiff" not in grpo_text.lower()
     assert "harbor" not in grpo_text.lower()
