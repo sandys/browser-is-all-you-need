@@ -11,7 +11,7 @@ Every feature that requires a tool, cloud CLI, Python extra, environment variabl
 - `w8-biayn doctor` for validation and actionable diagnostics.
 - `README.md` for user-facing setup, command usage, architecture, and workflow diagrams.
 - `.agents/skills/` for AI-facing repo workflow guidance.
-- `.gitignore` for local-only generated files, secrets, caches, and upstream clones.
+- `.gitignore` for local-only generated files, secrets, caches, upstream clones, task pools, logs, and checkpoints.
 
 Do not rely on globally installed tools unless bootstrap installs them or `doctor` reports a clear missing prerequisite with the exact next action.
 
@@ -22,38 +22,52 @@ A new user must be able to start from a clean clone and run:
 ```bash
 ./scripts/bootstrap.sh
 cp /secure/path/service-account.json .gcp-service-account.json
-uv run w8-biayn doctor --cloud
-uv run w8-biayn launch miniwob --dry-run
+uv run w8-biayn doctor --cloud --cpp-perf
+uv run w8-biayn data doctor
+uv run w8-biayn upstreams clone
+uv run w8-biayn launch cpp-smoke --dry-run
 ```
 
 The real GCP smoke path is:
 
 ```bash
-uv run w8-biayn launch miniwob
+uv run w8-biayn launch cpp-smoke
 ```
 
-The real DOMDiff reward-host smoke path is:
+The first local reward-harness path is:
 
 ```bash
-uv run w8-biayn doctor --cloud --domdiff
-uv run w8-biayn domdiff local smoke --image android-world-domdiff:local
+uv run w8-biayn cpp harness run --task path/to/task.json --candidate path/to/candidate.cpp --dry-run
+uv run w8-biayn cpp reward score --task path/to/task.json --model-output path/to/output.md --dry-run
 ```
 
-If any development change invalidates those commands, update bootstrap, CLI help, tests, and this file in the same change.
+If any development change invalidates those commands, update bootstrap, CLI help, tests, README, and this file in the same change.
+
+The repeatable dataset setup path is:
+
+```bash
+uv run w8-biayn data pie download --out .w8-biayn/data/pie
+uv run w8-biayn data supercoder download --out .w8-biayn/data/supercoder
+uv run w8-biayn data pie build-tests-manifest --inputs-outputs-basepath .w8-biayn/data/pie/cases --coverage-json .w8-biayn/data/pie/coverage.json --out .w8-biayn/data/pie/tests-manifest.json
+uv run w8-biayn data pie build-tasks --pairs .w8-biayn/data/pie/train.jsonl --tests-json .w8-biayn/data/pie/tests-manifest.json --out .w8-biayn/data/tasks/train --split train
+uv run w8-biayn data pie build-tasks --pairs .w8-biayn/data/pie/validation.jsonl --tests-json .w8-biayn/data/pie/tests-manifest.json --out .w8-biayn/data/tasks/validation --split validation
+uv run w8-biayn data skyrl build --tasks-dir .w8-biayn/data/tasks --out .w8-biayn/data/skyrl
+uv run w8-biayn data cache upload --path .w8-biayn/data/skyrl --credentials .gcp-service-account.json
+```
+
+No PIE or SuperCoder conversion may be performed as a one-off. If a conversion or data cleanup is needed, implement it in `w8-biayn data ...`, record schema/checksum metadata, update docs, and add tests.
 
 ## Documentation And Diagrams Must Stay Current
 
-`README.md` is the canonical user-facing entrypoint. Keep it current whenever commands, setup steps, cloud behavior, supported pipelines, IAM requirements, or operational workflows change.
+`README.md` is the canonical user-facing entrypoint. Keep it current whenever commands, setup steps, cloud behavior, supported pipelines, IAM requirements, data flow, task schema, measurement flow, or operational workflows change.
 
-The README must include Mermaid architecture and workflow diagrams. When implementation changes affect data flow, launch flow, cloud boundaries, upstream responsibilities, or teardown behavior, update the diagrams in the same change.
+The README must include Mermaid architecture and workflow diagrams. When implementation changes affect task construction, sandbox measurement, launch flow, cloud boundaries, upstream responsibilities, or teardown behavior, update the diagrams in the same change.
 
 AI-facing skills must also stay current. When repo-specific workflows change, update `.agents/skills/w8-biayn-framework/` and preserve the symlinked skill discovery paths. If the change is generic to skill authoring, update `.agents/skills/agent-skills-framework/` as well.
 
 ## Commit Discipline
 
-Prefer many focused commits over one large commit. Commit after each logical change, such as a development-rule update, a CLI behavior change, a docs/diagram update, a dependency/bootstrap change, or a validation/test fix.
-
-Keep each commit internally coherent: include the code, docs, tests, and skill updates needed for that one change, then continue with the next logical change in a new commit.
+Prefer many focused commits over one large commit. Keep each commit internally coherent: include the code, docs, tests, and skill updates needed for that one logical change.
 
 ## Secrets And Local State
 
@@ -65,7 +79,34 @@ Upstream source clones belong in `.cache/upstreams/` through:
 uv run w8-biayn upstreams clone
 ```
 
-Do not vendor rLLM or SkyRL into this repository. Keep the pinned SHAs in code/config and clone into ignored cache paths.
+Do not vendor rLLM, SkyRL, PIE, CodeNet, SuperCoder data, gem5 outputs, model checkpoints, generated task pools, or upstream repositories into this repository.
+
+## C++ Performance-RL Rules
+
+Phase 1 is C++ only. Go, BrowserGym, DOMDiff, Harbor, WebArena, MiniWoB, and AndroidWorld are not part of the active project surface.
+
+Use `/tmp/ENGINEERING_SPEC_v2_cpp_only.md` as the source spec until the equivalent content is moved into repo docs. The project goal is to train an open-weight model to rewrite correct C++ programs so they run faster while preserving correctness.
+
+Training must use SkyRL/rLLM. Do not write a custom trainer, do not use PIE's old Hugging Face Trainer path as the active trainer, and do not use SuperCoder as a replacement trainer. PIE, LearningOpt PIE, and SuperCoder may be studied and ported into this repo's data/reward/eval surfaces only.
+
+Task construction must follow the PIE data discipline:
+
+- Use PIE C++ slower-to-faster pairs.
+- Never expose the fast `v1` solution in the model prompt.
+- Use `v1` only as an oracle for test generation and reference performance.
+- Preserve train/test splits by problem.
+- Do not admit a task without visible tests, hidden tests, reference performance, and coverage of at least 95% line / 85% branch.
+
+Dataset bundles for SkyRL must include GRPO parquet, SFT JSONL, copied task JSON, and `_w8_data_manifest.json` with schema version, sources, options, byte sizes, and checksums. Default schema version is `cpp-perf-v1`; default GCS prefix is `gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/skyrl`.
+
+The reward path must be correctness gated:
+
+- Invalid response format: negative reward.
+- Compile or sanitizer failure: negative reward.
+- Partial tests: shaped but still below a fully correct answer.
+- Correct answers: base reward of 1.0 plus bounded instruction-count efficiency bonus.
+- Instruction count from `perf stat -e instructions:u` is the fast RL reward metric.
+- gem5 remains the deterministic gold reference for calibration and final reporting.
 
 ## Cloud Development Rules
 
@@ -80,42 +121,21 @@ Any command that provisions cloud resources must:
 - Render the SkyPilot YAML into an ignored path.
 - Provide status, logs, and teardown commands through `w8-biayn`.
 
-DOMDiff reward-host workflows must also:
+SkyPilot is the Phase-1 bridge because the inherited Google training path works. dstack migration is deferred until the one-example gem5/perf/reward loop is stable.
 
-- Use the prebuilt reward image by default: `ghcr.io/wootzapp/android-world-domdiff:daytona-92000b7`.
-- For development and smoke runs, prefer `w8-biayn domdiff local ...` with the local `android-world-domdiff:local` image and Cloudflare quick tunnels. Do not push local DOMDiff images unless the user explicitly asks for a GCP-hosted reward VM.
-- If the reward image must run on a GCP reward VM and exists only in local Docker, upload it with `w8-biayn domdiff push-image` or pass `--local-reward-image`; never copy image tarballs or source into this repo.
-- Use Google Artifact Registry (`<location>-docker.pkg.dev/<project>/w8-biayn/android-world-domdiff:<tag>`) for local DOMDiff image promotion to GCP.
-- Never vendor AndroidWorld, WootzApp, APKs, or browser source into this repository.
-- Copy only the small `w8_biayn.rewards` adapter into the running container.
-- In local DOMDiff mode, run the ChromiumRL reward service outside the container with `CDP_URL=ws://localhost:9224`; expose the reward HTTP service through a Cloudflare quick tunnel for GCP trainers. Expose CDP only with an explicit `--publish-cdp` or `--local-publish-cdp` debug request.
-- Keep remote Harbor DOMDiff HTTP calls retryable with curl fallback; transient trycloudflare submit/poll failures must not fail a paid R3 smoke when a retry can recover.
-- Never render local/private DOMDiff URLs into SkyPilot configs. `localhost`, `127.0.0.1`, `host.docker.internal`, `.local` names, private RFC1918 addresses, link-local addresses, and unspecified addresses are invalid for remote GCP/SkyPilot trainers. Use Cloudflare tunnel URLs.
-- Create GCP nested-virtualization hosts with explicit dry-run support and state under `.w8-biayn/domdiff/`.
-- Keep local DOMDiff state under `.w8-biayn/domdiff-local/`.
-- Authenticate the remote VM to Artifact Registry with `.gcp-service-account.json` only for `*.pkg.dev` reward images, and never print credential contents.
-- Expose CDP and reward HTTP through tunnels, not broad direct GCP ingress.
-- Tear down the VM, firewall, tunnels, local SSH key, and container by default. Use `--keep` only for intentional debugging.
-
-For WebArena, do not assume the official archives are bundled. Require an explicit GCS prefix with `--webarena-archives-gcs` or external `WA_*` URLs.
-
-For Harbor DOMDiff R3, do not use Tinker or Thinking Machines as the training backend. Render and launch self-hosted SkyRL through `w8-biayn launch r3 --benchmark harbor-domdiff-browser-swe`, normally with `--with-local-domdiff` so the local DOMDiff image stays on the workstation. The default R3 smoke model is `moonshotai/Moonlight-16B-A3B-Instruct`, because its `DeepseekV3ForCausalLM` architecture is supported by Megatron Bridge for router replay; do not switch the smoke back to unsupported `Qwen2MoeForCausalLM` models. Harbor DOMDiff R3 defaults to `H100:8`, matching SkyRL's Moonlight router replay recipe. A100 40GB overrides can reach Harbor rollout and DOMDiff reward scoring, but need CPU optimizer offload for the Megatron optimizer step; the CLI must warn and render offload before paid A100 40GB Harbor R3 launches. The SkyPilot job must install Docker and Cloudflare on the GCP host, run the Google GPU container with `--shm-size=32g` and the host Docker socket mounted, reuse an existing Harbor virtualenv when complete and recreate it when incomplete, prepare Harbor SkyRL parquet data with `w8-biayn harbor prepare-data`, and start `w8_biayn.integrations.skyrl_harbor_main`. That entrypoint must register the `harbor-domdiff` SkyRL-Gym environment inside SkyRL's Ray entrypoint task before constructing `BasePPOExp`; registering only in the local driver process is insufficient. Render the SkyRL GPU count from the accelerator request; do not rely on SkyPilot host-only shell variables inside the Google GPU container. R3 routing replay must use SkyRL's Megatron training backend, run `uv sync --active --extra megatron --extra gcp` from the SkyRL checkout so upstream `tool.uv` overrides resolve Megatron dependencies, render Megatron TP/PP/CP/EP settings, render vLLM MoE expert parallelism, render `generator.inference_engine.distributed_executor_backend=mp`, disable flash attention for Moonlight, and disable KL loss for the smoke; do not use FSDP or Ray for this mode. Harbor task containers must have collision-resistant names because SkyRL can run multiple trajectories for the same task concurrently. Copy Harbor verifier assets file-by-file into `/tests`; do not rely on `docker cp` directory semantics, which differ across Docker versions. Harbor task previews must use Cloudflare quick tunnels back to the laptop-local ChromiumRL reward service. This path must not require `TINKER_API_KEY`, Daytona, a GitHub token, or copied browser source.
+`cpp-sft` and `cpp-grpo` launch through SkyPilot and restore their dataset bundle from GCS before invoking SkyRL. The GRPO entrypoint must register `cpp-perf` inside the SkyRL Ray task and then delegate to SkyRL `BasePPOExp(cfg).run()`.
 
 ## Benchmark Rules
 
-Infrastructure changes are not sufficient unless they preserve a runnable benchmark ladder. Keep `w8-biayn benchmarks list`, README benchmark guidance, and rendered benchmark metadata current when changing R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld paths.
+Infrastructure changes are not sufficient unless they preserve a runnable benchmark ladder. Keep `w8-biayn benchmarks list`, README benchmark guidance, and rendered benchmark metadata current when changing the C++ task builder, harness, reward, SkyRL/rLLM integration, or eval protocol.
 
-The default scorecard is MiniWoB smoke, DOMDiff local live smoke, WebVoyager DOMDiff held-out, Harbor DOMDiff browser/SWE tasks, WebArena, and AndroidWorld transfer.
+The current scorecard is `pie-one-smoke`, `pie-10-task`, `pie-heldout-effk`, `sft-cold-start`, and `grpo-tiny`.
 
 ## Custom-Kernel R&D Rules
 
-The custom Triton-kernel lane (`w8-biayn kernels ...` and the `--optimization-profile` flag) must stay opt-in and off by default.
+The custom Triton-kernel lane remains opt-in and off by default. It is secondary to the C++ reward harness and must not change default training numerics or rendered output unless explicitly selected.
 
-- `baseline` renders byte-for-byte identically to the stock pipeline; never change default numerics or rendered output. `a100-kernel-lab` may only add the `W8_BIAYN_KERNELS` activation (an export plus a docker `-e` forwarding); `a100-safe` is observability-only.
-- Activate kernels by setting `W8_BIAYN_KERNELS` and patching inside SkyRL's Ray entrypoint (`integrations/skyrl_harbor_main._skyrl_entrypoint`), beside `register_harbor_env()` — narrow and explicit. Do not ship a broad `sitecustomize`/`.pth` hook unless explicit entrypoint patching is proven not to reach Ray worker subprocesses, and then keep it gated and loud.
-- Every patch self-checks parity against a pure-torch reference before applying; on mismatch it skips and keeps upstream (guards `SKYRL_PIN` drift). Bit-identical is acceptable only for a pass-through wrapper; real kernels are judged by numeric tolerances on forward, backward, and an optimizer-step delta where applicable.
-- Do not vendor or edit SkyRL/Megatron. Inject Tier-B kernels through the Megatron-Bridge provider ModuleSpec seam (`workers/megatron/megatron_worker` provider plus `transformer_config_kwargs`). Fusing across TP/EP collectives in the full topology is out of scope; Tier-B kernels run only in the single-device lab (`kernels lab`, all parallel sizes = 1) on a tiny MoE model (`eatang/qwen3-moe-tiny-random`).
-- Kernel numerics need a CUDA GPU; the lab provisions one A100 on GCP through `.gcp-service-account.json` (scoped env, dry-run support, teardown by default). Acceptance is isolated-op parity plus speed/memory — do not claim end-to-end speedups, because the Harbor R3 step is generation-bound. Fused Adam stays deferred (the A100 optimizer is CPU-offloaded).
+Do not vendor or edit SkyRL/Megatron. Kernel numerics need a CUDA GPU; local CPU-only validation can cover imports and command construction only.
 
 ## Tests And Validation
 
@@ -132,11 +152,11 @@ For bootstrap-affecting changes, also run:
 ```bash
 ./scripts/bootstrap.sh --no-sky
 uv run w8-biayn --help
-uv run w8-biayn config render miniwob --credentials .gcp-service-account.json
-uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
-uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --tag smoke --dry-run
-uv run w8-biayn launch r3 --with-local-domdiff --benchmark webvoyager-domdiff-heldout --dry-run
-uv run w8-biayn launch r3 --with-local-domdiff --benchmark harbor-domdiff-browser-swe --dry-run
+uv run w8-biayn data doctor
+uv run w8-biayn doctor --cpp-perf
+uv run w8-biayn config render cpp-smoke --credentials .gcp-service-account.json
+uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
+uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json
 python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
 
