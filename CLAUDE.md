@@ -1,1 +1,1 @@
-AGENTS.md
+.agents/REPO_GUIDE.md
