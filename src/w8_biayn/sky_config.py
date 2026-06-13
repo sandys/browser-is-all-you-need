@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 import yaml
 
+from .cpp_perf.sandbox import DEFAULT_DOCKER_IMAGE
 from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
@@ -183,11 +184,14 @@ gcloud storage cp --recursive "$W8_DATA_GCS_PREFIX/*" "$W8_DATA_DIR/"
 test -f "$W8_DATA_DIR/_w8_data_manifest.json"
 test -d "$W8_DATA_DIR/tasks"
 docker pull "$W8_GPU_CONTAINER_IMAGE"
+docker pull "{DEFAULT_DOCKER_IMAGE}"
 """
 
 
 def training_container_prefix(options: RenderOptions) -> str:
     return """docker run --rm --gpus all --network host --shm-size=32g \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v /tmp:/tmp \\
   -v "$PWD":/workspace \\
   -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
   -v "$W8_DATA_DIR":/data \\
@@ -198,6 +202,16 @@ def training_container_prefix(options: RenderOptions) -> str:
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
 set -euxo pipefail
+if ! command -v docker >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+  else
+    echo "docker CLI is required inside the training container for cpp-perf rewards" >&2
+    exit 2
+  fi
+fi
+docker version
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
 fi

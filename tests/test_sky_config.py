@@ -39,6 +39,11 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
         "python -m w8_biayn.integrations.skyrl_cpp_perf_main"
     )
     assert "environment.env_class=cpp-perf" in grpo["run"]
+    assert 'docker pull "gcc:13"' in grpo["run"]
+    assert "-v /var/run/docker.sock:/var/run/docker.sock" in grpo["run"]
+    assert "-v /tmp:/tmp" in grpo["run"]
+    assert "DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io" in grpo["run"]
+    assert "docker version" in grpo["run"]
     assert "trainer.logger=console" in grpo["run"]
     assert "trainer.placement.policy_num_gpus_per_node=8" in grpo["run"]
     assert "generator.inference_engine.num_engines=8" in grpo["run"]

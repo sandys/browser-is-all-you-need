@@ -218,6 +218,8 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main
 
 That entrypoint registers `cpp-perf` inside the SkyRL Ray task and delegates to SkyRL `BasePPOExp(cfg).run()`. It is glue, not a custom trainer.
 
+GRPO rewards compile and run generated C++ in locked-down `gcc:13` sandbox containers through the host Docker daemon. The SkyPilot YAML mounts `/var/run/docker.sock` and host `/tmp` into the GPU training container, installs the Docker CLI there if needed, and pre-pulls `gcc:13` on the host so sandbox scratch directories are visible to Docker during reward scoring.
+
 ```mermaid
 sequenceDiagram
   participant User
@@ -226,7 +228,7 @@ sequenceDiagram
   participant Sky as SkyPilot
   participant SkyRL
   participant Env as cpp-perf env
-  participant Docker as C++ sandbox
+  participant Docker as Host Docker sandbox
 
   User->>CLI: data skyrl build
   CLI->>CLI: write parquet, JSONL, tasks, manifest
