@@ -158,6 +158,8 @@ Cloud commands must:
 
 GRPO reward execution uses Docker-outside-Docker: the GPU training container must mount `/var/run/docker.sock` and host `/tmp`, install or expose a Docker CLI inside the container, and pre-pull the sandbox image (`gcc:13` by default) on the host. The shared `/tmp` mount is required because the reward harness creates temporary source/test directories that the host Docker daemon bind-mounts into sandbox containers.
 
+The default GRPO launch is a one-step smoke run and must render `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1`. This keeps rollout, reward scoring, policy update, and eval enabled while avoiding full 7B FSDP checkpoint writes that exceed the default A100 VM boot disk.
+
 Training defaults use `Qwen/Qwen2.5-Coder-7B-Instruct` and `A100:8` because the current project has A100 quota. GLM-5.1/H100 can be selected with `--model` and `--accelerators` after quota and memory are confirmed.
 
 ## Documentation Rules

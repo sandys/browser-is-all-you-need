@@ -210,6 +210,8 @@ uv run w8-biayn launch cpp-grpo \
 
 Training defaults use `Qwen/Qwen2.5-Coder-7B-Instruct` on `A100:8` because the current GCP project has A100 quota. Override `--model` and `--accelerators` for GLM-5.1/H100 or larger runs after quota and memory are confirmed.
 
+The default GRPO command is a one-step smoke run. It disables SkyRL training and HF checkpoint saves with `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1` so the run proves rollout, reward, policy update, and eval without filling the default GCP boot disk with a full 7B FSDP checkpoint.
+
 The GRPO launch calls:
 
 ```bash
