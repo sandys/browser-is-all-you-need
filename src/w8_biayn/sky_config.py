@@ -209,6 +209,7 @@ uv pip install -e /root/.cache/w8-biayn/upstreams/rllm
 cd /root/.cache/w8-biayn/upstreams/SkyRL
 uv sync --active --extra fsdp --extra gcp
 cd /workspace
+uv pip install --no-deps -e /workspace
 """
 
 

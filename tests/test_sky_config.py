@@ -32,6 +32,12 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "python -m skyrl.train.main_sft" in sft["run"]
     assert "dataset_name=/data/sft" in sft["run"]
     assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" in grpo["run"]
+    assert grpo["run"].index("uv sync --active --extra fsdp --extra gcp") < grpo["run"].index(
+        "uv pip install --no-deps -e /workspace"
+    )
+    assert grpo["run"].index("uv pip install --no-deps -e /workspace") < grpo["run"].index(
+        "python -m w8_biayn.integrations.skyrl_cpp_perf_main"
+    )
     assert "environment.env_class=cpp-perf" in grpo["run"]
     assert "BasePPOExp" not in grpo_text
     assert "domdiff" not in grpo_text.lower()
