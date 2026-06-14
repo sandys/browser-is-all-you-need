@@ -119,7 +119,6 @@ def _measure_cpp_coverage_in_dir(
             f"test_{index}: returncode={proc.returncode} "
             f"stdout={proc.stdout[:200]!r} stderr={proc.stderr[:200]!r}"
         )
-    if tests_passed != len(tests):
         return CoverageMeasurement(
             coverage=None,
             tests_total=len(tests),

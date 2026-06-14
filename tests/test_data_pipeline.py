@@ -5,7 +5,7 @@ import json
 import pyarrow.parquet as pq
 import pytest
 
-from w8_biayn.cpp_perf.coverage import coverage_passes, parse_gcov_file
+from w8_biayn.cpp_perf.coverage import coverage_passes, measure_cpp_coverage, parse_gcov_file
 from w8_biayn.cpp_perf.data import (
     build_tests_manifest_with_report,
     build_tests_manifest_from_io,
@@ -205,3 +205,17 @@ def test_parse_gcov_file_counts_lines_and_branches(tmp_path):
     assert coverage.line == pytest.approx(2 / 3)
     assert coverage.branch == pytest.approx(1 / 2)
     assert not coverage_passes(coverage)
+
+
+def test_measure_cpp_coverage_rejects_on_first_failed_oracle_test():
+    result = measure_cpp_coverage(
+        "#include <iostream>\nint main(){std::cout << 0 << \"\\n\";}\n",
+        [
+            TestCase(input="", expected="1\n"),
+            TestCase(input="", expected="0\n"),
+        ],
+    )
+
+    assert not result.ok
+    assert result.reason == "tests_failed"
+    assert result.tests_passed == 0
