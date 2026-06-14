@@ -199,6 +199,15 @@ def _write_json(path: str | Path, payload: object) -> Path:
     return output
 
 
+def _write_json_atomic(path: str | Path, payload: object) -> Path:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temp = output.with_name(f"{output.name}.tmp")
+    temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp.replace(output)
+    return output
+
+
 def _new_run_id() -> str:
     return time.strftime("r%Y%m%d%H%M%S", time.gmtime())
 
@@ -427,39 +436,100 @@ def data_pie_measure_coverage(
     limit_per_split: Optional[int] = typer.Option(None, help="Optional row limit per split."),
     timeout_s: int = typer.Option(5, help="Timeout per oracle test run."),
     jobs: int = typer.Option(1, help="Parallel coverage workers."),
+    checkpoint_every: int = typer.Option(25, help="Write progress after this many completed problems."),
+    resume: bool = typer.Option(True, "--resume/--no-resume", help="Reuse completed problems from an existing report."),
 ) -> None:
     """Measure oracle gcov coverage for prepared PIE problems."""
 
     base = Path(prepared_root)
     splits = split or ["train", "validation", "test"]
-    coverage: dict[str, dict[str, float]] = {}
-    report: dict[str, object] = {"splits": splits, "problems": {}, "accepted": 0, "rejected": 0}
     unique_pairs = {}
     for split_name in splits:
         pairs = _read_split_pairs(base, split_name, limit=limit_per_split)
         for pair in pairs:
             unique_pairs.setdefault(pair.problem_id, pair)
+    report: dict[str, object] = {"splits": splits, "problems": {}, "accepted": 0, "rejected": 0}
+    if resume and Path(report_out).exists():
+        loaded_report = json.loads(Path(report_out).read_text(encoding="utf-8"))
+        if isinstance(loaded_report, dict) and isinstance(loaded_report.get("problems"), dict):
+            completed = {
+                problem_id: payload
+                for problem_id, payload in loaded_report["problems"].items()
+                if problem_id in unique_pairs and isinstance(payload, dict)
+            }
+            report["problems"] = completed
+            console.print(f"resuming_completed: {len(completed)}")
+
+    def rebuild_coverage() -> dict[str, dict[str, float]]:
+        rebuilt: dict[str, dict[str, float]] = {}
+        problems = report["problems"]
+        if not isinstance(problems, dict):
+            return rebuilt
+        for problem_id, payload in problems.items():
+            if not isinstance(payload, dict) or not payload.get("ok") or not isinstance(payload.get("coverage"), dict):
+                continue
+            rebuilt[str(problem_id)] = payload["coverage"]  # type: ignore[assignment]
+        report["accepted"] = len(rebuilt)
+        report["rejected"] = len(problems) - len(rebuilt)
+        report["completed"] = len(problems)
+        report["total"] = len(unique_pairs)
+        return rebuilt
+
+    def checkpoint() -> None:
+        current_coverage = rebuild_coverage()
+        _write_json_atomic(out, current_coverage)
+        _write_json_atomic(report_out, report)
 
     def measure_one(problem_id: str):
         pair = unique_pairs[problem_id]
         tests = [TestCase.model_validate(item) for item in discover_problem_tests(base / "cases" / problem_id)]
         return problem_id, measure_cpp_coverage(pair.oracle_solution, tests, timeout_s=timeout_s)
 
+    checkpoint_interval = max(1, checkpoint_every)
+    pending = [problem_id for problem_id in sorted(unique_pairs) if problem_id not in report["problems"]]
+    checkpoint()
+    console.print(f"coverage_total: {len(unique_pairs)}")
+    console.print(f"coverage_pending: {len(pending)}")
     worker_count = max(1, jobs)
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        futures = [executor.submit(measure_one, problem_id) for problem_id in sorted(unique_pairs)]
+        futures = {executor.submit(measure_one, problem_id): problem_id for problem_id in pending}
+        completed_since_checkpoint = 0
         for future in as_completed(futures):
-            problem_id, measurement = future.result()
-            problem_report = measurement.as_dict()
+            submitted_problem_id = futures[future]
+            try:
+                problem_id, measurement = future.result()
+                problem_report = measurement.as_dict()
+            except Exception as exc:  # pragma: no cover - defensive for messy upstream data
+                problem_id = submitted_problem_id
+                problem_report = {
+                    "coverage": None,
+                    "tests_total": 0,
+                    "tests_passed": 0,
+                    "ok": False,
+                    "reason": "worker_failed",
+                    "logs": repr(exc),
+                }
             report["problems"][problem_id] = problem_report  # type: ignore[index]
-            if measurement.coverage is not None and measurement.ok:
-                coverage[problem_id] = measurement.coverage.model_dump()
-                report["accepted"] = int(report["accepted"]) + 1
-            else:
-                report["rejected"] = int(report["rejected"]) + 1
-    _write_json(out, coverage)
-    _write_json(report_out, report)
-    console.print_json(data={"accepted": len(coverage), "out": out, "report_out": report_out})
+            completed_since_checkpoint += 1
+            if completed_since_checkpoint >= checkpoint_interval:
+                checkpoint()
+                completed_since_checkpoint = 0
+                console.print(
+                    "coverage_progress: "
+                    f"{report['completed']}/{report['total']} "
+                    f"accepted={report['accepted']} rejected={report['rejected']}"
+                )
+    checkpoint()
+    console.print_json(
+        data={
+            "accepted": report["accepted"],
+            "rejected": report["rejected"],
+            "completed": report["completed"],
+            "total": report["total"],
+            "out": out,
+            "report_out": report_out,
+        }
+    )
 
 
 @data_pie_app.command("build-tests-manifest")

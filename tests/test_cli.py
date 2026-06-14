@@ -72,6 +72,62 @@ def test_cli_launch_cpp_smoke_dry_run_prints_sky_command(tmp_path):
     assert ".w8-biayn/rendered/cpp-smoke.sky.yaml" in result.output
 
 
+def test_cli_measure_coverage_resumes_existing_report(tmp_path, monkeypatch):
+    prepared = tmp_path / "pie-full"
+    prepared.mkdir()
+    (prepared / "train.jsonl").write_text(
+        json.dumps({"problem_id": "p1", "v0": "slow", "v1": "fast", "cpu_time_v1": 100}) + "\n",
+        encoding="utf-8",
+    )
+    report = prepared / "coverage-report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "splits": ["train"],
+                "problems": {
+                    "p1": {
+                        "coverage": {"line": 0.96, "branch": 0.86},
+                        "tests_total": 2,
+                        "tests_passed": 2,
+                        "ok": True,
+                        "reason": "ok",
+                    }
+                },
+                "accepted": 1,
+                "rejected": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = prepared / "coverage.json"
+
+    def fail_measure(*_args, **_kwargs):
+        raise AssertionError("already measured problem should be skipped")
+
+    monkeypatch.setattr("w8_biayn.cli.measure_cpp_coverage", fail_measure)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "data",
+            "pie",
+            "measure-coverage",
+            "--prepared-root",
+            str(prepared),
+            "--out",
+            str(out),
+            "--report-out",
+            str(report),
+            "--split",
+            "train",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "resuming_completed: 1" in result.output
+    assert json.loads(out.read_text(encoding="utf-8")) == {"p1": {"line": 0.96, "branch": 0.86}}
+
+
 def test_cli_render_cpp_grpo_defaults_to_training_model_and_a100(tmp_path):
     credentials = tmp_path / "sa.json"
     write_credentials(credentials)
