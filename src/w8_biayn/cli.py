@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -425,6 +426,7 @@ def data_pie_measure_coverage(
     ),
     limit_per_split: Optional[int] = typer.Option(None, help="Optional row limit per split."),
     timeout_s: int = typer.Option(5, help="Timeout per oracle test run."),
+    jobs: int = typer.Option(1, help="Parallel coverage workers."),
 ) -> None:
     """Measure oracle gcov coverage for prepared PIE problems."""
 
@@ -432,17 +434,26 @@ def data_pie_measure_coverage(
     splits = split or ["train", "validation", "test"]
     coverage: dict[str, dict[str, float]] = {}
     report: dict[str, object] = {"splits": splits, "problems": {}, "accepted": 0, "rejected": 0}
+    unique_pairs = {}
     for split_name in splits:
         pairs = _read_split_pairs(base, split_name, limit=limit_per_split)
         for pair in pairs:
-            if pair.problem_id in report["problems"]:  # type: ignore[operator]
-                continue
-            tests = [TestCase.model_validate(item) for item in discover_problem_tests(base / "cases" / pair.problem_id)]
-            measurement = measure_cpp_coverage(pair.oracle_solution, tests, timeout_s=timeout_s)
+            unique_pairs.setdefault(pair.problem_id, pair)
+
+    def measure_one(problem_id: str):
+        pair = unique_pairs[problem_id]
+        tests = [TestCase.model_validate(item) for item in discover_problem_tests(base / "cases" / problem_id)]
+        return problem_id, measure_cpp_coverage(pair.oracle_solution, tests, timeout_s=timeout_s)
+
+    worker_count = max(1, jobs)
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(measure_one, problem_id) for problem_id in sorted(unique_pairs)]
+        for future in as_completed(futures):
+            problem_id, measurement = future.result()
             problem_report = measurement.as_dict()
-            report["problems"][pair.problem_id] = problem_report  # type: ignore[index]
+            report["problems"][problem_id] = problem_report  # type: ignore[index]
             if measurement.coverage is not None and measurement.ok:
-                coverage[pair.problem_id] = measurement.coverage.model_dump()
+                coverage[problem_id] = measurement.coverage.model_dump()
                 report["accepted"] = int(report["accepted"]) + 1
             else:
                 report["rejected"] = int(report["rejected"]) + 1
