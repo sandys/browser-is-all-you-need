@@ -145,10 +145,19 @@ def run_test_command(
     timeout_s: int = DEFAULT_RUN_TIMEOUT_S,
     binary: str = "candidate",
 ) -> list[str]:
+    normalize = (
+        "normalize(){ awk '{ sub(/[[:space:]]+$/, \"\"); lines[NR]=$0 } "
+        "END { n=NR; while (n>0 && lines[n]==\"\") n--; "
+        "for (i=1; i<=n; i++) print lines[i] }' \"$1\"; }; "
+    )
     script = (
+        normalize
+        +
         f"timeout {timeout_s}s taskset -c {shlex.quote(cpu)} ./{binary} "
         f"< tests/{index}.in > tests/{index}.actual && "
-        f"diff -u tests/{index}.out tests/{index}.actual"
+        f"normalize tests/{index}.out > tests/{index}.expected.norm && "
+        f"normalize tests/{index}.actual > tests/{index}.actual.norm && "
+        f"diff -u tests/{index}.expected.norm tests/{index}.actual.norm"
     )
     return docker_base_args(scratch, image=image) + ["bash", "-lc", script]
 

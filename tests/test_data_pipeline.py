@@ -219,3 +219,13 @@ def test_measure_cpp_coverage_rejects_on_first_failed_oracle_test():
     assert not result.ok
     assert result.reason == "tests_failed"
     assert result.tests_passed == 0
+
+
+def test_measure_cpp_coverage_accepts_trailing_expected_blank_lines():
+    result = measure_cpp_coverage(
+        '#include <iostream>\nint main(){std::cout << "4\\n2\\n3\\n";}\n',
+        [TestCase(input="", expected="4\n2\n3\n\n")],
+    )
+
+    assert result.ok
+    assert result.tests_passed == 1

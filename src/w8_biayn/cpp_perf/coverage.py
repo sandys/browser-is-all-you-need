@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from .judge import judge_output_matches
 from .schema import TestCase, TestCoverage
 
 
@@ -112,7 +113,7 @@ def _measure_cpp_coverage_in_dir(
             capture_output=True,
             text=True,
         )
-        if proc.returncode == 0 and proc.stdout == test.expected:
+        if proc.returncode == 0 and judge_output_matches(proc.stdout, test.expected):
             tests_passed += 1
             continue
         logs.append(

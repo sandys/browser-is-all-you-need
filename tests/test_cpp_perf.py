@@ -5,9 +5,10 @@ import json
 import pytest
 
 from w8_biayn.cpp_perf.coverage import coverage_passes, parse_lcov_summary
+from w8_biayn.cpp_perf.judge import judge_output_matches, normalize_judge_output
 from w8_biayn.cpp_perf.pie import build_tasks, read_pie_pairs
 from w8_biayn.cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
-from w8_biayn.cpp_perf.sandbox import dry_run_plan, parse_perf_instructions
+from w8_biayn.cpp_perf.sandbox import dry_run_plan, parse_perf_instructions, run_test_command
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult, ReferencePerformance, TestCase, TestCoverage
 
 
@@ -125,6 +126,12 @@ def test_coverage_summary_parses_and_gates():
     assert coverage_passes(coverage)
 
 
+def test_judge_output_comparison_allows_trailing_whitespace_only():
+    assert normalize_judge_output("4 \n2\t\n3\n\n") == "4\n2\n3"
+    assert judge_output_matches("4\n2\n3\n", "4 \n2\t\n3\n\n")
+    assert not judge_output_matches("4\n2\n3\n", "4\n2\n5\n")
+
+
 def test_model_output_format_and_extraction():
     assert valid_model_output(valid_output())
     assert extract_code_block(valid_output()).startswith("int main")
@@ -170,6 +177,7 @@ def test_sandbox_dry_run_and_perf_parser():
     assert "--network none" in plan
     assert "g++ -O3 -std=c++20 candidate.cpp -o candidate" in plan
     assert "perf stat -e instructions:u -x" in plan
+    assert "expected.norm" in " ".join(run_test_command(0, "/tmp/w8", image="gcc:13"))
 
     assert parse_perf_instructions("12345,,instructions:u,100,100\n") == 12345
     assert parse_perf_instructions("<not counted>,,instructions:u,100,100\n") is None
