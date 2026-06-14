@@ -12,6 +12,7 @@ from w8_biayn.cpp_perf.data import (
     _download_with_gdown,
     inspect_supercoder_parquet,
     verify_data_manifest,
+    write_data_manifest,
 )
 from w8_biayn.cpp_perf.pie import PiePair, build_tasks_with_report
 from w8_biayn.cpp_perf.schema import CppTask, ReferencePerformance, TestCase, TestCoverage
@@ -87,6 +88,17 @@ def test_load_tasks_skips_w8_metadata(tmp_path):
 
     assert len(loaded) == 1
     assert loaded[0][1].task_id == "train_1"
+
+
+def test_write_data_manifest_can_skip_large_file_inventory(tmp_path):
+    (tmp_path / "large-tree").mkdir()
+    (tmp_path / "large-tree" / "x.txt").write_text("x", encoding="utf-8")
+
+    manifest = write_data_manifest(tmp_path / "large-tree", kind="prepared", include_files=False)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+
+    assert payload["files"] == []
+    assert verify_data_manifest(tmp_path / "large-tree") == []
 
 
 def test_build_prompt_exposes_visible_tests_not_hidden_tests():

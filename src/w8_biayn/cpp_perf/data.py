@@ -93,6 +93,7 @@ def write_data_manifest(
     kind: str,
     sources: Iterable[str] = (),
     options: dict[str, Any] | None = None,
+    include_files: bool = True,
 ) -> Path:
     """Write a conversion/download manifest with checksums."""
 
@@ -103,7 +104,7 @@ def write_data_manifest(
         "kind": kind,
         "sources": list(sources),
         "options": options or {},
-        "files": tree_records(base),
+        "files": tree_records(base) if include_files else [],
     }
     path = base / DATA_MANIFEST
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -236,6 +237,7 @@ def prepare_full_pie(
             "problem_count_with_tests": len(cases),
             "test_count": sum(cases.values()),
         },
+        include_files=False,
     )
     return {
         "root": output,
