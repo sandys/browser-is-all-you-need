@@ -47,7 +47,15 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "docker version" in grpo["run"]
     assert "sudo sysctl -w kernel.perf_event_paranoid=0" in grpo["run"]
     assert 'test "$(cat /proc/sys/kernel/perf_event_paranoid)" -le 0' in grpo["run"]
+    assert 'uv run w8-biayn cpp harness preflight --image "w8-biayn-cpp-perf:latest" --cpu "3"' in grpo["run"]
+    assert grpo["run"].index("uv run w8-biayn cpp harness preflight") < grpo["run"].index(
+        "gcloud storage cp --recursive"
+    )
+    assert grpo["run"].index("uv run w8-biayn cpp harness preflight") < grpo["run"].index(
+        "docker pull \"$W8_GPU_CONTAINER_IMAGE\""
+    )
     assert "w8-biayn cpp harness preflight --image \"w8-biayn-cpp-perf:latest\" --cpu \"3\"" in grpo["run"]
+    assert grpo["run"].count("w8-biayn cpp harness preflight") == 2
     assert "trainer.logger=console" in grpo["run"]
     assert "trainer.ckpt_interval=-1" in grpo["run"]
     assert "trainer.hf_save_interval=-1" in grpo["run"]
@@ -87,6 +95,7 @@ def test_render_cpp_training_yaml_exposes_full_run_knobs():
     )
 
     assert "w8-biayn cpp harness preflight --image \"w8-cpp:perf\" --cpu \"7\"" in rendered
+    assert "uv run w8-biayn cpp harness preflight --image \"w8-cpp:perf\" --cpu \"7\"" in rendered
     assert "trainer.epochs=3" in rendered
     assert "trainer.eval_interval=25" in rendered
     assert "trainer.ckpt_interval=50" in rendered
@@ -141,6 +150,11 @@ def test_render_cpp_eval_yaml_uses_eval_entrypoint_and_a100_one():
     assert "--label \"base\"" in config["run"]
     assert "--max-tasks 8" in config["run"]
     assert "W8_EVAL_MODEL" in config["run"]
+    assert "sudo sysctl -w kernel.perf_event_paranoid=0" in config["run"]
+    assert "uv run w8-biayn cpp harness preflight" in config["run"]
+    assert config["run"].index("uv run w8-biayn cpp harness preflight") < config["run"].index(
+        "gcloud storage cp --recursive"
+    )
     assert "gcloud storage cp --recursive" in config["run"]
     assert "runs/cpp-perf/rtest/cpp-eval" in config["run"]
 

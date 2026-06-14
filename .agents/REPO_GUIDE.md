@@ -118,6 +118,7 @@ The reward is correctness gated:
 Model outputs must contain exactly one `<reasoning>...</reasoning>` block followed by exactly one fenced C++ code block.
 
 A host without numeric `instructions:u` is invalid for GRPO. Having the `perf` binary in the image is not enough.
+A GCP A100/A2 VM can return `<not supported>` for `instructions:u`; do not keep retrying GPU hosts that fail this preflight.
 
 ## Training Rules
 
@@ -139,8 +140,8 @@ uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --datase
 
 The GRPO entrypoint is `python -m w8_biayn.integrations.skyrl_cpp_perf_main`. It registers `cpp-perf` and delegates to SkyRL `BasePPOExp(cfg).run()`.
 
-Rendered GRPO must run the C++ perf preflight before `skyrl_cpp_perf_main`. GRPO rewards use Docker-outside-Docker, so rendered YAML must mount `/var/run/docker.sock` and host `/tmp` into the GPU training container.
-Rendered GRPO must also lower the host `kernel.perf_event_paranoid` setting to `0` before the training container starts; a default GCP value of `4` blocks `perf stat -e instructions:u` even when the sandbox image has `perf`.
+Rendered GRPO must run a host-side C++ perf preflight before GCS restore, model staging, GPU image pulls, or framework installs, and must run the preflight again before `skyrl_cpp_perf_main`. GRPO rewards use Docker-outside-Docker, so rendered YAML must mount `/var/run/docker.sock` and host `/tmp` into the GPU training container.
+Rendered GRPO and eval must also lower the host `kernel.perf_event_paranoid` setting to `0` before perf preflight; a default GCP value of `4` blocks `perf stat -e instructions:u` even when the sandbox image has `perf`.
 
 ## Cloud Rules
 

@@ -151,6 +151,7 @@ The reward is correctness gated:
 - `perf stat -e instructions:u`: RL reward metric.
 - gem5: calibration/final-eval reference only.
 - `w8-biayn cpp harness preflight`: required before GRPO to prove the host exposes a numeric instruction counter.
+- A GCP A100/A2 host can still return `<not supported>` for `instructions:u`; treat that as an invalid GRPO/eval host, not as a transient SkyRL error.
 
 For real scoring, the sandbox image must contain `g++`, `bash`, `taskset`, and `perf`. The CLI default is `w8-biayn-cpp-perf:latest`, built locally from `gcc:13` with `linux-perf`; pass `--image --no-build-image` only for a known-good prebuilt image.
 
@@ -187,7 +188,7 @@ uv run w8-biayn gcp cleanup --run-id "$RUN_ID" --credentials .gcp-service-accoun
 ```
 
 GRPO reward execution uses Docker-outside-Docker: the GPU training container must mount `/var/run/docker.sock` and host `/tmp`.
-Rendered GRPO must lower the host `kernel.perf_event_paranoid` setting to `0` before starting the training container; GCP images can default to `4`, which blocks `perf stat -e instructions:u` before SkyRL starts.
+Rendered GRPO and eval must lower the host `kernel.perf_event_paranoid` setting to `0`, then run a host-side C++ perf preflight before GCS restore, model staging, GPU image pulls, or framework installs. GRPO and eval still run the preflight again inside the GPU container before reward code starts.
 
 The GRPO entrypoint is:
 

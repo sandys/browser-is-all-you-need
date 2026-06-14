@@ -213,6 +213,12 @@ PY
 
 
 def training_prelude(options: RenderOptions) -> str:
+    perf_prelude = ""
+    if options.pipeline in {"cpp-grpo", "cpp-eval"}:
+        perf_prelude = f"""sudo sysctl -w kernel.perf_event_paranoid=0
+test "$(cat /proc/sys/kernel/perf_event_paranoid)" -le 0
+uv run w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+"""
     return f"""set -euxo pipefail
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
@@ -236,10 +242,7 @@ fi
 if [ "$W8_EXPORT_PATH" = "~/exports/" ]; then
   export W8_EXPORT_PATH="/artifacts/exports"
 fi
-if [ "{options.pipeline}" = "cpp-grpo" ]; then
-  sudo sysctl -w kernel.perf_event_paranoid=0
-  test "$(cat /proc/sys/kernel/perf_event_paranoid)" -le 0
-fi
+{perf_prelude.rstrip()}
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is required on the SkyPilot host to restore dataset cache from GCS" >&2
   exit 2

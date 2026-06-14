@@ -177,8 +177,8 @@ uv run w8-biayn cpp harness preflight --cpu 3
 uv run w8-biayn doctor --cpp-perf --credentials .gcp-service-account.json
 ```
 
-Having the `perf` binary is not enough. Some virtualized hosts return `<not counted>` or `<not supported>` for `instructions:u`; those hosts are invalid for training.
-Rendered `cpp-grpo` SkyPilot jobs lower the host `kernel.perf_event_paranoid` setting to `0` before starting the GPU training container, then run the C++ perf preflight before `skyrl_cpp_perf_main`.
+Having the `perf` binary is not enough. Some virtualized hosts return `<not counted>` or `<not supported>` for `instructions:u`; those hosts are invalid for training. A GCP A100/A2 VM can fail this way even after provisioning succeeds.
+Rendered `cpp-grpo` and `cpp-eval` SkyPilot jobs lower the host `kernel.perf_event_paranoid` setting to `0`, run a host-side C++ perf preflight before GCS restore, model staging, GPU image pulls, or framework installs, and then run the C++ perf preflight again inside the GPU container before `skyrl_cpp_perf_main` or eval scoring.
 
 ## GCP Training
 
@@ -239,6 +239,8 @@ uv run w8-biayn launch cpp-grpo \
 ```
 
 `launch` auto-adds a run ID if omitted, but full runs should pass the same `RUN_ID` everywhere. Rendered YAML includes GCP labels under `resources.labels`: `project`, `phase`, `pipeline`, `run_id`, `owner`, and `ttl`.
+
+GRPO requires a GCP host where `perf stat -e instructions:u` returns a numeric count. Google Compute Engine PMU support must be enabled on a supported PMU machine series; do not keep retrying A2/A3/G2 GPU hosts that fail preflight with `<not supported>`.
 
 The default `launch` includes SkyPilot `--down`; `--no-down-after` keeps a cluster for inspection. On a shared account, run cleanup when an attempt fails or finishes:
 
