@@ -92,6 +92,10 @@ class RenderOptions:
         return f"{self.artifact_bucket}/runs/cpp-perf/{run_id}/{self.pipeline}"
 
     @property
+    def run_gcs_prefix(self) -> str:
+        return self.eval_gcs_prefix
+
+    @property
     def labels(self) -> dict[str, str]:
         if not self.run_id:
             return {}
@@ -219,7 +223,19 @@ export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
 export W8_DATA_GCS_PREFIX="{options.data_gcs_prefix}"
 export W8_DATA_DIR="{options.remote_data_dir}"
 export W8_GPUS_PER_NODE="{options.gpu_count}"
+export W8_RUN_GCS_PREFIX="{options.run_gcs_prefix}"
+export W8_ARTIFACT_DIR="$HOME/.w8-biayn/runs/{options.run_id or options.pipeline}/{options.pipeline}"
+export W8_CKPT_PATH="{options.ckpt_path}"
+export W8_EXPORT_PATH="{options.export_path}"
 mkdir -p "$W8_DATA_DIR"
+rm -rf "$W8_ARTIFACT_DIR"
+mkdir -p "$W8_ARTIFACT_DIR/ckpts" "$W8_ARTIFACT_DIR/exports"
+if [ "$W8_CKPT_PATH" = "~/ckpts/" ]; then
+  export W8_CKPT_PATH="/artifacts/ckpts"
+fi
+if [ "$W8_EXPORT_PATH" = "~/exports/" ]; then
+  export W8_EXPORT_PATH="/artifacts/exports"
+fi
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is required on the SkyPilot host to restore dataset cache from GCS" >&2
   exit 2
@@ -248,10 +264,13 @@ def training_container_prefix(options: RenderOptions) -> str:
   -v "$PWD":/workspace \\
   -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
   -v "$W8_DATA_DIR":/data \\
+  -v "$W8_ARTIFACT_DIR":/artifacts \\
   -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
   -e W8_BIAYN_DATA_DIR=/data \\
   -e W8_BIAYN_MODEL_PATH="$W8_BIAYN_MODEL_PATH" \\
+  -e W8_CKPT_PATH="$W8_CKPT_PATH" \\
+  -e W8_EXPORT_PATH="$W8_EXPORT_PATH" \\
   -e HF_HOME=/root/.cache/huggingface \\
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
@@ -281,6 +300,21 @@ uv pip install --no-deps -e /workspace
 """
 
 
+def training_artifact_upload_script() -> str:
+    return """
+if find "$W8_ARTIFACT_DIR/exports" -mindepth 1 -print -quit | grep -q .; then
+  gcloud storage cp --recursive "$W8_ARTIFACT_DIR/exports" "$W8_RUN_GCS_PREFIX/"
+else
+  echo "no exports found under $W8_ARTIFACT_DIR/exports" >&2
+fi
+if find "$W8_ARTIFACT_DIR/ckpts" -mindepth 1 -print -quit | grep -q .; then
+  gcloud storage cp --recursive "$W8_ARTIFACT_DIR/ckpts" "$W8_RUN_GCS_PREFIX/"
+else
+  echo "no checkpoints found under $W8_ARTIFACT_DIR/ckpts" >&2
+fi
+"""
+
+
 def sft_run_script(options: RenderOptions) -> LiteralStr:
     return LiteralStr(
         training_prelude(options)
@@ -302,16 +336,17 @@ python -m skyrl.train.main_sft \\
   micro_train_batch_size_per_gpu=1 \\
   num_epochs={options.train_epochs} \\
   max_length=8192 \\
-  ckpt_path="{options.ckpt_path}" \\
+  ckpt_path="$W8_CKPT_PATH" \\
   ckpt_interval={max(options.ckpt_interval, 0)} \\
   hf_save_interval={max(options.hf_save_interval, 0)} \\
-  export_path="{options.export_path}" \\
+  export_path="$W8_EXPORT_PATH" \\
   max_ckpts_to_keep={options.max_ckpts_to_keep} \\
   logger={options.logger} \\
   project_name=w8_biayn_cpp_sft \\
   run_name={options.pipeline}
 '
 """
+        + training_artifact_upload_script()
     )
 
 
@@ -338,8 +373,8 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   trainer.eval_interval={options.eval_interval} \\
   trainer.ckpt_interval={options.ckpt_interval} \\
   trainer.hf_save_interval={options.hf_save_interval} \\
-  trainer.ckpt_path="{options.ckpt_path}" \\
-  trainer.export_path="{options.export_path}" \\
+  trainer.ckpt_path="$W8_CKPT_PATH" \\
+  trainer.export_path="$W8_EXPORT_PATH" \\
   trainer.max_ckpts_to_keep={options.max_ckpts_to_keep} \\
   trainer.train_batch_size={options.train_batch_size} \\
   trainer.policy_mini_batch_size={options.train_batch_size} \\
@@ -354,6 +389,7 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   generator.sampling_params.temperature=0.8
 '
 """
+        + training_artifact_upload_script()
     )
 
 

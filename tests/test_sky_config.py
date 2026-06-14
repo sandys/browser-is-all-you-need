@@ -49,6 +49,10 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "trainer.logger=console" in grpo["run"]
     assert "trainer.ckpt_interval=-1" in grpo["run"]
     assert "trainer.hf_save_interval=-1" in grpo["run"]
+    assert '-v "$W8_ARTIFACT_DIR":/artifacts' in grpo["run"]
+    assert 'trainer.ckpt_path="$W8_CKPT_PATH"' in grpo["run"]
+    assert 'trainer.export_path="$W8_EXPORT_PATH"' in grpo["run"]
+    assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/exports\"" in grpo["run"]
     assert "trainer.epochs=1" in grpo["run"]
     assert "trainer.eval_interval=50" in grpo["run"]
     assert "trainer.placement.policy_num_gpus_per_node=8" in grpo["run"]
@@ -86,8 +90,10 @@ def test_render_cpp_training_yaml_exposes_full_run_knobs():
     assert "trainer.ckpt_interval=50" in rendered
     assert "trainer.hf_save_interval=100" in rendered
     assert "trainer.max_ckpts_to_keep=2" in rendered
-    assert 'trainer.ckpt_path="gs://bucket/ckpts"' in rendered
-    assert 'trainer.export_path="gs://bucket/exports"' in rendered
+    assert 'export W8_CKPT_PATH="gs://bucket/ckpts"' in rendered
+    assert 'export W8_EXPORT_PATH="gs://bucket/exports"' in rendered
+    assert 'trainer.ckpt_path="$W8_CKPT_PATH"' in rendered
+    assert 'trainer.export_path="$W8_EXPORT_PATH"' in rendered
 
 
 def test_render_run_id_adds_cluster_suffix_labels_and_env():
