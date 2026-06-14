@@ -9,6 +9,7 @@ from w8_biayn.cpp_perf.coverage import coverage_passes, parse_gcov_file
 from w8_biayn.cpp_perf.data import (
     build_tests_manifest_with_report,
     build_tests_manifest_from_io,
+    _download_with_gdown,
     inspect_supercoder_parquet,
     verify_data_manifest,
 )
@@ -109,6 +110,24 @@ def test_supercoder_inspect_rejects_lfs_pointer(tmp_path):
 
     with pytest.raises(ValueError, match="Git LFS pointer"):
         inspect_supercoder_parquet(pointer)
+
+
+def test_gdown_download_retries_without_fuzzy_for_newer_signature(tmp_path):
+    class FakeGdown:
+        def __init__(self):
+            self.calls = []
+
+        def download(self, **kwargs):
+            self.calls.append(kwargs)
+            if "fuzzy" in kwargs:
+                raise TypeError("download() got an unexpected keyword argument 'fuzzy'")
+            return "ok"
+
+    fake = FakeGdown()
+
+    assert _download_with_gdown(fake, url="https://drive.google.com/file/d/x/view", destination=tmp_path / "x.zip") == "ok"
+    assert fake.calls[0]["fuzzy"] is True
+    assert "fuzzy" not in fake.calls[1]
 
 
 def test_tests_manifest_with_report_records_admission_reasons(tmp_path):

@@ -149,13 +149,24 @@ def download_url(url: str, output: str | Path, *, force: bool = False) -> Path:
             import gdown
         except ImportError as exc:  # pragma: no cover - dependency check covers this
             raise RuntimeError("gdown is required for Google Drive PIE downloads") from exc
-        downloaded = gdown.download(url=url, output=str(destination), quiet=False, fuzzy=True)
+        downloaded = _download_with_gdown(gdown, url=url, destination=destination)
         if not downloaded:
             raise RuntimeError(f"gdown did not return an output path for {url}")
     else:
         with urllib.request.urlopen(url, timeout=120) as response, destination.open("wb") as handle:
             shutil.copyfileobj(response, handle)
     return destination
+
+
+def _download_with_gdown(gdown_module: Any, *, url: str, destination: Path) -> Any:
+    """Download a Google Drive URL across gdown versions."""
+
+    try:
+        return gdown_module.download(url=url, output=str(destination), quiet=False, fuzzy=True)
+    except TypeError as exc:
+        if "fuzzy" not in str(exc):
+            raise
+        return gdown_module.download(url=url, output=str(destination), quiet=False)
 
 
 def download_pie(root: str | Path, *, force: bool = False) -> list[Path]:
