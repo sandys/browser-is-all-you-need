@@ -94,6 +94,10 @@ def test_model_output_format_and_extraction():
     assert extract_code_block(valid_output()).startswith("int main")
     assert not valid_model_output("```cpp\nint main(){}\n```")
     assert not valid_model_output("<reasoning>x</reasoning>\n```cpp\nx\n```\n```cpp\ny\n```")
+    assert not valid_model_output(
+        "<reasoning>x</reasoning>\n<reasoning>y</reasoning>\n```cpp\nint main(){}\n```\n"
+    )
+    assert not valid_model_output("```cpp\nint main(){}\n```\n<reasoning>x</reasoning>\n")
 
 
 def test_reward_orders_compile_partial_correct_and_faster():
@@ -117,6 +121,13 @@ def test_reward_orders_compile_partial_correct_and_faster():
     assert compute_reward(task, valid_output(), runner=slower_correct).reward == pytest.approx(1.0)
     assert compute_reward(task, valid_output(), runner=faster_correct).reward > 1.0
 
+    def missing_instr(_task: CppTask, _code: str) -> HarnessResult:
+        return HarnessResult(tests_passed=2, tests_total=2, instr_count=None)
+
+    missing = compute_reward(task, valid_output(), runner=missing_instr)
+    assert missing.reward == -0.5
+    assert missing.reason == "missing_instruction_count"
+
 
 def test_sandbox_dry_run_and_perf_parser():
     plan = dry_run_plan(sample_task(), image="gcc:13", cpu="3")
@@ -125,6 +136,10 @@ def test_sandbox_dry_run_and_perf_parser():
     assert "perf stat -e instructions:u -x" in plan
 
     assert parse_perf_instructions("12345,,instructions:u,100,100\n") == 12345
+    assert parse_perf_instructions("<not counted>,,instructions:u,100,100\n") is None
+    assert parse_perf_instructions("<not supported>,,instructions:u,100,100\n") is None
+    assert parse_perf_instructions("garbage\n") is None
+    assert parse_perf_instructions("") is None
 
 
 def test_task_json_round_trip(tmp_path):

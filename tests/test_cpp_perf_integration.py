@@ -45,3 +45,21 @@ def test_cpp_perf_env_invalid_format_is_negative(tmp_path):
 
     assert result["reward"] == -1.0
     assert result["metadata"]["reason"] == "invalid_format"
+
+
+def test_cpp_perf_env_turns_reward_exception_into_negative_result(tmp_path):
+    task_path = sample_task().write_json(tmp_path / "task.json")
+
+    def runner(_task: CppTask, _code: str) -> HarnessResult:
+        raise RuntimeError("boom")
+
+    env = CppPerfEnv(
+        env_config={"runner": runner},
+        extras={"extra_info": {"task_path": str(task_path)}},
+    )
+    result = env.step("<reasoning>x</reasoning>\n```cpp\nint main(){return 0;}\n```\n")
+
+    assert result["done"] is True
+    assert result["reward"] == -1.0
+    assert result["metadata"]["reason"] == "reward_exception"
+    assert "boom" in result["metadata"]["exception"]

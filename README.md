@@ -28,6 +28,7 @@ Implemented in this repo:
 - SkyRL GRPO parquet and SFT JSONL dataset bundle generation.
 - GCS upload/restore for versioned dataset bundles.
 - Docker-based C++ compile, sanitizer, hidden-test, and `perf stat -e instructions:u` reward harness.
+- Docker-based `instructions:u` preflight so GRPO fails before training if the host PMU signal is unavailable.
 - SkyRL `cpp-perf` environment registration and GRPO entrypoint glue.
 - SkyPilot render/launch commands for GPU smoke, SFT, and GRPO jobs on GCP.
 - Benchmark ladder metadata.
@@ -247,7 +248,17 @@ uv run w8-biayn cpp reward score \
   --dry-run
 ```
 
-Real scoring requires Docker, Linux `perf`, taskset, and a sandbox image containing `g++`, `bash`, `taskset`, and `perf`. The CLI default sandbox image is `gcc:13`; if that image lacks `perf` on a target machine, build or select a project sandbox image and pass `--image`.
+Real scoring requires Docker, Linux `perf`, taskset, and a sandbox image containing `g++`, `bash`, `taskset`, and `perf`. The CLI default sandbox image is `w8-biayn-cpp-perf:latest`, built locally from `gcc:13` with `linux-perf` installed. Use `--no-build-image` only when you provide a prebuilt image with `--image`.
+
+Before any GRPO run, prove the host and sandbox can collect a numeric `instructions:u` count:
+
+```bash
+uv run w8-biayn cpp harness preflight --dry-run
+uv run w8-biayn cpp harness preflight --cpu 3
+uv run w8-biayn doctor --cpp-perf --credentials .gcp-service-account.json
+```
+
+Having the `perf` binary in the image is not enough. Some virtualized or cloud hosts do not expose the hardware counter; those hosts are invalid for training because fully correct candidates would receive `missing_instruction_count` instead of an efficiency reward.
 
 Reward order:
 
@@ -300,6 +311,24 @@ uv run w8-biayn launch cpp-grpo \
   --no-down-after
 ```
 
+Full training should enable checkpoint/export retention explicitly:
+
+```bash
+uv run w8-biayn launch cpp-grpo \
+  --credentials .gcp-service-account.json \
+  --accelerators A100:8 \
+  --train-batch-size 16 \
+  --n-samples-per-prompt 8 \
+  --train-epochs 3 \
+  --eval-interval 25 \
+  --ckpt-interval 50 \
+  --hf-save-interval 100 \
+  --ckpt-path gs://<project>-w8-biayn/checkpoints/cpp-grpo \
+  --export-path gs://<project>-w8-biayn/exports/cpp-grpo \
+  --max-ckpts-to-keep 2 \
+  --no-down-after
+```
+
 Training defaults use `Qwen/Qwen2.5-Coder-7B-Instruct` on `A100:8` because the current GCP project has A100 quota. The smoke default remains `zai-org/GLM-5.1` on `H100:8`; override model and accelerators when quota or memory requires it.
 
 The default GRPO launch is intentionally a small smoke path. It runs:
@@ -310,7 +339,7 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main
 
 That entrypoint registers the `cpp-perf` SkyRL environment and delegates to SkyRL `BasePPOExp(cfg).run()`. It is glue, not a custom trainer. The rendered GRPO config disables checkpoint and HF saves by default with `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1` so rollout, reward, update, and eval can be tested without filling a default GCP boot disk.
 
-GRPO reward execution uses Docker-outside-Docker. The SkyPilot YAML mounts `/var/run/docker.sock` and host `/tmp` into the GPU training container so the SkyRL environment can create scratch directories and ask the host Docker daemon to run locked-down C++ sandboxes.
+GRPO reward execution uses Docker-outside-Docker. The SkyPilot YAML mounts `/var/run/docker.sock` and host `/tmp` into the GPU training container so the SkyRL environment can create scratch directories and ask the host Docker daemon to run locked-down C++ sandboxes. Rendered `cpp-grpo` runs `w8-biayn cpp harness preflight` before `skyrl_cpp_perf_main`; a failed preflight stops the job before paid training starts.
 
 ## Operations
 
@@ -345,6 +374,7 @@ Do not vendor upstream repos, CodeNet, PIE archives, generated tests, gem5 outpu
 ## Repository Map
 
 ```text
+scripts/bootstrap.sh                       fresh-machine bootstrap
 src/w8_biayn/cli.py                         CLI surface
 src/w8_biayn/cpp_perf/schema.py             task and harness models
 src/w8_biayn/cpp_perf/pie.py                PIE row parsing and task construction
@@ -356,6 +386,10 @@ src/w8_biayn/integrations/cpp_perf_env.py   SkyRL environment adapter
 src/w8_biayn/integrations/skyrl_cpp_perf_main.py
                                              SkyRL GRPO entrypoint glue
 src/w8_biayn/sky_config.py                  SkyPilot YAML renderer
+src/w8_biayn/gcp_auth.py                    scoped GCP auth
+src/w8_biayn/secrets.py                     credential metadata only
+src/w8_biayn/constants.py                   upstream pins and defaults
+src/w8_biayn/upstreams.py                   upstream clone management
 src/w8_biayn/benchmarks.py                  benchmark ladder
 .agents/REPO_GUIDE.md                       shared AGENTS.md and CLAUDE.md target
 .agents/skills/w8-biayn-framework/SKILL.md  AI coding-agent workflow skill
@@ -379,6 +413,7 @@ For setup, CLI, cloud, or data-pipeline changes, also run the relevant dry check
 uv run w8-biayn --help
 uv run w8-biayn data doctor
 uv run w8-biayn benchmarks list
+uv run w8-biayn cpp harness preflight --dry-run
 uv run w8-biayn doctor --cpp-perf
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
 uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json

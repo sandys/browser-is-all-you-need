@@ -39,12 +39,32 @@ class CppPerfEnv(BaseTextEnv):
     def step(self, action: str) -> BaseTextEnvStepOutput:
         self.turns += 1
         runner = self.env_config.get("runner")
-        breakdown = compute_reward(self.task, action, runner=runner if callable(runner) else None)
         code = None
         try:
-            code = extract_code_block(action)
-        except ValueError:
-            pass
+            breakdown = compute_reward(self.task, action, runner=runner if callable(runner) else None)
+            try:
+                code = extract_code_block(action)
+            except ValueError:
+                pass
+        except Exception as exc:  # pragma: no cover - guards real rollout workers
+            self.last_metrics = {
+                "reward": -1.0,
+                "reason": "reward_exception",
+                "compile_error": False,
+                "sanitizer_error": False,
+                "tests_passed": 0,
+                "tests_total": 0,
+                "instr_count": None,
+                "candidate_bytes": 0,
+                "exception": str(exc),
+            }
+            return {
+                "observations": [],
+                "reward": -1.0,
+                "done": True,
+                "metadata": self.last_metrics | {"task_id": self.task.task_id},
+                "postprocessed_action": None,
+            }
         harness = breakdown.harness
         self.last_metrics = {
             "reward": breakdown.reward,

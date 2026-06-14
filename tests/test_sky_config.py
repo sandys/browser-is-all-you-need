@@ -39,14 +39,16 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
         "python -m w8_biayn.integrations.skyrl_cpp_perf_main"
     )
     assert "environment.env_class=cpp-perf" in grpo["run"]
-    assert 'docker pull "gcc:13"' in grpo["run"]
     assert "-v /var/run/docker.sock:/var/run/docker.sock" in grpo["run"]
     assert "-v /tmp:/tmp" in grpo["run"]
     assert "DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io" in grpo["run"]
     assert "docker version" in grpo["run"]
+    assert "w8-biayn cpp harness preflight --image \"w8-biayn-cpp-perf:latest\" --cpu \"3\"" in grpo["run"]
     assert "trainer.logger=console" in grpo["run"]
     assert "trainer.ckpt_interval=-1" in grpo["run"]
     assert "trainer.hf_save_interval=-1" in grpo["run"]
+    assert "trainer.epochs=1" in grpo["run"]
+    assert "trainer.eval_interval=50" in grpo["run"]
     assert "trainer.placement.policy_num_gpus_per_node=8" in grpo["run"]
     assert "generator.inference_engine.num_engines=8" in grpo["run"]
     assert "generator.inference_engine.tensor_parallel_size=1" in grpo["run"]
@@ -56,3 +58,31 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "domdiff" not in grpo_text.lower()
     assert "harbor" not in grpo_text.lower()
     assert grpo["envs"]["W8_BIAYN_DATA_GCS_PREFIX"].endswith("/datasets/cpp-perf/cpp-perf-v1/skyrl")
+
+
+def test_render_cpp_training_yaml_exposes_full_run_knobs():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            train_epochs=3,
+            eval_interval=25,
+            ckpt_interval=50,
+            hf_save_interval=100,
+            max_ckpts_to_keep=2,
+            ckpt_path="gs://bucket/ckpts",
+            export_path="gs://bucket/exports",
+            sandbox_image="w8-cpp:perf",
+            sandbox_cpu="7",
+        )
+    )
+
+    assert "w8-biayn cpp harness preflight --image \"w8-cpp:perf\" --cpu \"7\"" in rendered
+    assert "trainer.epochs=3" in rendered
+    assert "trainer.eval_interval=25" in rendered
+    assert "trainer.ckpt_interval=50" in rendered
+    assert "trainer.hf_save_interval=100" in rendered
+    assert "trainer.max_ckpts_to_keep=2" in rendered
+    assert 'trainer.ckpt_path="gs://bucket/ckpts"' in rendered
+    assert 'trainer.export_path="gs://bucket/exports"' in rendered

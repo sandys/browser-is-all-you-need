@@ -93,6 +93,7 @@ def test_cli_render_cpp_grpo_defaults_to_training_model_and_a100(tmp_path):
     assert config["envs"]["W8_BIAYN_MODEL"] == "Qwen/Qwen2.5-Coder-7B-Instruct"
     assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" in config["run"]
     assert "environment.env_class=cpp-perf" in config["run"]
+    assert "w8-biayn cpp harness preflight" in config["run"]
     assert "-v /var/run/docker.sock:/var/run/docker.sock" in config["run"]
     assert "-v /tmp:/tmp" in config["run"]
 
@@ -140,6 +141,11 @@ def test_cli_cpp_task_build_and_reward_dry_run(tmp_path):
     )
     assert reward_result.exit_code == 0, reward_result.output
     assert "valid_format: True" in reward_result.output
+
+    preflight_result = CliRunner().invoke(app, ["cpp", "harness", "preflight", "--dry-run"])
+    assert preflight_result.exit_code == 0, preflight_result.output
+    assert "C++ perf-counter preflight dry run" in preflight_result.output
+    assert "instructions:u" in preflight_result.output
 
 
 def test_cli_data_build_skyrl_and_cache_dry_run(tmp_path):

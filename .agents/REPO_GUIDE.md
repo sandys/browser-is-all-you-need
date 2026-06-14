@@ -118,10 +118,11 @@ The reward is correctness gated:
 - Fully correct answers get a base reward plus bounded instruction-count efficiency.
 - `perf stat -e instructions:u` is the fast RL reward metric.
 - gem5 is the calibration and final-eval reference only.
+- Run `w8-biayn cpp harness preflight` before GRPO; a host without numeric `instructions:u` is invalid for training.
 
 Model outputs must contain exactly one `<reasoning>...</reasoning>` block and exactly one fenced C++ code block.
 
-For real scoring, the sandbox image must contain `g++`, `bash`, `taskset`, and `perf`. The CLI default is `gcc:13`; pass `--image` if the target machine needs a project-specific image.
+For real scoring, the sandbox image must contain `g++`, `bash`, `taskset`, and `perf`. The CLI default is `w8-biayn-cpp-perf:latest`, built locally from `gcc:13` with `linux-perf`; pass `--image --no-build-image` only for a known-good prebuilt image.
 
 ## Training Rules
 
@@ -145,7 +146,7 @@ uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --accele
 
 The GRPO entrypoint is `python -m w8_biayn.integrations.skyrl_cpp_perf_main`. It registers `cpp-perf` and delegates to SkyRL `BasePPOExp(cfg).run()`.
 
-The default GRPO launch is a one-step smoke path and must keep `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1` unless checkpoint storage has been deliberately configured.
+Rendered GRPO must run the C++ perf preflight before `skyrl_cpp_perf_main`. The default GRPO launch is a one-step smoke path and must keep `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1` unless checkpoint storage has been deliberately configured. Full runs should pass explicit `--train-epochs`, `--eval-interval`, `--ckpt-interval`, `--hf-save-interval`, `--ckpt-path`, `--export-path`, and `--max-ckpts-to-keep`.
 
 GRPO rewards use Docker-outside-Docker. The rendered SkyPilot YAML must mount `/var/run/docker.sock` and host `/tmp` into the GPU training container.
 
@@ -180,7 +181,8 @@ src/w8_biayn/integrations/skyrl_cpp_perf_main.py
 src/w8_biayn/sky_config.py                   SkyPilot rendering
 src/w8_biayn/gcp_auth.py                     scoped GCP auth
 src/w8_biayn/secrets.py                      credential metadata only
-src/w8_biayn/upstreams.py                    upstream pins
+src/w8_biayn/constants.py                    upstream pins and defaults
+src/w8_biayn/upstreams.py                    upstream clone management
 src/w8_biayn/benchmarks.py                   benchmark ladder
 README.md                                    user and operator docs
 .agents/skills/w8-biayn-framework/SKILL.md   AI coding-agent skill
@@ -222,6 +224,7 @@ For setup, CLI, cloud, or data changes, also run the relevant dry checks:
 uv run w8-biayn --help
 uv run w8-biayn data doctor
 uv run w8-biayn benchmarks list
+uv run w8-biayn cpp harness preflight --dry-run
 uv run w8-biayn doctor --cpp-perf
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
 uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json

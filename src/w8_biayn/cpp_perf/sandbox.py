@@ -4,16 +4,42 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+from w8_biayn.constants import DEFAULT_CPP_SANDBOX_IMAGE
 
 from .schema import CppTask, HarnessResult, TestCase
 
 
-DEFAULT_DOCKER_IMAGE = "gcc:13"
+BASE_DOCKER_IMAGE = "gcc:13"
+DEFAULT_DOCKER_IMAGE = DEFAULT_CPP_SANDBOX_IMAGE
 DEFAULT_CPU = "3"
 DEFAULT_MEMORY = "2g"
 DEFAULT_RUN_TIMEOUT_S = 5
+
+
+@dataclass(frozen=True)
+class PerfPreflightResult:
+    """Result of checking that `instructions:u` is usable inside the sandbox."""
+
+    ok: bool
+    instr_count: int | None
+    returncode: int | None
+    logs: str
+    reason: str
+    command: list[str]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "ok": self.ok,
+            "instr_count": self.instr_count,
+            "returncode": self.returncode,
+            "logs": self.logs,
+            "reason": self.reason,
+            "command": self.command,
+        }
 
 
 def docker_base_args(
@@ -53,6 +79,47 @@ def docker_base_args(
         "/work",
         image,
     ]
+
+
+def sandbox_image_dockerfile() -> str:
+    """Return the Dockerfile for the default C++ perf sandbox image."""
+
+    return f"""FROM {BASE_DOCKER_IMAGE}
+RUN apt-get update \\
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends linux-perf \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+def build_sandbox_image_command(*, image: str = DEFAULT_DOCKER_IMAGE) -> list[str]:
+    """Return the docker build command for the default sandbox image."""
+
+    return ["docker", "build", "-t", image, "-"]
+
+
+def sandbox_image_build_plan(*, image: str = DEFAULT_DOCKER_IMAGE) -> str:
+    """Render the default sandbox-image build command and Dockerfile."""
+
+    return "\n".join(
+        [
+            "# C++ perf sandbox image build dry run",
+            f"{shlex.join(build_sandbox_image_command(image=image))} <<'DOCKERFILE'",
+            sandbox_image_dockerfile().rstrip(),
+            "DOCKERFILE",
+        ]
+    )
+
+
+def build_sandbox_image(*, image: str = DEFAULT_DOCKER_IMAGE) -> subprocess.CompletedProcess[str]:
+    """Build the default sandbox image from stdin."""
+
+    return subprocess.run(
+        build_sandbox_image_command(image=image),
+        input=sandbox_image_dockerfile(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def compile_command(task: CppTask, scratch: str | Path, *, image: str = DEFAULT_DOCKER_IMAGE) -> list[str]:
@@ -102,6 +169,26 @@ def perf_command(
     return docker_base_args(scratch, image=image) + ["bash", "-lc", script]
 
 
+def perf_preflight_command(
+    scratch: str | Path,
+    *,
+    image: str = DEFAULT_DOCKER_IMAGE,
+    cpu: str = DEFAULT_CPU,
+    timeout_s: int = DEFAULT_RUN_TIMEOUT_S,
+) -> list[str]:
+    script = (
+        "cat > preflight.cpp <<'CPP'\n"
+        "#include <iostream>\n"
+        "int main(){volatile unsigned long long s=0; "
+        "for(int i=0;i<100000;i++) s+=i; std::cout<<s<<\"\\n\"; return 0;}\n"
+        "CPP\n"
+        "g++ -O2 -std=c++20 preflight.cpp -o preflight && "
+        f"timeout {timeout_s}s taskset -c {shlex.quote(cpu)} "
+        "perf stat -e instructions:u -x, ./preflight > /tmp/w8-perf-preflight.out"
+    )
+    return docker_base_args(scratch, image=image) + ["bash", "-lc", script]
+
+
 def dry_run_plan(
     task: CppTask,
     *,
@@ -122,6 +209,81 @@ def dry_run_plan(
     return "\n".join(lines)
 
 
+def perf_preflight_plan(
+    *,
+    image: str = DEFAULT_DOCKER_IMAGE,
+    cpu: str = DEFAULT_CPU,
+    scratch: str = "/tmp/w8-cpp-preflight",
+) -> str:
+    """Render the command used to verify `instructions:u` in the sandbox."""
+
+    return "\n".join(
+        [
+            "# C++ perf-counter preflight dry run",
+            "# succeeds only when perf reports a numeric instructions:u count",
+            shlex.join(perf_preflight_command(scratch, image=image, cpu=cpu)),
+        ]
+    )
+
+
+def run_perf_preflight(
+    *,
+    image: str = DEFAULT_DOCKER_IMAGE,
+    cpu: str = DEFAULT_CPU,
+    work_dir: str | Path | None = None,
+) -> PerfPreflightResult:
+    """Check that `perf stat -e instructions:u` returns a numeric count in Docker."""
+
+    if work_dir is None:
+        with TemporaryDirectory(prefix="w8-cpp-preflight-") as temp:
+            return _run_perf_preflight_in_directory(Path(temp), image=image, cpu=cpu)
+    return _run_perf_preflight_in_directory(Path(work_dir), image=image, cpu=cpu)
+
+
+def _run_perf_preflight_in_directory(scratch: Path, *, image: str, cpu: str) -> PerfPreflightResult:
+    _prepare_scratch(scratch)
+    command = perf_preflight_command(scratch, image=image, cpu=cpu)
+    try:
+        proc = _run(command)
+    except OSError as exc:
+        return PerfPreflightResult(
+            ok=False,
+            instr_count=None,
+            returncode=None,
+            logs=str(exc),
+            reason="command_error",
+            command=command,
+        )
+    logs = proc.stderr or proc.stdout
+    instr_count = parse_perf_instructions(logs)
+    if proc.returncode != 0:
+        return PerfPreflightResult(
+            ok=False,
+            instr_count=instr_count,
+            returncode=proc.returncode,
+            logs=logs,
+            reason="perf_command_failed",
+            command=command,
+        )
+    if instr_count is None:
+        return PerfPreflightResult(
+            ok=False,
+            instr_count=None,
+            returncode=proc.returncode,
+            logs=logs,
+            reason="missing_instruction_count",
+            command=command,
+        )
+    return PerfPreflightResult(
+        ok=True,
+        instr_count=instr_count,
+        returncode=proc.returncode,
+        logs=logs,
+        reason="ok",
+        command=command,
+    )
+
+
 def run_in_sandbox(
     task: CppTask,
     candidate_code: str,
@@ -139,7 +301,7 @@ def run_in_sandbox(
 
 
 def _run_in_directory(task: CppTask, candidate_code: str, scratch: Path, *, image: str, cpu: str) -> HarnessResult:
-    scratch.mkdir(parents=True, exist_ok=True)
+    _prepare_scratch(scratch)
     (scratch / "candidate.cpp").write_text(candidate_code, encoding="utf-8")
     tests = task.unit_tests + task.hidden_tests
     _write_tests(scratch, tests)
@@ -169,6 +331,8 @@ def _run_in_directory(task: CppTask, candidate_code: str, scratch: Path, *, imag
         logs["perf"] = perf_proc.stderr or perf_proc.stdout
         return HarnessResult(timeout=True, tests_passed=tests_passed, tests_total=len(tests), logs=logs)
     instr_count = parse_perf_instructions(perf_proc.stderr or perf_proc.stdout)
+    if instr_count is None:
+        logs["perf"] = perf_proc.stderr or perf_proc.stdout
     return HarnessResult(
         tests_passed=tests_passed,
         tests_total=len(tests),
@@ -177,15 +341,18 @@ def _run_in_directory(task: CppTask, candidate_code: str, scratch: Path, *, imag
     )
 
 
-def parse_perf_instructions(text: str) -> int:
+def parse_perf_instructions(text: str) -> int | None:
     """Parse `perf stat -x, -e instructions:u` output."""
 
     for line in text.splitlines():
         parts = [part.strip() for part in line.split(",")]
         if len(parts) >= 3 and parts[2].startswith("instructions"):
             raw = parts[0].replace(",", "")
-            return int(float(raw))
-    raise ValueError("Could not parse instructions:u from perf output")
+            try:
+                return int(float(raw))
+            except ValueError:
+                return None
+    return None
 
 
 def _write_tests(scratch: Path, tests: list[TestCase]) -> None:
@@ -194,6 +361,11 @@ def _write_tests(scratch: Path, tests: list[TestCase]) -> None:
     for index, test in enumerate(tests):
         (tests_dir / f"{index}.in").write_text(test.input, encoding="utf-8")
         (tests_dir / f"{index}.out").write_text(test.expected, encoding="utf-8")
+
+
+def _prepare_scratch(scratch: Path) -> None:
+    scratch.mkdir(parents=True, exist_ok=True)
+    scratch.chmod(0o777)
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:

@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import yaml
 
-from .cpp_perf.sandbox import DEFAULT_DOCKER_IMAGE
+from .cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE
 from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
@@ -52,6 +52,15 @@ class RenderOptions:
     remote_data_dir: str = "$HOME/.w8-biayn/data/skyrl"
     train_batch_size: int = 16
     n_samples_per_prompt: int = 4
+    train_epochs: int = 1
+    eval_interval: int = 50
+    ckpt_interval: int = -1
+    hf_save_interval: int = -1
+    ckpt_path: str = "~/ckpts/"
+    export_path: str = "~/exports/"
+    max_ckpts_to_keep: int = -1
+    sandbox_image: str = DEFAULT_DOCKER_IMAGE
+    sandbox_cpu: str = DEFAULT_CPU
     logger: str = "console"
 
     @property
@@ -184,7 +193,9 @@ gcloud storage cp --recursive "$W8_DATA_GCS_PREFIX/*" "$W8_DATA_DIR/"
 test -f "$W8_DATA_DIR/_w8_data_manifest.json"
 test -d "$W8_DATA_DIR/tasks"
 docker pull "$W8_GPU_CONTAINER_IMAGE"
-docker pull "{DEFAULT_DOCKER_IMAGE}"
+if [ "{options.sandbox_image}" != "{DEFAULT_DOCKER_IMAGE}" ]; then
+  docker pull "{options.sandbox_image}"
+fi
 """
 
 
@@ -241,13 +252,18 @@ python -m skyrl.train.main_sft \\
   dataset_split=train \\
   eval_dataset_name=/data/sft \\
   eval_dataset_split=validation \\
-  eval_interval=50 \\
+  eval_interval={options.eval_interval} \\
   placement.num_nodes={options.num_nodes} \\
   placement.num_gpus_per_node={options.gpu_count} \\
   batch_size={options.train_batch_size} \\
   micro_train_batch_size_per_gpu=1 \\
-  num_epochs=1 \\
+  num_epochs={options.train_epochs} \\
   max_length=8192 \\
+  ckpt_path="{options.ckpt_path}" \\
+  ckpt_interval={max(options.ckpt_interval, 0)} \\
+  hf_save_interval={max(options.hf_save_interval, 0)} \\
+  export_path="{options.export_path}" \\
+  max_ckpts_to_keep={options.max_ckpts_to_keep} \\
   logger={options.logger} \\
   project_name=w8_biayn_cpp_sft \\
   run_name={options.pipeline}
@@ -263,6 +279,7 @@ def grpo_run_script(options: RenderOptions) -> LiteralStr:
         + f"""
 test -f /data/grpo/train.parquet
 test -f /data/grpo/validation.parquet
+w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
 python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   'data.train_data=[/data/grpo/train.parquet]' \\
   'data.val_data=[/data/grpo/validation.parquet]' \\
@@ -274,8 +291,13 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   trainer.placement.policy_num_nodes={options.num_nodes} \\
   trainer.placement.policy_num_gpus_per_node={options.gpu_count} \\
   trainer.logger={options.logger} \\
-  trainer.ckpt_interval=-1 \\
-  trainer.hf_save_interval=-1 \\
+  trainer.epochs={options.train_epochs} \\
+  trainer.eval_interval={options.eval_interval} \\
+  trainer.ckpt_interval={options.ckpt_interval} \\
+  trainer.hf_save_interval={options.hf_save_interval} \\
+  trainer.ckpt_path="{options.ckpt_path}" \\
+  trainer.export_path="{options.export_path}" \\
+  trainer.max_ckpts_to_keep={options.max_ckpts_to_keep} \\
   trainer.train_batch_size={options.train_batch_size} \\
   trainer.policy_mini_batch_size={options.train_batch_size} \\
   trainer.micro_train_batch_size_per_gpu=1 \\

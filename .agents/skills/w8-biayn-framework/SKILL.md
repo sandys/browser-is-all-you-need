@@ -143,8 +143,9 @@ The reward is correctness gated:
 - Fully correct: base reward plus bounded instruction-count efficiency.
 - `perf stat -e instructions:u`: RL reward metric.
 - gem5: calibration/final-eval reference only.
+- `w8-biayn cpp harness preflight`: required before GRPO to prove the host exposes a numeric instruction counter.
 
-For real scoring, the sandbox image must contain `g++`, `bash`, `taskset`, and `perf`. The CLI default is `gcc:13`; pass `--image` if a project-specific image is needed.
+For real scoring, the sandbox image must contain `g++`, `bash`, `taskset`, and `perf`. The CLI default is `w8-biayn-cpp-perf:latest`, built locally from `gcc:13` with `linux-perf`; pass `--image --no-build-image` only for a known-good prebuilt image.
 
 ## Cloud And Training
 
@@ -182,6 +183,8 @@ It registers `cpp-perf` inside SkyRL and delegates to SkyRL `BasePPOExp(cfg).run
 
 The default GRPO launch is a smoke run and should keep `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1` until storage is configured.
 
+Full runs should pass explicit `--train-epochs`, `--eval-interval`, `--ckpt-interval`, `--hf-save-interval`, `--ckpt-path`, `--export-path`, and `--max-ckpts-to-keep`.
+
 Training defaults use `Qwen/Qwen2.5-Coder-7B-Instruct` and `A100:8` because the current project has A100 quota. GLM-5.1/H100 can be selected with `--model` and `--accelerators` after quota and memory are confirmed.
 
 ## Documentation Rules
@@ -212,6 +215,7 @@ For setup or CLI-surface changes:
 uv run w8-biayn --help
 uv run w8-biayn data doctor
 uv run w8-biayn benchmarks list
+uv run w8-biayn cpp harness preflight --dry-run
 uv run w8-biayn doctor --cpp-perf
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
 uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json

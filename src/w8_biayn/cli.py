@@ -37,7 +37,16 @@ from .cpp_perf.data import (
 )
 from .cpp_perf.pie import build_tasks, load_tests_manifest, read_pie_pairs
 from .cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
-from .cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE, dry_run_plan, run_in_sandbox
+from .cpp_perf.sandbox import (
+    DEFAULT_CPU,
+    DEFAULT_DOCKER_IMAGE,
+    build_sandbox_image,
+    dry_run_plan,
+    perf_preflight_plan,
+    run_in_sandbox,
+    run_perf_preflight,
+    sandbox_image_build_plan,
+)
 from .cpp_perf.schema import CppTask
 from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
@@ -166,6 +175,10 @@ def doctor(
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     cloud: bool = typer.Option(False, help="Run GCP/SkyPilot checks."),
     cpp_perf: bool = typer.Option(False, "--cpp-perf", help="Check C++ perf-harness prerequisites."),
+    preflight: bool = typer.Option(True, "--preflight/--no-preflight", help="Run the C++ perf-counter preflight."),
+    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image used for the C++ perf preflight."),
+    cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used for taskset in the C++ perf preflight."),
+    build_image: bool = typer.Option(True, "--build-image/--no-build-image", help="Build the default perf sandbox image before preflight."),
 ) -> None:
     """Validate local prerequisites without printing secrets."""
 
@@ -183,6 +196,7 @@ def doctor(
         found = shutil.which(tool)
         table.add_row(tool, "ok" if found else "missing", found or "not on PATH")
 
+    preflight_failed = False
     if cpp_perf:
         perf_paranoid = Path("/proc/sys/kernel/perf_event_paranoid")
         if perf_paranoid.exists():
@@ -197,6 +211,28 @@ def doctor(
             table.add_row("cpu governor", "ok" if value == "performance" else "warn", value)
         else:
             table.add_row("cpu governor", "warn", "cpufreq governor file not found")
+        if preflight:
+            if shutil.which("docker"):
+                build_ok = True
+                if build_image:
+                    build = build_sandbox_image(image=image)
+                    build_ok = build.returncode == 0
+                    table.add_row(
+                        "sandbox image build",
+                        "ok" if build_ok else "error",
+                        image if build_ok else (build.stderr or build.stdout)[-500:],
+                    )
+                if build_ok:
+                    result = run_perf_preflight(image=image, cpu=cpu)
+                    status = "ok" if result.ok else "error"
+                    detail = f"{result.reason}; instr_count={result.instr_count}; image={image}; cpu={cpu}"
+                    table.add_row("instructions:u preflight", status, detail)
+                    preflight_failed = not result.ok
+                else:
+                    preflight_failed = True
+            else:
+                table.add_row("instructions:u preflight", "error", "docker missing")
+                preflight_failed = True
 
     try:
         project_id = get_project_id(credentials)
@@ -207,6 +243,8 @@ def doctor(
         project_id = ""
 
     console.print(table)
+    if preflight_failed:
+        raise typer.Exit(1)
 
     if cloud:
         project_id = project_id or _project_id(credentials)
@@ -505,6 +543,39 @@ def cpp_harness_run(
     console.print_json(data=result.model_dump())
 
 
+@harness_app.command("preflight")
+def cpp_harness_preflight(
+    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image containing g++, perf, taskset, and bash."),
+    cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used for taskset."),
+    work_dir: Optional[str] = typer.Option(None, help="Optional scratch directory to keep logs/artifacts."),
+    build_image: bool = typer.Option(True, "--build-image/--no-build-image", help="Build the default perf sandbox image before running."),
+    dry_run: bool = typer.Option(False, help="Print the sandbox preflight command without running Docker."),
+) -> None:
+    """Verify that the sandbox can collect a numeric `instructions:u` count."""
+
+    if dry_run:
+        if build_image:
+            console.print(sandbox_image_build_plan(image=image))
+        console.print(perf_preflight_plan(image=image, cpu=cpu))
+        return
+    if build_image:
+        build = build_sandbox_image(image=image)
+        if build.returncode != 0:
+            console.print_json(
+                data={
+                    "ok": False,
+                    "reason": "sandbox_image_build_failed",
+                    "image": image,
+                    "logs": build.stderr or build.stdout,
+                }
+            )
+            raise typer.Exit(1)
+    result = run_perf_preflight(image=image, cpu=cpu, work_dir=work_dir)
+    console.print_json(data=result.as_dict())
+    if not result.ok:
+        raise typer.Exit(1)
+
+
 @reward_app.command("score")
 def cpp_reward_score(
     task: str = typer.Option(..., "--task", help="Task JSON path."),
@@ -550,6 +621,15 @@ def config_render(
     dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
     train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
     n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
+    train_epochs: int = typer.Option(1, help="Training epochs for cpp-sft/cpp-grpo."),
+    eval_interval: int = typer.Option(50, help="Evaluation interval for cpp-sft/cpp-grpo."),
+    ckpt_interval: int = typer.Option(-1, help="Checkpoint interval; negative disables smoke checkpoints."),
+    hf_save_interval: int = typer.Option(-1, help="HF export interval; negative disables smoke exports."),
+    ckpt_path: str = typer.Option("~/ckpts/", help="Checkpoint root for full training runs."),
+    export_path: str = typer.Option("~/exports/", help="HF export root for full training runs."),
+    max_ckpts_to_keep: int = typer.Option(-1, help="Maximum checkpoints to retain; -1 keeps all."),
+    sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
+    sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
 ) -> None:
     """Render a SkyPilot YAML file."""
 
@@ -565,6 +645,15 @@ def config_render(
         dataset_gcs_prefix=dataset_gcs_prefix,
         train_batch_size=train_batch_size,
         n_samples_per_prompt=n_samples_per_prompt,
+        train_epochs=train_epochs,
+        eval_interval=eval_interval,
+        ckpt_interval=ckpt_interval,
+        hf_save_interval=hf_save_interval,
+        ckpt_path=ckpt_path,
+        export_path=export_path,
+        max_ckpts_to_keep=max_ckpts_to_keep,
+        sandbox_image=sandbox_image,
+        sandbox_cpu=sandbox_cpu,
     )
     written = write_sky_yaml(options, output)
     console.print(str(written))
@@ -583,6 +672,15 @@ def launch(
     dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
     train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
     n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
+    train_epochs: int = typer.Option(1, help="Training epochs for cpp-sft/cpp-grpo."),
+    eval_interval: int = typer.Option(50, help="Evaluation interval for cpp-sft/cpp-grpo."),
+    ckpt_interval: int = typer.Option(-1, help="Checkpoint interval; negative disables smoke checkpoints."),
+    hf_save_interval: int = typer.Option(-1, help="HF export interval; negative disables smoke exports."),
+    ckpt_path: str = typer.Option("~/ckpts/", help="Checkpoint root for full training runs."),
+    export_path: str = typer.Option("~/exports/", help="HF export root for full training runs."),
+    max_ckpts_to_keep: int = typer.Option(-1, help="Maximum checkpoints to retain; -1 keeps all."),
+    sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
+    sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
@@ -601,6 +699,15 @@ def launch(
         dataset_gcs_prefix=dataset_gcs_prefix,
         train_batch_size=train_batch_size,
         n_samples_per_prompt=n_samples_per_prompt,
+        train_epochs=train_epochs,
+        eval_interval=eval_interval,
+        ckpt_interval=ckpt_interval,
+        hf_save_interval=hf_save_interval,
+        ckpt_path=ckpt_path,
+        export_path=export_path,
+        max_ckpts_to_keep=max_ckpts_to_keep,
+        sandbox_image=sandbox_image,
+        sandbox_cpu=sandbox_cpu,
     )
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = _service_account_env(credentials, project_id=options.project_id)
@@ -670,6 +777,15 @@ def _render_options(
     dataset_gcs_prefix: Optional[str],
     train_batch_size: int,
     n_samples_per_prompt: int,
+    train_epochs: int,
+    eval_interval: int,
+    ckpt_interval: int,
+    hf_save_interval: int,
+    ckpt_path: str,
+    export_path: str,
+    max_ckpts_to_keep: int,
+    sandbox_image: str,
+    sandbox_cpu: str,
 ) -> RenderOptions:
     project_id = _project_id(credentials)
     is_training = pipeline in ("cpp-sft", "cpp-grpo")
@@ -686,4 +802,13 @@ def _render_options(
         dataset_gcs_prefix=dataset_gcs_prefix,
         train_batch_size=train_batch_size,
         n_samples_per_prompt=n_samples_per_prompt,
+        train_epochs=train_epochs,
+        eval_interval=eval_interval,
+        ckpt_interval=ckpt_interval,
+        hf_save_interval=hf_save_interval,
+        ckpt_path=ckpt_path,
+        export_path=export_path,
+        max_ckpts_to_keep=max_ckpts_to_keep,
+        sandbox_image=sandbox_image,
+        sandbox_cpu=sandbox_cpu,
     )

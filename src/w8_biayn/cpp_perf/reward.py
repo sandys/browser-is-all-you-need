@@ -34,7 +34,11 @@ def valid_model_output(model_output: str) -> bool:
         extract_code_block(model_output)
     except ValueError:
         return False
-    return bool(re.search(r"<reasoning>.*?</reasoning>", model_output, flags=re.DOTALL))
+    reasoning_matches = list(re.finditer(r"<reasoning>.*?</reasoning>", model_output, flags=re.DOTALL))
+    if len(reasoning_matches) != 1:
+        return False
+    code_match = re.search(r"```(?:cpp|c\+\+|cc)?\s*\n.*?```", model_output, flags=re.DOTALL)
+    return code_match is not None and reasoning_matches[0].end() <= code_match.start()
 
 
 def extract_code_block(model_output: str) -> str:
