@@ -17,6 +17,7 @@ from . import benchmarks, upstreams
 from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
+    DEFAULT_CPP_EVAL_ACCELERATORS,
     DEFAULT_CPP_MODEL,
     DEFAULT_CPP_SMOKE_ACCELERATORS,
     DEFAULT_CPP_TRAIN_ACCELERATORS,
@@ -41,6 +42,7 @@ from .cpp_perf.data import (
     write_data_manifest,
 )
 from .cpp_perf.coverage import measure_cpp_coverage
+from .cpp_perf.eval import aggregate_eval_records, compare_eval_summaries, read_jsonl
 from .cpp_perf.pie import build_tasks, build_tasks_with_report, load_tests_manifest, read_pie_pairs
 from .cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
 from .cpp_perf.sandbox import (
@@ -74,6 +76,7 @@ reward_app = typer.Typer(help="Score model outputs with the C++ reward function.
 config_app = typer.Typer(help="Render SkyPilot bridge configs.")
 benchmarks_app = typer.Typer(help="Inspect the C++ performance-RL benchmark ladder.")
 gcp_app = typer.Typer(help="Run-scoped GCP/SkyPilot cleanup helpers.")
+eval_app = typer.Typer(help="Aggregate C++ performance-RL evaluation outputs.")
 
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
@@ -88,6 +91,7 @@ cpp_app.add_typer(reward_app, name="reward")
 app.add_typer(config_app, name="config")
 app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(gcp_app, name="gcp")
+app.add_typer(eval_app, name="eval")
 console = Console()
 
 
@@ -806,7 +810,7 @@ def cpp_reward_score(
 
 @config_app.command("render")
 def config_render(
-    pipeline: Pipeline = typer.Argument(..., help="Pipeline to render: cpp-smoke, cpp-sft, or cpp-grpo."),
+    pipeline: Pipeline = typer.Argument(..., help="Pipeline to render: cpp-smoke, cpp-sft, cpp-grpo, or cpp-eval."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML path."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
@@ -829,6 +833,8 @@ def config_render(
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
+    eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
+    eval_max_tasks: Optional[int] = typer.Option(None, help="Optional validation task limit for cpp-eval."),
 ) -> None:
     """Render a SkyPilot YAML file."""
 
@@ -855,6 +861,8 @@ def config_render(
         sandbox_cpu=sandbox_cpu,
         run_id=run_id,
         owner=owner,
+        eval_label=eval_label,
+        eval_max_tasks=eval_max_tasks,
     )
     written = write_sky_yaml(options, output)
     console.print(str(written))
@@ -862,7 +870,7 @@ def config_render(
 
 @app.command()
 def launch(
-    pipeline: Pipeline = typer.Argument(..., help="Pipeline to launch: cpp-smoke, cpp-sft, or cpp-grpo."),
+    pipeline: Pipeline = typer.Argument(..., help="Pipeline to launch: cpp-smoke, cpp-sft, cpp-grpo, or cpp-eval."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
     accelerators: Optional[str] = typer.Option(None, help="SkyPilot accelerator request."),
@@ -884,6 +892,8 @@ def launch(
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
+    eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
+    eval_max_tasks: Optional[int] = typer.Option(None, help="Optional validation task limit for cpp-eval."),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
@@ -914,6 +924,8 @@ def launch(
         sandbox_cpu=sandbox_cpu,
         run_id=effective_run_id,
         owner=owner,
+        eval_label=eval_label,
+        eval_max_tasks=eval_max_tasks,
     )
     _require_launch_labels(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
@@ -950,6 +962,33 @@ def benchmarks_show(key: str = typer.Argument(..., help="Benchmark key.")) -> No
     except KeyError as exc:
         raise typer.BadParameter(str(exc)) from exc
     console.print_json(data=benchmark.__dict__)
+
+
+@eval_app.command("cpp")
+def eval_cpp(
+    records: list[str] = typer.Option(
+        ...,
+        "--records",
+        help="Evaluation records as LABEL=path.jsonl. Repeat for base/SFT/GRPO.",
+    ),
+    out: Optional[str] = typer.Option(None, "--out", help="Optional JSON summary path."),
+) -> None:
+    """Aggregate C++ eval JSONL records and compare model labels."""
+
+    summaries = []
+    for item in records:
+        if "=" not in item:
+            raise typer.BadParameter("--records must use LABEL=path.jsonl")
+        label, path = item.split("=", 1)
+        summary = aggregate_eval_records(read_jsonl(path), label=label)
+        summary.pop("best_records", None)
+        summaries.append(summary)
+    comparison = compare_eval_summaries(summaries)
+    if out:
+        _write_json(out, comparison)
+        console.print(out)
+    else:
+        console.print_json(data=comparison)
 
 
 @gcp_app.command("cleanup")
@@ -1034,18 +1073,24 @@ def _render_options(
     sandbox_cpu: str,
     run_id: Optional[str],
     owner: str,
+    eval_label: str,
+    eval_max_tasks: Optional[int],
 ) -> RenderOptions:
     project_id = _project_id(credentials)
     is_training = pipeline in ("cpp-sft", "cpp-grpo")
+    is_eval = pipeline == "cpp-eval"
+    default_accelerators = DEFAULT_CPP_TRAIN_ACCELERATORS if is_training else DEFAULT_CPP_SMOKE_ACCELERATORS
+    if is_eval:
+        default_accelerators = DEFAULT_CPP_EVAL_ACCELERATORS
     return RenderOptions(
         pipeline=pipeline,
         project_id=project_id,
         bucket=bucket,
         credentials_path=credentials,
-        accelerators=accelerators or (DEFAULT_CPP_TRAIN_ACCELERATORS if is_training else DEFAULT_CPP_SMOKE_ACCELERATORS),
+        accelerators=accelerators or default_accelerators,
         num_nodes=num_nodes,
         cluster_name=cluster,
-        model=model or (DEFAULT_CPP_TRAIN_MODEL if is_training else DEFAULT_CPP_MODEL),
+        model=model or (DEFAULT_CPP_TRAIN_MODEL if is_training or is_eval else DEFAULT_CPP_MODEL),
         gpu_container_image=gpu_container_image,
         dataset_gcs_prefix=dataset_gcs_prefix,
         train_batch_size=train_batch_size,
@@ -1061,4 +1106,6 @@ def _render_options(
         sandbox_cpu=sandbox_cpu,
         run_id=run_id,
         owner=owner,
+        eval_label=eval_label,
+        eval_max_tasks=eval_max_tasks,
     )

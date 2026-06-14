@@ -20,6 +20,7 @@ def test_cli_help_exposes_new_surface_only():
     assert "data" in result.output
     assert "benchmarks" in result.output
     assert "gcp" in result.output
+    assert "eval" in result.output
     assert "domdiff" not in result.output
     assert "harbor" not in result.output
     assert "miniwob" not in result.output
@@ -250,3 +251,18 @@ def test_cli_benchmarks_list_uses_cpp_ladder():
     assert result.exit_code == 0
     assert "pie-one-smoke" in result.output
     assert "harbor" not in result.output.lower()
+
+
+def test_cli_eval_cpp_aggregates_records(tmp_path):
+    records = tmp_path / "base.jsonl"
+    records.write_text(
+        '{"task_id":"t1","reward":1.2,"reason":"correct","all_tests_pass":true,'
+        '"compile_error":false,"sanitizer_error":false,"timeout":false,'
+        '"instr_count":50,"reference_value":100}\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["eval", "cpp", "--records", f"base={records}"])
+
+    assert result.exit_code == 0, result.output
+    assert '"best_correct_and_faster": "base"' in result.output

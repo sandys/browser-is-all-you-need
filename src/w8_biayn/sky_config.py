@@ -23,7 +23,7 @@ from .constants import (
 )
 from .secrets import default_bucket_for_project
 
-Pipeline = Literal["cpp-smoke", "cpp-sft", "cpp-grpo"]
+Pipeline = Literal["cpp-smoke", "cpp-sft", "cpp-grpo", "cpp-eval"]
 LABEL_VALUE_MAX = 63
 
 
@@ -65,6 +65,8 @@ class RenderOptions:
     logger: str = "console"
     run_id: str | None = None
     owner: str = "sss"
+    eval_label: str = "model"
+    eval_max_tasks: int | None = None
 
     @property
     def artifact_bucket(self) -> str:
@@ -83,6 +85,11 @@ class RenderOptions:
     @property
     def gpu_count(self) -> int:
         return gpu_count_from_accelerators(self.accelerators)
+
+    @property
+    def eval_gcs_prefix(self) -> str:
+        run_id = self.run_id or self.pipeline
+        return f"{self.artifact_bucket}/runs/cpp-perf/{run_id}/{self.pipeline}"
 
     @property
     def labels(self) -> dict[str, str]:
@@ -158,6 +165,8 @@ def run_script(options: RenderOptions) -> LiteralStr:
         return sft_run_script(options)
     if options.pipeline == "cpp-grpo":
         return grpo_run_script(options)
+    if options.pipeline == "cpp-eval":
+        return eval_run_script(options)
     raise ValueError(f"Unknown pipeline: {options.pipeline}")
 
 
@@ -335,6 +344,61 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   generator.inference_engine.data_parallel_size=1 \\
   generator.sampling_params.temperature=0.8
 '
+"""
+    )
+
+
+def eval_run_script(options: RenderOptions) -> LiteralStr:
+    max_tasks_arg = f"--max-tasks {options.eval_max_tasks}" if options.eval_max_tasks else ""
+    return LiteralStr(
+        training_prelude(options)
+        + f"""export W8_EVAL_OUTPUT_DIR="/tmp/w8-cpp-eval-{options.run_id or 'manual'}"
+rm -rf "$W8_EVAL_OUTPUT_DIR"
+mkdir -p "$W8_EVAL_OUTPUT_DIR"
+docker run --rm --gpus all --network host --shm-size=32g \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v /tmp:/tmp \\
+  -v "$PWD":/workspace \\
+  -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
+  -v "$W8_DATA_DIR":/data \\
+  -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
+  -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
+  -e W8_BIAYN_DATA_DIR=/data \\
+  -e W8_EVAL_OUTPUT_DIR="$W8_EVAL_OUTPUT_DIR" \\
+  -e HF_HOME=/root/.cache/huggingface \\
+  -w /workspace \\
+  "$W8_GPU_CONTAINER_IMAGE" bash -lc '
+set -euxo pipefail
+if ! command -v docker >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+  else
+    echo "docker CLI is required inside the eval container for cpp-perf rewards" >&2
+    exit 2
+  fi
+fi
+docker version
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+export PATH="$HOME/.local/bin:$PATH"
+uv venv --python 3.12 --seed /tmp/w8-eval
+source /tmp/w8-eval/bin/activate
+uv pip install -e /workspace
+uv pip install vllm
+w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+python -m w8_biayn.integrations.cpp_eval_main \\
+  --data-dir /data \\
+  --model "{options.model}" \\
+  --label "{options.eval_label}" \\
+  --output-dir "$W8_EVAL_OUTPUT_DIR" \\
+  --samples-per-task {options.n_samples_per_prompt} \\
+  --sandbox-image "{options.sandbox_image}" \\
+  --sandbox-cpu "{options.sandbox_cpu}" \\
+  {max_tasks_arg}
+'
+gcloud storage cp --recursive "$W8_EVAL_OUTPUT_DIR" "{options.eval_gcs_prefix}/"
 """
     )
 

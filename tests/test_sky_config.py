@@ -110,3 +110,25 @@ def test_render_run_id_adds_cluster_suffix_labels_and_env():
         "owner": "sss",
         "ttl": "training",
     }
+
+
+def test_render_cpp_eval_yaml_uses_eval_entrypoint_and_a100_one():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-eval",
+            project_id="proj",
+            accelerators="A100:1",
+            run_id="rtest",
+            eval_label="base",
+            eval_max_tasks=8,
+        )
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["resources"]["accelerators"] == "A100:1"
+    assert config["resources"]["labels"]["pipeline"] == "cpp-eval"
+    assert "python -m w8_biayn.integrations.cpp_eval_main" in config["run"]
+    assert "--label \"base\"" in config["run"]
+    assert "--max-tasks 8" in config["run"]
+    assert "gcloud storage cp --recursive" in config["run"]
+    assert "runs/cpp-perf/rtest/cpp-eval" in config["run"]
