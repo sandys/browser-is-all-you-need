@@ -249,6 +249,18 @@ uv run w8-biayn gcp cleanup --run-id "${RUN_ID}" --credentials .gcp-service-acco
 uv run w8-biayn gcp cleanup --run-id "${RUN_ID}" --credentials .gcp-service-account.json --execute
 ```
 
+Use the project ops commands for run inspection and control. Do not put raw `sky ...` commands in runbooks; `w8-biayn ops ...` is the stable DX boundary if the backend changes later.
+
+```bash
+uv run w8-biayn ops status --credentials .gcp-service-account.json --refresh
+uv run w8-biayn ops queue "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json
+uv run w8-biayn ops logs "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json --tail 200
+uv run w8-biayn ops logs "w8-biayn-cpp-grpo-${RUN_ID}" 1 --credentials .gcp-service-account.json --follow
+uv run w8-biayn ops cancel "w8-biayn-cpp-grpo-${RUN_ID}" 1 --credentials .gcp-service-account.json
+uv run w8-biayn ops down "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json
+uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regions
+```
+
 ## Uplift Evaluation
 
 Run the same held-out validation bundle against base, SFT, and GRPO models:
@@ -308,12 +320,14 @@ If uplift fails, clone/study SuperCoder and Microsoft/LearningOpt PIE into `/tmp
 ## Operations
 
 ```bash
-uv run w8-biayn status
-uv run w8-biayn logs "w8-biayn-cpp-grpo-${RUN_ID}"
-uv run w8-biayn down "w8-biayn-cpp-grpo-${RUN_ID}"
+uv run w8-biayn ops status --credentials .gcp-service-account.json
+uv run w8-biayn ops logs "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json --tail 200
+uv run w8-biayn ops down "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json
 uv run w8-biayn benchmarks list
 uv run w8-biayn benchmarks show grpo-tiny
 ```
+
+The legacy top-level `w8-biayn status`, `w8-biayn logs`, and `w8-biayn down` commands remain aliases, but new docs and scripts should prefer `w8-biayn ops ...`.
 
 Pinned upstream clones live under `.cache/upstreams/`:
 
@@ -377,6 +391,8 @@ uv run w8-biayn data doctor
 uv run w8-biayn benchmarks list
 uv run w8-biayn cpp harness preflight --dry-run
 uv run w8-biayn doctor --cpp-perf
+uv run w8-biayn ops status --credentials .gcp-service-account.json --dry-run
+uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regions --dry-run
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json --run-id rdoc
 uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json --run-id rdoc
 uv run w8-biayn launch cpp-eval --dry-run --credentials .gcp-service-account.json --run-id rdoc

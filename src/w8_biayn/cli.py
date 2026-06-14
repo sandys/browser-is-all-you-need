@@ -74,9 +74,10 @@ cpp_app = typer.Typer(help="Build, run, and score C++ performance-RL tasks.")
 task_app = typer.Typer(help="Build PIE-derived C++ task JSON.")
 harness_app = typer.Typer(help="Run C++ candidates in the sandbox harness.")
 reward_app = typer.Typer(help="Score model outputs with the C++ reward function.")
-config_app = typer.Typer(help="Render SkyPilot bridge configs.")
+config_app = typer.Typer(help="Render cloud backend configs.")
 benchmarks_app = typer.Typer(help="Inspect the C++ performance-RL benchmark ladder.")
-gcp_app = typer.Typer(help="Run-scoped GCP/SkyPilot cleanup helpers.")
+gcp_app = typer.Typer(help="Run-scoped GCP cleanup helpers.")
+ops_app = typer.Typer(help="Inspect and manage cloud runs without calling the backend directly.")
 eval_app = typer.Typer(help="Aggregate C++ performance-RL evaluation outputs.")
 
 app.add_typer(upstreams_app, name="upstreams")
@@ -92,6 +93,7 @@ cpp_app.add_typer(reward_app, name="reward")
 app.add_typer(config_app, name="config")
 app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(gcp_app, name="gcp")
+app.add_typer(ops_app, name="ops")
 app.add_typer(eval_app, name="eval")
 console = Console()
 
@@ -146,6 +148,15 @@ def _service_account_env(credentials: str, *, project_id: Optional[str] = None) 
         return service_account_env(credentials, project_id=project_id)
     except GcpAuthError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+def _backend_env(credentials: str) -> dict[str, str]:
+    project_id = _project_id(credentials)
+    return _service_account_env(credentials, project_id=project_id)
+
+
+def _run_backend_command(args: list[str], *, credentials: str, dry_run: bool = False) -> None:
+    run_command(args, env=_backend_env(credentials), dry_run=dry_run)
 
 
 def _data_gcs_prefix(credentials: str, override: Optional[str]) -> str:
@@ -223,7 +234,7 @@ def _require_launch_labels(options: RenderOptions) -> None:
 @app.command()
 def doctor(
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
-    cloud: bool = typer.Option(False, help="Run GCP/SkyPilot checks."),
+    cloud: bool = typer.Option(False, help="Run GCP/cloud backend checks."),
     cpp_perf: bool = typer.Option(False, "--cpp-perf", help="Check C++ perf-harness prerequisites."),
     preflight: bool = typer.Option(True, "--preflight/--no-preflight", help="Run the C++ perf-counter preflight."),
     image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image used for the C++ perf preflight."),
@@ -323,13 +334,13 @@ def doctor(
             raise typer.BadParameter(str(exc)) from exc
         if missing_launch_permissions:
             console.print(
-                "[red]GCP service account lacks SkyPilot launch permissions: "
+                "[red]GCP service account lacks cloud backend launch permissions: "
                 + ", ".join(missing_launch_permissions)
                 + "[/red]"
             )
             raise typer.Exit(1)
         if not sky_gcp_enabled:
-            console.print("[red]GCP is not enabled for SkyPilot. Fix the IAM errors above and rerun doctor.[/red]")
+            console.print("[red]GCP is not enabled for the cloud backend. Fix the IAM errors above and rerun doctor.[/red]")
             raise typer.Exit(1)
 
 
@@ -895,9 +906,9 @@ def config_render(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML path."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
-    accelerators: Optional[str] = typer.Option(None, help="SkyPilot accelerator request."),
-    num_nodes: int = typer.Option(1, help="SkyPilot node count."),
-    cluster: Optional[str] = typer.Option(None, help="SkyPilot cluster name."),
+    accelerators: Optional[str] = typer.Option(None, help="Cloud backend accelerator request."),
+    num_nodes: int = typer.Option(1, help="Cloud backend node count."),
+    cluster: Optional[str] = typer.Option(None, help="Cloud backend cluster name."),
     model: Optional[str] = typer.Option(None, help="Open model to load/train."),
     gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
     dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
@@ -917,7 +928,7 @@ def config_render(
     eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
     eval_max_tasks: Optional[int] = typer.Option(None, help="Optional validation task limit for cpp-eval."),
 ) -> None:
-    """Render a SkyPilot YAML file."""
+    """Render a cloud backend YAML file."""
 
     options = _render_options(
         pipeline=pipeline,
@@ -954,9 +965,9 @@ def launch(
     pipeline: Pipeline = typer.Argument(..., help="Pipeline to launch: cpp-smoke, cpp-sft, cpp-grpo, or cpp-eval."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
-    accelerators: Optional[str] = typer.Option(None, help="SkyPilot accelerator request."),
-    num_nodes: int = typer.Option(1, help="SkyPilot node count."),
-    cluster: Optional[str] = typer.Option(None, help="SkyPilot cluster name."),
+    accelerators: Optional[str] = typer.Option(None, help="Cloud backend accelerator request."),
+    num_nodes: int = typer.Option(1, help="Cloud backend node count."),
+    cluster: Optional[str] = typer.Option(None, help="Cloud backend cluster name."),
     model: Optional[str] = typer.Option(None, help="Open model to load/train."),
     gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
     dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
@@ -975,11 +986,11 @@ def launch(
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
     eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
     eval_max_tasks: Optional[int] = typer.Option(None, help="Optional validation task limit for cpp-eval."),
-    yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
+    yes: bool = typer.Option(True, help="Skip cloud backend confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
 ) -> None:
-    """Render config and launch a SkyPilot bridge job."""
+    """Render config and launch a cloud backend job."""
 
     effective_run_id = run_id or _new_run_id()
     options = _render_options(
@@ -1079,7 +1090,7 @@ def gcp_cleanup(
     owner: str = typer.Option("sss", help="Owner label used for the run."),
     dry_run: bool = typer.Option(True, "--dry-run/--execute", help="Print cleanup commands unless --execute is used."),
 ) -> None:
-    """Tear down SkyPilot clusters and list GCP instances for one run id."""
+    """Tear down run clusters and list GCP instances for one run id."""
 
     project_id = _project_id(credentials)
     env = _service_account_env(credentials, project_id=project_id)
@@ -1109,25 +1120,198 @@ def gcp_cleanup(
     )
 
 
+@ops_app.command("status")
+def ops_status(
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    refresh: bool = typer.Option(False, help="Refresh cloud cluster state before printing status."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Show current run clusters and managed jobs."""
+
+    args = ["sky", "status"]
+    if refresh:
+        args.append("--refresh")
+    _run_backend_command(args, credentials=credentials, dry_run=dry_run)
+
+
+@ops_app.command("logs")
+def ops_logs(
+    cluster: str = typer.Argument(..., help="w8-biayn cluster name."),
+    job_id: Optional[str] = typer.Argument(None, help="Optional job id; omit for latest job."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    follow: bool = typer.Option(False, "--follow/--no-follow", help="Stream logs instead of printing the current tail."),
+    tail: int = typer.Option(1000, help="Number of trailing log lines; pass 0 for the full log."),
+    status_only: bool = typer.Option(False, "--status", help="Return only the job status code."),
+    provision: bool = typer.Option(False, help="Show provisioning logs instead of job logs."),
+    autostop: bool = typer.Option(False, help="Show autostop hook logs."),
+    sync_down: bool = typer.Option(False, "--sync-down", help="Download logs under the backend logs directory."),
+    worker: Optional[int] = typer.Option(None, help="Worker id to read logs from."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Show logs for a run cluster without invoking the backend directly."""
+
+    args = ["sky", "logs"]
+    if provision:
+        args.append("--provision")
+    if autostop:
+        args.append("--autostop")
+    if sync_down:
+        args.append("--sync-down")
+    if status_only:
+        args.append("--status")
+    if worker is not None:
+        args.extend(["--worker", str(worker)])
+    args.extend(["--tail", str(tail)])
+    if not follow:
+        args.append("--no-follow")
+    args.append(cluster)
+    if job_id is not None:
+        args.append(job_id)
+    _run_backend_command(args, credentials=credentials, dry_run=dry_run)
+
+
+@ops_app.command("queue")
+def ops_queue(
+    cluster: Optional[str] = typer.Argument(None, help="Optional cluster name; omit to show all queues."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    skip_finished: bool = typer.Option(False, "--skip-finished", help="Show only pending or running jobs."),
+    all_users: bool = typer.Option(False, "--all-users", help="Show jobs for all users."),
+    output: str = typer.Option("table", "--output", help="Output format: table or json."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Show queued jobs for run clusters."""
+
+    args = ["sky", "queue"]
+    if all_users:
+        args.append("--all-users")
+    if skip_finished:
+        args.append("--skip-finished")
+    args.extend(["--output", output])
+    if cluster is not None:
+        args.append(cluster)
+    _run_backend_command(args, credentials=credentials, dry_run=dry_run)
+
+
+@ops_app.command("cancel")
+def ops_cancel(
+    cluster: str = typer.Argument(..., help="w8-biayn cluster name or glob."),
+    job_id: Optional[str] = typer.Argument(None, help="Optional job id; omit for latest running job."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    all_jobs: bool = typer.Option(False, "--all", help="Cancel all jobs from the current user."),
+    all_users: bool = typer.Option(False, "--all-users", help="Cancel matching jobs for all users."),
+    yes: bool = typer.Option(True, "--yes/--no-yes", help="Skip backend confirmation prompts."),
+    async_: bool = typer.Option(False, "--async/--no-async", help="Return without waiting for cancellation."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Cancel a queued or running job."""
+
+    args = ["sky", "cancel", cluster]
+    if job_id is not None:
+        args.append(job_id)
+    if all_jobs:
+        args.append("--all")
+    if all_users:
+        args.append("--all-users")
+    if yes:
+        args.append("--yes")
+    if async_:
+        args.append("--async")
+    _run_backend_command(args, credentials=credentials, dry_run=dry_run)
+
+
+@ops_app.command("down")
+def ops_down(
+    cluster: str = typer.Argument(..., help="w8-biayn cluster name."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    yes: bool = typer.Option(True, "--yes/--no-yes", help="Skip backend confirmation prompts."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Tear down one run cluster."""
+
+    args = ["sky", "down"]
+    if yes:
+        args.append("-y")
+    args.append(cluster)
+    _run_backend_command(args, credentials=credentials, dry_run=dry_run)
+
+
+@ops_app.command("gpus")
+def ops_gpus(
+    accelerator: Optional[str] = typer.Argument(None, help="Optional accelerator name such as A100 or B200."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    infra: str = typer.Option("gcp", help="Infrastructure selector passed to the backend."),
+    all_regions: bool = typer.Option(False, "--all-regions", help="Show every region for the accelerator."),
+    all_offerings: bool = typer.Option(False, "--all", help="Show all accelerator offerings."),
+    output: str = typer.Option("table", "--output", help="Output format: table or json."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """List accelerator offerings through the project CLI."""
+
+    args = ["sky", "gpus", "list"]
+    if accelerator:
+        args.append(accelerator)
+    args.extend(["--infra", infra])
+    if all_regions:
+        args.append("--all-regions")
+    if all_offerings:
+        args.append("--all")
+    args.extend(["--output", output])
+    _run_backend_command(args, credentials=credentials, dry_run=dry_run)
+
+
 @app.command()
-def status() -> None:
-    """Show SkyPilot status."""
+def status(
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    refresh: bool = typer.Option(False, help="Refresh cloud cluster state before printing status."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Alias for `w8-biayn ops status`."""
 
-    run_command(["sky", "status"])
-
-
-@app.command()
-def logs(cluster: str = typer.Argument("w8-biayn-cpp-smoke", help="SkyPilot cluster name.")) -> None:
-    """Show SkyPilot logs for a cluster."""
-
-    run_command(["sky", "logs", cluster])
+    ops_status(credentials=credentials, refresh=refresh, dry_run=dry_run)
 
 
 @app.command()
-def down(cluster: str = typer.Argument("w8-biayn-cpp-smoke", help="SkyPilot cluster name.")) -> None:
-    """Tear down a SkyPilot cluster."""
+def logs(
+    cluster: str = typer.Argument("w8-biayn-cpp-smoke", help="w8-biayn cluster name."),
+    job_id: Optional[str] = typer.Argument(None, help="Optional job id; omit for latest job."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    follow: bool = typer.Option(False, "--follow/--no-follow", help="Stream logs instead of printing the current tail."),
+    tail: int = typer.Option(1000, help="Number of trailing log lines; pass 0 for the full log."),
+    status_only: bool = typer.Option(False, "--status", help="Return only the job status code."),
+    provision: bool = typer.Option(False, help="Show provisioning logs instead of job logs."),
+    autostop: bool = typer.Option(False, help="Show autostop hook logs."),
+    sync_down: bool = typer.Option(False, "--sync-down", help="Download logs under the backend logs directory."),
+    worker: Optional[int] = typer.Option(None, help="Worker id to read logs from."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Alias for `w8-biayn ops logs`."""
 
-    run_command(["sky", "down", "-y", cluster])
+    ops_logs(
+        cluster,
+        job_id,
+        credentials=credentials,
+        follow=follow,
+        tail=tail,
+        status_only=status_only,
+        provision=provision,
+        autostop=autostop,
+        sync_down=sync_down,
+        worker=worker,
+        dry_run=dry_run,
+    )
+
+
+@app.command()
+def down(
+    cluster: str = typer.Argument("w8-biayn-cpp-smoke", help="w8-biayn cluster name."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    yes: bool = typer.Option(True, "--yes/--no-yes", help="Skip backend confirmation prompts."),
+    dry_run: bool = typer.Option(False, help="Print the backend command without running it."),
+) -> None:
+    """Alias for `w8-biayn ops down`."""
+
+    ops_down(cluster, credentials=credentials, yes=yes, dry_run=dry_run)
+
 
 
 def _render_options(

@@ -20,6 +20,7 @@ def test_cli_help_exposes_new_surface_only():
     assert "data" in result.output
     assert "benchmarks" in result.output
     assert "gcp" in result.output
+    assert "ops" in result.output
     assert "eval" in result.output
     assert "domdiff" not in result.output
     assert "harbor" not in result.output
@@ -70,6 +71,82 @@ def test_cli_launch_cpp_smoke_dry_run_prints_sky_command(tmp_path):
     assert "run_id: rtest" in result.output
     assert "sky launch -c w8-biayn-cpp-smoke-rtest" in result.output
     assert ".w8-biayn/rendered/cpp-smoke.sky.yaml" in result.output
+
+
+def test_cli_ops_wraps_backend_debug_commands(tmp_path):
+    credentials = tmp_path / "sa.json"
+    write_credentials(credentials)
+
+    status = CliRunner().invoke(
+        app,
+        ["ops", "status", "--credentials", str(credentials), "--refresh", "--dry-run"],
+    )
+    logs = CliRunner().invoke(
+        app,
+        [
+            "ops",
+            "logs",
+            "w8-biayn-cpp-grpo-rtest",
+            "1",
+            "--credentials",
+            str(credentials),
+            "--tail",
+            "200",
+            "--dry-run",
+        ],
+    )
+    queue = CliRunner().invoke(
+        app,
+        ["ops", "queue", "w8-biayn-cpp-grpo-rtest", "--credentials", str(credentials), "--dry-run"],
+    )
+    cancel = CliRunner().invoke(
+        app,
+        ["ops", "cancel", "w8-biayn-cpp-grpo-rtest", "1", "--credentials", str(credentials), "--dry-run"],
+    )
+    down = CliRunner().invoke(
+        app,
+        ["ops", "down", "w8-biayn-cpp-grpo-rtest", "--credentials", str(credentials), "--dry-run"],
+    )
+    gpus = CliRunner().invoke(
+        app,
+        ["ops", "gpus", "A100", "--credentials", str(credentials), "--all-regions", "--dry-run"],
+    )
+    legacy_logs = CliRunner().invoke(
+        app,
+        [
+            "logs",
+            "w8-biayn-cpp-grpo-rtest",
+            "1",
+            "--credentials",
+            str(credentials),
+            "--tail",
+            "50",
+            "--status",
+            "--dry-run",
+        ],
+    )
+    legacy_down = CliRunner().invoke(
+        app,
+        ["down", "w8-biayn-cpp-grpo-rtest", "--credentials", str(credentials), "--no-yes", "--dry-run"],
+    )
+
+    assert status.exit_code == 0, status.output
+    assert "sky status --refresh" in status.output
+    assert logs.exit_code == 0, logs.output
+    assert "sky logs --tail 200 --no-follow w8-biayn-cpp-grpo-rtest 1" in logs.output
+    assert queue.exit_code == 0, queue.output
+    assert "sky queue --output table w8-biayn-cpp-grpo-rtest" in queue.output
+    assert cancel.exit_code == 0, cancel.output
+    assert "sky cancel w8-biayn-cpp-grpo-rtest 1 --yes" in cancel.output
+    assert down.exit_code == 0, down.output
+    assert "sky down -y w8-biayn-cpp-grpo-rtest" in down.output
+    assert gpus.exit_code == 0, gpus.output
+    assert "sky gpus list A100 --infra gcp --all-regions --output table" in gpus.output
+    assert legacy_logs.exit_code == 0, legacy_logs.output
+    assert "sky logs --status --tail 50 --no-follow w8-biayn-cpp-grpo-rtest 1" in legacy_logs.output
+    assert legacy_down.exit_code == 0, legacy_down.output
+    assert "sky down w8-biayn-cpp-grpo-rtest" in legacy_down.output
+    assert "sky down -y" not in legacy_down.output
 
 
 def test_cli_measure_coverage_resumes_existing_report(tmp_path, monkeypatch):

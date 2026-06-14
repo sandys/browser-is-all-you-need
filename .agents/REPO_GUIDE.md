@@ -154,7 +154,9 @@ Cloud commands must:
 - avoid printing credential contents;
 - render YAML into `.w8-biayn/rendered/`;
 - label paid resources with `project`, `phase`, `pipeline`, `run_id`, `owner`, and `ttl`;
-- provide operations through `w8-biayn status`, `w8-biayn logs`, `w8-biayn down`, and `w8-biayn gcp cleanup`.
+- provide operations through `w8-biayn ops status`, `w8-biayn ops logs`, `w8-biayn ops queue`, `w8-biayn ops cancel`, `w8-biayn ops down`, `w8-biayn ops gpus`, and `w8-biayn gcp cleanup`.
+
+Do not put raw `sky ...` commands in docs, runbooks, or agent handoffs. Keep SkyPilot/SkyRL backend details behind the `w8-biayn` CLI so the operator DX stays stable if the backend changes.
 
 `doctor --cloud` must check the full SkyPilot launch permission set before paid runs.
 
@@ -252,6 +254,8 @@ uv run w8-biayn data doctor
 uv run w8-biayn benchmarks list
 uv run w8-biayn cpp harness preflight --dry-run
 uv run w8-biayn doctor --cpp-perf
+uv run w8-biayn ops status --credentials .gcp-service-account.json --dry-run
+uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regions --dry-run
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json --run-id rdoc
 uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json --run-id rdoc
 uv run w8-biayn launch cpp-eval --dry-run --credentials .gcp-service-account.json --run-id rdoc
