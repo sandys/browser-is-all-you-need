@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -72,6 +73,7 @@ harness_app = typer.Typer(help="Run C++ candidates in the sandbox harness.")
 reward_app = typer.Typer(help="Score model outputs with the C++ reward function.")
 config_app = typer.Typer(help="Render SkyPilot bridge configs.")
 benchmarks_app = typer.Typer(help="Inspect the C++ performance-RL benchmark ladder.")
+gcp_app = typer.Typer(help="Run-scoped GCP/SkyPilot cleanup helpers.")
 
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
@@ -85,6 +87,7 @@ cpp_app.add_typer(harness_app, name="harness")
 cpp_app.add_typer(reward_app, name="reward")
 app.add_typer(config_app, name="config")
 app.add_typer(benchmarks_app, name="benchmarks")
+app.add_typer(gcp_app, name="gcp")
 console = Console()
 
 
@@ -189,6 +192,18 @@ def _write_json(path: str | Path, payload: object) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return output
+
+
+def _new_run_id() -> str:
+    return time.strftime("r%Y%m%d%H%M%S", time.gmtime())
+
+
+def _require_launch_labels(options: RenderOptions) -> None:
+    labels = options.labels
+    required = {"project", "phase", "pipeline", "run_id", "owner", "ttl"}
+    missing = sorted(key for key in required if not labels.get(key))
+    if missing:
+        raise typer.BadParameter(f"launch labels missing required keys: {', '.join(missing)}")
 
 
 @app.command()
@@ -812,6 +827,8 @@ def config_render(
     max_ckpts_to_keep: int = typer.Option(-1, help="Maximum checkpoints to retain; -1 keeps all."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
+    run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
+    owner: str = typer.Option("sss", help="Owner label for GCP resources."),
 ) -> None:
     """Render a SkyPilot YAML file."""
 
@@ -836,6 +853,8 @@ def config_render(
         max_ckpts_to_keep=max_ckpts_to_keep,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        run_id=run_id,
+        owner=owner,
     )
     written = write_sky_yaml(options, output)
     console.print(str(written))
@@ -863,12 +882,15 @@ def launch(
     max_ckpts_to_keep: int = typer.Option(-1, help="Maximum checkpoints to retain; -1 keeps all."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
+    run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
+    owner: str = typer.Option("sss", help="Owner label for GCP resources."),
     yes: bool = typer.Option(True, help="Pass -y to SkyPilot to skip confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
 ) -> None:
     """Render config and launch a SkyPilot bridge job."""
 
+    effective_run_id = run_id or _new_run_id()
     options = _render_options(
         pipeline=pipeline,
         credentials=credentials,
@@ -890,7 +912,10 @@ def launch(
         max_ckpts_to_keep=max_ckpts_to_keep,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        run_id=effective_run_id,
+        owner=owner,
     )
+    _require_launch_labels(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = _service_account_env(credentials, project_id=options.project_id)
     sky_args = ["sky", "launch", "-c", options.name]
@@ -899,6 +924,8 @@ def launch(
     if down_after:
         sky_args.append("--down")
     sky_args.append(str(output))
+    console.print(f"run_id: {options.run_id}")
+    console.print(f"cluster: {options.name}")
     run_command(sky_args, env=env, dry_run=dry_run)
 
 
@@ -923,6 +950,43 @@ def benchmarks_show(key: str = typer.Argument(..., help="Benchmark key.")) -> No
     except KeyError as exc:
         raise typer.BadParameter(str(exc)) from exc
     console.print_json(data=benchmark.__dict__)
+
+
+@gcp_app.command("cleanup")
+def gcp_cleanup(
+    run_id: str = typer.Option(..., "--run-id", help="Run id to tear down."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    owner: str = typer.Option("sss", help="Owner label used for the run."),
+    dry_run: bool = typer.Option(True, "--dry-run/--execute", help="Print cleanup commands unless --execute is used."),
+) -> None:
+    """Tear down SkyPilot clusters and list GCP instances for one run id."""
+
+    project_id = _project_id(credentials)
+    env = _service_account_env(credentials, project_id=project_id)
+    console.print(f"cleanup_run_id: {run_id}")
+    for pipeline_name in ("cpp-smoke", "cpp-sft", "cpp-grpo", "cpp-eval"):
+        cluster = f"w8-biayn-{pipeline_name}-{run_id}"
+        run_command(["sky", "down", "-y", cluster], env=env, dry_run=dry_run)
+    label_filter = (
+        f"labels.project=w8-biayn AND labels.phase=cpp-perf-rl "
+        f"AND labels.run_id={run_id.lower()} AND labels.owner={owner.lower()}"
+    )
+    run_command(
+        [
+            "gcloud",
+            "compute",
+            "instances",
+            "list",
+            "--project",
+            project_id,
+            "--filter",
+            label_filter,
+            "--format",
+            "table(name,zone,status,labels)",
+        ],
+        env=env,
+        dry_run=dry_run,
+    )
 
 
 @app.command()
@@ -968,6 +1032,8 @@ def _render_options(
     max_ckpts_to_keep: int,
     sandbox_image: str,
     sandbox_cpu: str,
+    run_id: Optional[str],
+    owner: str,
 ) -> RenderOptions:
     project_id = _project_id(credentials)
     is_training = pipeline in ("cpp-sft", "cpp-grpo")
@@ -993,4 +1059,6 @@ def _render_options(
         max_ckpts_to_keep=max_ckpts_to_keep,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        run_id=run_id,
+        owner=owner,
     )

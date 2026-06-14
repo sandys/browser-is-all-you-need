@@ -86,3 +86,27 @@ def test_render_cpp_training_yaml_exposes_full_run_knobs():
     assert "trainer.max_ckpts_to_keep=2" in rendered
     assert 'trainer.ckpt_path="gs://bucket/ckpts"' in rendered
     assert 'trainer.export_path="gs://bucket/exports"' in rendered
+
+
+def test_render_run_id_adds_cluster_suffix_labels_and_env():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            run_id="R2026_06_14_Test",
+            owner="SSS",
+        )
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["name"] == "w8-biayn-cpp-grpo-R2026_06_14_Test"
+    assert config["envs"]["W8_BIAYN_RUN_ID"] == "R2026_06_14_Test"
+    assert config["resources"]["labels"] == {
+        "project": "w8-biayn",
+        "phase": "cpp-perf-rl",
+        "pipeline": "cpp-grpo",
+        "run_id": "r2026-06-14-test",
+        "owner": "sss",
+        "ttl": "training",
+    }

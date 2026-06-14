@@ -24,6 +24,7 @@ from .constants import (
 from .secrets import default_bucket_for_project
 
 Pipeline = Literal["cpp-smoke", "cpp-sft", "cpp-grpo"]
+LABEL_VALUE_MAX = 63
 
 
 class LiteralStr(str):
@@ -62,6 +63,8 @@ class RenderOptions:
     sandbox_image: str = DEFAULT_DOCKER_IMAGE
     sandbox_cpu: str = DEFAULT_CPU
     logger: str = "console"
+    run_id: str | None = None
+    owner: str = "sss"
 
     @property
     def artifact_bucket(self) -> str:
@@ -69,6 +72,8 @@ class RenderOptions:
 
     @property
     def name(self) -> str:
+        if self.run_id:
+            return self.cluster_name or f"w8-biayn-{self.pipeline}-{self.run_id}"
         return self.cluster_name or f"w8-biayn-{self.pipeline}"
 
     @property
@@ -78,6 +83,19 @@ class RenderOptions:
     @property
     def gpu_count(self) -> int:
         return gpu_count_from_accelerators(self.accelerators)
+
+    @property
+    def labels(self) -> dict[str, str]:
+        if not self.run_id:
+            return {}
+        return {
+            "project": "w8-biayn",
+            "phase": "cpp-perf-rl",
+            "pipeline": _label_value(self.pipeline),
+            "run_id": _label_value(self.run_id),
+            "owner": _label_value(self.owner),
+            "ttl": "training",
+        }
 
 
 def gpu_count_from_accelerators(accelerators: str) -> int:
@@ -89,6 +107,13 @@ def gpu_count_from_accelerators(accelerators: str) -> int:
         return int(accelerators.rsplit(":", 1)[1])
     except ValueError:
         return 1
+
+
+def _label_value(value: str) -> str:
+    normalized = value.lower().replace("/", "-").replace("_", "-").replace(":", "-")
+    normalized = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in normalized)
+    normalized = normalized.strip("-")[:LABEL_VALUE_MAX]
+    return normalized or "unset"
 
 
 def setup_script(options: RenderOptions) -> LiteralStr:
@@ -332,10 +357,13 @@ def render_sky_yaml(options: RenderOptions) -> str:
             "W8_BIAYN_ARTIFACT_BUCKET": options.artifact_bucket,
             "W8_BIAYN_MODEL": options.model,
             "W8_BIAYN_DATA_GCS_PREFIX": options.data_gcs_prefix,
+            "W8_BIAYN_RUN_ID": options.run_id or "",
         },
         "setup": setup_script(options),
         "run": run_script(options),
     }
+    if options.labels:
+        config["resources"]["labels"] = options.labels
     return yaml.safe_dump(config, sort_keys=False)
 
 

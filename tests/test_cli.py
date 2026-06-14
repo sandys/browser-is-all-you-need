@@ -19,6 +19,7 @@ def test_cli_help_exposes_new_surface_only():
     assert "cpp" in result.output
     assert "data" in result.output
     assert "benchmarks" in result.output
+    assert "gcp" in result.output
     assert "domdiff" not in result.output
     assert "harbor" not in result.output
     assert "miniwob" not in result.output
@@ -61,11 +62,12 @@ def test_cli_launch_cpp_smoke_dry_run_prints_sky_command(tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["launch", "cpp-smoke", "--credentials", str(credentials), "--dry-run"],
+        ["launch", "cpp-smoke", "--credentials", str(credentials), "--run-id", "rtest", "--dry-run"],
     )
 
     assert result.exit_code == 0, result.output
-    assert "sky launch -c w8-biayn-cpp-smoke" in result.output
+    assert "run_id: rtest" in result.output
+    assert "sky launch -c w8-biayn-cpp-smoke-rtest" in result.output
     assert ".w8-biayn/rendered/cpp-smoke.sky.yaml" in result.output
 
 
