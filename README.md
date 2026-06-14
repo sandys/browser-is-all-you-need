@@ -178,6 +178,7 @@ uv run w8-biayn doctor --cpp-perf --credentials .gcp-service-account.json
 ```
 
 Having the `perf` binary is not enough. Some virtualized hosts return `<not counted>` or `<not supported>` for `instructions:u`; those hosts are invalid for training.
+Rendered `cpp-grpo` SkyPilot jobs lower the host `kernel.perf_event_paranoid` setting to `0` before starting the GPU training container, then run the C++ perf preflight before `skyrl_cpp_perf_main`.
 
 ## GCP Training
 

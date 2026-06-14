@@ -236,6 +236,10 @@ fi
 if [ "$W8_EXPORT_PATH" = "~/exports/" ]; then
   export W8_EXPORT_PATH="/artifacts/exports"
 fi
+if [ "{options.pipeline}" = "cpp-grpo" ]; then
+  sudo sysctl -w kernel.perf_event_paranoid=0
+  test "$(cat /proc/sys/kernel/perf_event_paranoid)" -le 0
+fi
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is required on the SkyPilot host to restore dataset cache from GCS" >&2
   exit 2

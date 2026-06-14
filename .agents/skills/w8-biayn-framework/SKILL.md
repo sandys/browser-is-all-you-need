@@ -187,6 +187,7 @@ uv run w8-biayn gcp cleanup --run-id "$RUN_ID" --credentials .gcp-service-accoun
 ```
 
 GRPO reward execution uses Docker-outside-Docker: the GPU training container must mount `/var/run/docker.sock` and host `/tmp`.
+Rendered GRPO must lower the host `kernel.perf_event_paranoid` setting to `0` before starting the training container; GCP images can default to `4`, which blocks `perf stat -e instructions:u` before SkyRL starts.
 
 The GRPO entrypoint is:
 

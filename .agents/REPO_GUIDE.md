@@ -140,6 +140,7 @@ uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --datase
 The GRPO entrypoint is `python -m w8_biayn.integrations.skyrl_cpp_perf_main`. It registers `cpp-perf` and delegates to SkyRL `BasePPOExp(cfg).run()`.
 
 Rendered GRPO must run the C++ perf preflight before `skyrl_cpp_perf_main`. GRPO rewards use Docker-outside-Docker, so rendered YAML must mount `/var/run/docker.sock` and host `/tmp` into the GPU training container.
+Rendered GRPO must also lower the host `kernel.perf_event_paranoid` setting to `0` before the training container starts; a default GCP value of `4` blocks `perf stat -e instructions:u` even when the sandbox image has `perf`.
 
 ## Cloud Rules
 

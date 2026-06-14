@@ -45,6 +45,8 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "-v /tmp:/tmp" in grpo["run"]
     assert "DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io" in grpo["run"]
     assert "docker version" in grpo["run"]
+    assert "sudo sysctl -w kernel.perf_event_paranoid=0" in grpo["run"]
+    assert 'test "$(cat /proc/sys/kernel/perf_event_paranoid)" -le 0' in grpo["run"]
     assert "w8-biayn cpp harness preflight --image \"w8-biayn-cpp-perf:latest\" --cpu \"3\"" in grpo["run"]
     assert "trainer.logger=console" in grpo["run"]
     assert "trainer.ckpt_interval=-1" in grpo["run"]
