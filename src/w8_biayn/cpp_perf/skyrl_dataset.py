@@ -86,6 +86,8 @@ def load_tasks(tasks_dir: str | Path) -> list[tuple[Path, CppTask]]:
     root = Path(tasks_dir)
     tasks: list[tuple[Path, CppTask]] = []
     for path in sorted(root.rglob("*.json")):
+        if path.name.startswith("_w8_"):
+            continue
         tasks.append((path, CppTask.read_json(path)))
     return tasks
 
@@ -95,6 +97,10 @@ def build_skyrl_datasets(
     output_dir: str | Path,
     *,
     validation_splits: Iterable[str] = ("validation", "test"),
+    profile: str = "smoke",
+    run_id: str | None = None,
+    min_train_tasks: int = 1,
+    min_validation_tasks: int = 1,
 ) -> dict[str, Path]:
     """Write GRPO parquet and SFT JSONL datasets from validated tasks."""
 
@@ -120,10 +126,16 @@ def build_skyrl_datasets(
     validation_names = set(validation_splits)
     train_tasks = [task for _path, task in loaded if task.split == "train"]
     validation_tasks = [task for _path, task in loaded if task.split in validation_names]
-    if not train_tasks:
-        raise ValueError("SkyRL dataset build requires at least one train task")
-    if not validation_tasks:
-        raise ValueError(f"SkyRL dataset build requires at least one validation task in {sorted(validation_names)}")
+    if len(train_tasks) < min_train_tasks:
+        raise ValueError(
+            f"SkyRL dataset build requires at least {min_train_tasks} train tasks; "
+            f"found {len(train_tasks)}"
+        )
+    if len(validation_tasks) < min_validation_tasks:
+        raise ValueError(
+            f"SkyRL dataset build requires at least {min_validation_tasks} validation tasks "
+            f"in {sorted(validation_names)}; found {len(validation_tasks)}"
+        )
 
     train_grpo = [
         task_to_grpo_row(task, task_path=copied[path])
@@ -152,7 +164,17 @@ def build_skyrl_datasets(
         output,
         kind="skyrl-dataset",
         sources=[str(tasks_dir)],
-        options={"validation_splits": sorted(validation_names)},
+        options={
+            "validation_splits": sorted(validation_names),
+            "profile": profile,
+            "run_id": run_id,
+            "counts": {
+                "train": len(train_tasks),
+                "validation": len([task for _path, task in loaded if task.split == "validation"]),
+                "test": len([task for _path, task in loaded if task.split == "test"]),
+                "validation_effective": len(validation_tasks),
+            },
+        },
     )
     return {
         "grpo_train": train_grpo_path,

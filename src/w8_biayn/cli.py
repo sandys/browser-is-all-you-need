@@ -29,13 +29,18 @@ from .constants import (
 from .cpp_perf.data import (
     PIE_DOWNLOADS,
     SUPERCODER_ALLOW_PATTERNS,
+    build_tests_manifest_with_report,
     build_tests_manifest_from_io,
     download_pie,
     download_supercoder,
+    discover_problem_tests,
     inspect_supercoder_parquet,
+    prepare_full_pie,
     verify_data_manifest,
+    write_data_manifest,
 )
-from .cpp_perf.pie import build_tasks, load_tests_manifest, read_pie_pairs
+from .cpp_perf.coverage import measure_cpp_coverage
+from .cpp_perf.pie import build_tasks, build_tasks_with_report, load_tests_manifest, read_pie_pairs
 from .cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
 from .cpp_perf.sandbox import (
     DEFAULT_CPU,
@@ -47,7 +52,7 @@ from .cpp_perf.sandbox import (
     run_perf_preflight,
     sandbox_image_build_plan,
 )
-from .cpp_perf.schema import CppTask
+from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -168,6 +173,22 @@ def _build_tasks_command(
         task.write_json(output / f"{task.task_id}.json")
     console.print(f"wrote_tasks: {len(tasks)}")
     console.print(f"out: {output}")
+
+
+def _read_split_pairs(prepared_root: str | Path, split: str, *, limit: Optional[int]) -> list:
+    base = Path(prepared_root)
+    for suffix in (".jsonl", ".json", ".tsv"):
+        path = base / f"{split}{suffix}"
+        if path.exists():
+            return read_pie_pairs(path, limit=limit)
+    raise typer.BadParameter(f"missing prepared split file for {split} under {base}")
+
+
+def _write_json(path: str | Path, payload: object) -> Path:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return output
 
 
 @app.command()
@@ -349,6 +370,68 @@ def data_pie_download(
         console.print(str(path))
 
 
+@data_pie_app.command("prepare-full")
+def data_pie_prepare_full(
+    source_root: str = typer.Option(f"{DEFAULT_DATA_ROOT}/pie", "--source-root", help="PIE download root."),
+    out: str = typer.Option(f"{DEFAULT_DATA_ROOT}/pie-full", "--out", help="Prepared full PIE root."),
+    force: bool = typer.Option(False, help="Replace an existing prepared tree."),
+) -> None:
+    """Unpack official PIE archives into normalized full-run splits and cases."""
+
+    result = prepare_full_pie(source_root, out, force=force)
+    console.print_json(
+        data={
+            "root": str(result["root"]),
+            "manifest": str(result["manifest"]),
+            "splits": {key: str(path) for key, path in result["splits"].items()},
+            "problem_count_with_tests": result["problem_count_with_tests"],
+            "test_count": result["test_count"],
+        }
+    )
+
+
+@data_pie_app.command("measure-coverage")
+def data_pie_measure_coverage(
+    prepared_root: str = typer.Option(f"{DEFAULT_DATA_ROOT}/pie-full", "--prepared-root", help="Prepared PIE root."),
+    out: str = typer.Option(f"{DEFAULT_DATA_ROOT}/pie-full/coverage.json", "--out", help="Coverage JSON path."),
+    report_out: str = typer.Option(
+        f"{DEFAULT_DATA_ROOT}/pie-full/coverage-report.json",
+        "--report-out",
+        help="Detailed coverage admission report.",
+    ),
+    split: Optional[list[str]] = typer.Option(
+        None,
+        "--split",
+        help="Prepared split to inspect. Repeatable. Defaults to train, validation, test.",
+    ),
+    limit_per_split: Optional[int] = typer.Option(None, help="Optional row limit per split."),
+    timeout_s: int = typer.Option(5, help="Timeout per oracle test run."),
+) -> None:
+    """Measure oracle gcov coverage for prepared PIE problems."""
+
+    base = Path(prepared_root)
+    splits = split or ["train", "validation", "test"]
+    coverage: dict[str, dict[str, float]] = {}
+    report: dict[str, object] = {"splits": splits, "problems": {}, "accepted": 0, "rejected": 0}
+    for split_name in splits:
+        pairs = _read_split_pairs(base, split_name, limit=limit_per_split)
+        for pair in pairs:
+            if pair.problem_id in report["problems"]:  # type: ignore[operator]
+                continue
+            tests = [TestCase.model_validate(item) for item in discover_problem_tests(base / "cases" / pair.problem_id)]
+            measurement = measure_cpp_coverage(pair.oracle_solution, tests, timeout_s=timeout_s)
+            problem_report = measurement.as_dict()
+            report["problems"][pair.problem_id] = problem_report  # type: ignore[index]
+            if measurement.coverage is not None and measurement.ok:
+                coverage[pair.problem_id] = measurement.coverage.model_dump()
+                report["accepted"] = int(report["accepted"]) + 1
+            else:
+                report["rejected"] = int(report["rejected"]) + 1
+    _write_json(out, coverage)
+    _write_json(report_out, report)
+    console.print_json(data={"accepted": len(coverage), "out": out, "report_out": report_out})
+
+
 @data_pie_app.command("build-tests-manifest")
 def data_pie_build_tests_manifest(
     inputs_outputs_basepath: str = typer.Option(..., "--inputs-outputs-basepath", help="Directory keyed by problem id."),
@@ -384,6 +467,94 @@ def data_pie_build_tests_manifest(
     console.print(f"out: {output}")
 
 
+@data_pie_app.command("build-full-tasks")
+def data_pie_build_full_tasks(
+    prepared_root: str = typer.Option(f"{DEFAULT_DATA_ROOT}/pie-full", "--prepared-root", help="Prepared PIE root."),
+    coverage_json: str = typer.Option(
+        f"{DEFAULT_DATA_ROOT}/pie-full/coverage.json",
+        "--coverage-json",
+        help="Problem-id keyed measured coverage JSON.",
+    ),
+    out: str = typer.Option(f"{DEFAULT_DATA_ROOT}/tasks-full", "--out", help="Output task JSON root."),
+    visible_count: int = typer.Option(1, help="Visible tests per problem."),
+    hidden_count: int = typer.Option(1, help="Hidden tests per problem."),
+    min_train: int = typer.Option(1000, help="Minimum train tasks for a full official run."),
+    min_validation: int = typer.Option(100, help="Minimum validation tasks for a full official run."),
+    min_test: int = typer.Option(100, help="Minimum test tasks for a full official run."),
+    limit_per_split: Optional[int] = typer.Option(None, help="Optional row limit per split."),
+    compiler_flags: str = typer.Option("-O3 -std=c++20", help="Compiler flags recorded in each task."),
+    force: bool = typer.Option(False, help="Replace an existing task tree."),
+) -> None:
+    """Build full official PIE task JSON with count and coverage gates."""
+
+    base = Path(prepared_root)
+    output = Path(out)
+    if force and output.exists():
+        shutil.rmtree(output)
+    output.mkdir(parents=True, exist_ok=True)
+    coverage = json.loads(Path(coverage_json).read_text(encoding="utf-8"))
+    report: dict[str, object] = {
+        "prepared_root": str(base),
+        "coverage_json": coverage_json,
+        "visible_count": visible_count,
+        "hidden_count": hidden_count,
+        "splits": {},
+    }
+    counts: dict[str, int] = {}
+    for split_name in ("train", "validation", "test"):
+        pairs = _read_split_pairs(base, split_name, limit=limit_per_split)
+        problem_ids = [pair.problem_id for pair in pairs]
+        tests_manifest, tests_report = build_tests_manifest_with_report(
+            problem_ids,
+            base / "cases",
+            coverage,
+            visible_count=visible_count,
+            hidden_count=hidden_count,
+        )
+        tasks, task_report = build_tasks_with_report(
+            pairs,
+            tests_manifest,
+            split=split_name,  # type: ignore[arg-type]
+            task_id_prefix=f"pie_cpp_{split_name}",
+            compiler_flags=compiler_flags,
+        )
+        split_out = output / split_name
+        split_out.mkdir(parents=True, exist_ok=True)
+        for task in tasks:
+            task.write_json(split_out / f"{task.task_id}.json")
+        counts[split_name] = len(tasks)
+        report["splits"][split_name] = {  # type: ignore[index]
+            "tests": tests_report,
+            "tasks": task_report.as_dict(),
+        }
+
+    report["counts"] = counts
+    report_path = _write_json(output / "_w8_task_build_report.json", report)
+    manifest_path = write_data_manifest(
+        output,
+        kind="pie-full-tasks",
+        sources=[str(base), coverage_json],
+        options={
+            "visible_count": visible_count,
+            "hidden_count": hidden_count,
+            "min_train": min_train,
+            "min_validation": min_validation,
+            "min_test": min_test,
+            "counts": counts,
+            "report": str(report_path),
+        },
+    )
+    console.print_json(data={"counts": counts, "report": str(report_path), "manifest": str(manifest_path)})
+    if counts.get("train", 0) < min_train:
+        raise typer.BadParameter(f"full-run train gate failed: {counts.get('train', 0)} < {min_train}")
+    if counts.get("validation", 0) < min_validation:
+        raise typer.BadParameter(
+            f"full-run validation gate failed: {counts.get('validation', 0)} < {min_validation}"
+        )
+    if counts.get("test", 0) < min_test:
+        raise typer.BadParameter(f"full-run test gate failed: {counts.get('test', 0)} < {min_test}")
+
+
 @data_pie_app.command("build-tasks")
 def data_pie_build_tasks(
     pairs: str = typer.Option(..., "--pairs", help="PIE TSV or JSONL rows."),
@@ -409,10 +580,21 @@ def data_pie_build_tasks(
 def data_skyrl_build(
     tasks_dir: str = typer.Option(..., "--tasks-dir", help="Directory containing validated task JSON."),
     out: str = typer.Option(DEFAULT_SKYRL_DATA_DIR, "--out", help="Output SkyRL dataset bundle directory."),
+    profile: str = typer.Option("smoke", help="Dataset profile recorded in the manifest."),
+    run_id: Optional[str] = typer.Option(None, help="Run id recorded in the manifest."),
+    min_train_tasks: int = typer.Option(1, help="Minimum train tasks required."),
+    min_validation_tasks: int = typer.Option(1, help="Minimum validation/test tasks required."),
 ) -> None:
     """Build SkyRL GRPO parquet and SFT JSONL from task JSON."""
 
-    written = build_skyrl_datasets(tasks_dir, out)
+    written = build_skyrl_datasets(
+        tasks_dir,
+        out,
+        profile=profile,
+        run_id=run_id,
+        min_train_tasks=min_train_tasks,
+        min_validation_tasks=min_validation_tasks,
+    )
     for key, path in written.items():
         console.print(f"{key}: {path}")
 

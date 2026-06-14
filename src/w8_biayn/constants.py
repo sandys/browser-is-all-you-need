@@ -33,6 +33,7 @@ PIE_TRAJECTORIES_URL = "https://drive.google.com/file/d/19IL3VETwVI9rdibB979Xm4g
 PIE_CXX_SPLITS_URL = "https://drive.google.com/file/d/1NqMT7kqCwk99hj4BjpUcsxLIzPFv_DtT/view?usp=sharing"
 PIE_PUBLIC_TEST_CASES_URL = "https://drive.google.com/file/d/1RcUpZMOR8L2xYYWDZx7I0tHFzFgg7COO/view?usp=share_link"
 PIE_GENERATED_TEST_CASES_URL = "https://drive.google.com/file/d/1migwX4wpED0gDDxn7gS6q55vWeXIDgId/view?usp=drive_link"
+PIE_MERGED_TEST_CASES_URL = "https://drive.google.com/file/d/1evBDJapwRvCQK6VUCTV8ZE9WG2k3QJQr/view?usp=sharing"
 PIE_PROBLEM_STATEMENTS_URL = "https://github.com/madaan/pie-perf/raw/main/data/problem_statements_translated.zip"
 
 # Custom-kernel R&D lane. This stays opt-in and separate from the C++ reward

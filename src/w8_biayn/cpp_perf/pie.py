@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Literal
 
@@ -30,6 +30,26 @@ class PiePair:
     reference_value: int
     gem5_cycles: int | None
     status_v0: str
+
+
+@dataclass
+class TaskBuildReport:
+    """Admission report for PIE rows converted into task JSON."""
+
+    split: Split
+    rows_seen: int = 0
+    tasks_built: int = 0
+    missing_tests: list[str] = field(default_factory=list)
+    invalid_tasks: list[dict[str, str]] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "split": self.split,
+            "rows_seen": self.rows_seen,
+            "tasks_built": self.tasks_built,
+            "missing_tests": self.missing_tests,
+            "invalid_tasks": self.invalid_tasks,
+        }
 
 
 def read_pie_pairs(path: str | Path, *, limit: int | None = None) -> list[PiePair]:
@@ -99,18 +119,54 @@ def build_tasks(
     tests_manifest: dict[str, dict[str, object]],
     *,
     split: Split,
+    task_id_prefix: str = "pie_cpp",
     compiler_flags: str = "-O3 -std=c++20",
 ) -> list[CppTask]:
     """Build validated tasks, skipping problems that lack tests or coverage."""
 
+    tasks, _report = build_tasks_with_report(
+        pairs,
+        tests_manifest,
+        split=split,
+        task_id_prefix=task_id_prefix,
+        compiler_flags=compiler_flags,
+    )
+    return tasks
+
+
+def build_tasks_with_report(
+    pairs: Iterable[PiePair],
+    tests_manifest: dict[str, dict[str, object]],
+    *,
+    split: Split,
+    task_id_prefix: str = "pie_cpp",
+    compiler_flags: str = "-O3 -std=c++20",
+) -> tuple[list[CppTask], TaskBuildReport]:
+    """Build validated tasks and record why rows were rejected."""
+
     tasks: list[CppTask] = []
+    report = TaskBuildReport(split=split)
     for index, pair in enumerate(pairs, start=1):
+        report.rows_seen += 1
         tests = tests_manifest.get(pair.problem_id)
         if not tests:
+            report.missing_tests.append(pair.problem_id)
             continue
-        task_id = f"pie_cpp_{index:06d}"
-        tasks.append(task_from_pair(pair, tests, task_id=task_id, split=split, compiler_flags=compiler_flags))
-    return tasks
+        task_id = f"{task_id_prefix}_{index:06d}"
+        try:
+            task = task_from_pair(
+                pair,
+                tests,
+                task_id=task_id,
+                split=split,
+                compiler_flags=compiler_flags,
+            )
+        except ValueError as exc:
+            report.invalid_tasks.append({"problem_id": pair.problem_id, "reason": str(exc)})
+            continue
+        tasks.append(task)
+    report.tasks_built = len(tasks)
+    return tasks, report
 
 
 def task_from_pair(
