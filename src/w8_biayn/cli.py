@@ -187,7 +187,7 @@ def _read_split_pairs(prepared_root: str | Path, split: str, *, limit: Optional[
     for suffix in (".jsonl", ".json", ".tsv"):
         path = base / f"{split}{suffix}"
         if path.exists():
-            return read_pie_pairs(path, limit=limit)
+            return read_pie_pairs(path, limit=limit, skip_invalid=True)
     raise typer.BadParameter(f"missing prepared split file for {split} under {base}")
 
 

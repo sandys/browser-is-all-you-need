@@ -82,6 +82,42 @@ def test_pie_parser_builds_valid_tasks_only_when_manifest_has_tests(tmp_path):
     assert tasks[0].reference.value == 123
 
 
+def test_pie_parser_scales_fractional_positive_reference_values(tmp_path):
+    jsonl = tmp_path / "pie.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "problem_id": "p1",
+                "input": "slow",
+                "target": "fast",
+                "cpu_time_v1": 0.000123,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    pair = read_pie_pairs(jsonl)[0]
+
+    assert pair.reference_value == 123
+    assert pair.gem5_cycles == 123
+
+
+def test_pie_parser_can_skip_invalid_rows(tmp_path):
+    jsonl = tmp_path / "pie.jsonl"
+    jsonl.write_text(
+        json.dumps({"problem_id": "bad", "input": "slow", "target": "fast", "cpu_time_v1": 0})
+        + "\n"
+        + json.dumps({"problem_id": "good", "input": "slow", "target": "fast", "cpu_time_v1": 2})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    pairs = read_pie_pairs(jsonl, skip_invalid=True)
+
+    assert [pair.problem_id for pair in pairs] == ["good"]
+
+
 def test_coverage_summary_parses_and_gates():
     coverage = parse_lcov_summary("lines......: 96.2% (100 of 104)\nbranches...: 85.0% (17 of 20)\n")
     assert coverage.line == pytest.approx(0.962)

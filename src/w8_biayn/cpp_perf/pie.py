@@ -52,7 +52,12 @@ class TaskBuildReport:
         }
 
 
-def read_pie_pairs(path: str | Path, *, limit: int | None = None) -> list[PiePair]:
+def read_pie_pairs(
+    path: str | Path,
+    *,
+    limit: int | None = None,
+    skip_invalid: bool = False,
+) -> list[PiePair]:
     """Read PIE trajectory rows from TSV or JSONL files."""
 
     rows: list[PiePair] = []
@@ -62,7 +67,11 @@ def read_pie_pairs(path: str | Path, *, limit: int | None = None) -> list[PiePai
             for line in handle:
                 if not line.strip():
                     continue
-                rows.append(pair_from_row(json.loads(line)))
+                try:
+                    rows.append(pair_from_row(json.loads(line)))
+                except ValueError:
+                    if not skip_invalid:
+                        raise
                 if limit is not None and len(rows) >= limit:
                     break
         return rows
@@ -70,7 +79,11 @@ def read_pie_pairs(path: str | Path, *, limit: int | None = None) -> list[PiePai
     with source.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         for raw in reader:
-            rows.append(pair_from_row(raw))
+            try:
+                rows.append(pair_from_row(raw))
+            except ValueError:
+                if not skip_invalid:
+                    raise
             if limit is not None and len(rows) >= limit:
                 break
     return rows
@@ -213,17 +226,27 @@ def _first_present(row: dict[str, str], aliases: tuple[str, ...]) -> str | None:
 
 
 def _positive_int(value: str, label: str) -> int:
-    parsed = int(float(value))
-    if parsed <= 0:
+    parsed_float = float(value)
+    if parsed_float <= 0:
         raise ValueError(f"{label} must be positive")
+    parsed = int(parsed_float)
+    if parsed <= 0:
+        parsed = int(round(parsed_float * 1_000_000))
+    if parsed <= 0:
+        parsed = 1
     return parsed
 
 
 def _optional_positive_int(value: str | None) -> int | None:
     if value in (None, ""):
         return None
-    parsed = int(float(value))
-    return parsed if parsed > 0 else None
+    parsed_float = float(value)
+    if parsed_float <= 0:
+        return None
+    parsed = int(parsed_float)
+    if parsed <= 0:
+        parsed = int(round(parsed_float * 1_000_000))
+    return parsed if parsed > 0 else 1
 
 
 def _list_field(data: dict[str, object], key: str) -> list[object]:
