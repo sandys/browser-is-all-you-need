@@ -214,6 +214,7 @@ export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_BIAYN_PIPELINE="{options.pipeline}"
 export W8_BIAYN_MODEL="{options.model}"
+export W8_BIAYN_MODEL_PATH="{options.model}"
 export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
 export W8_DATA_GCS_PREFIX="{options.data_gcs_prefix}"
 export W8_DATA_DIR="{options.remote_data_dir}"
@@ -226,6 +227,13 @@ fi
 gcloud storage cp --recursive "$W8_DATA_GCS_PREFIX/*" "$W8_DATA_DIR/"
 test -f "$W8_DATA_DIR/_w8_data_manifest.json"
 test -d "$W8_DATA_DIR/tasks"
+if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
+  export W8_LOCAL_MODEL_DIR="$HOME/.w8-biayn/models/{options.pipeline}"
+  rm -rf "$W8_LOCAL_MODEL_DIR"
+  mkdir -p "$W8_LOCAL_MODEL_DIR"
+  gcloud storage cp --recursive "$W8_BIAYN_MODEL_PATH/*" "$W8_LOCAL_MODEL_DIR/"
+  export W8_BIAYN_MODEL_PATH="$W8_LOCAL_MODEL_DIR"
+fi
 docker pull "$W8_GPU_CONTAINER_IMAGE"
 if [ "{options.sandbox_image}" != "{DEFAULT_DOCKER_IMAGE}" ]; then
   docker pull "{options.sandbox_image}"
@@ -243,6 +251,7 @@ def training_container_prefix(options: RenderOptions) -> str:
   -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
   -e W8_BIAYN_DATA_DIR=/data \\
+  -e W8_BIAYN_MODEL_PATH="$W8_BIAYN_MODEL_PATH" \\
   -e HF_HOME=/root/.cache/huggingface \\
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
@@ -281,7 +290,7 @@ test -f /data/sft/train.jsonl
 test -f /data/sft/validation.jsonl
 python -m skyrl.train.main_sft \\
   strategy=fsdp \\
-  model.path="{options.model}" \\
+  model.path="$W8_BIAYN_MODEL_PATH" \\
   dataset_name=/data/sft \\
   dataset_split=train \\
   eval_dataset_name=/data/sft \\
@@ -320,7 +329,7 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   environment.env_class=cpp-perf \\
   trainer.algorithm.advantage_estimator=grpo \\
   trainer.algorithm.use_kl_loss=false \\
-  trainer.policy.model.path="{options.model}" \\
+  trainer.policy.model.path="$W8_BIAYN_MODEL_PATH" \\
   trainer.strategy=fsdp \\
   trainer.placement.policy_num_nodes={options.num_nodes} \\
   trainer.placement.policy_num_gpus_per_node={options.gpu_count} \\
@@ -353,6 +362,14 @@ def eval_run_script(options: RenderOptions) -> LiteralStr:
     return LiteralStr(
         training_prelude(options)
         + f"""export W8_EVAL_OUTPUT_DIR="/tmp/w8-cpp-eval-{options.run_id or 'manual'}"
+export W8_EVAL_MODEL="{options.model}"
+if [[ "$W8_EVAL_MODEL" == gs://* ]]; then
+  export W8_EVAL_LOCAL_MODEL="$HOME/.w8-biayn/models/{options.eval_label}"
+  rm -rf "$W8_EVAL_LOCAL_MODEL"
+  mkdir -p "$W8_EVAL_LOCAL_MODEL"
+  gcloud storage cp --recursive "$W8_EVAL_MODEL/*" "$W8_EVAL_LOCAL_MODEL/"
+  export W8_EVAL_MODEL="$W8_EVAL_LOCAL_MODEL"
+fi
 rm -rf "$W8_EVAL_OUTPUT_DIR"
 mkdir -p "$W8_EVAL_OUTPUT_DIR"
 docker run --rm --gpus all --network host --shm-size=32g \\
@@ -365,6 +382,7 @@ docker run --rm --gpus all --network host --shm-size=32g \\
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
   -e W8_BIAYN_DATA_DIR=/data \\
   -e W8_EVAL_OUTPUT_DIR="$W8_EVAL_OUTPUT_DIR" \\
+  -e W8_EVAL_MODEL="$W8_EVAL_MODEL" \\
   -e HF_HOME=/root/.cache/huggingface \\
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
@@ -390,7 +408,7 @@ uv pip install vllm
 w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
 python -m w8_biayn.integrations.cpp_eval_main \\
   --data-dir /data \\
-  --model "{options.model}" \\
+  --model "$W8_EVAL_MODEL" \\
   --label "{options.eval_label}" \\
   --output-dir "$W8_EVAL_OUTPUT_DIR" \\
   --samples-per-task {options.n_samples_per_prompt} \\

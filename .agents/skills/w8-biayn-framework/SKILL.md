@@ -1,6 +1,6 @@
 ---
 name: w8-biayn-framework
-description: "Maintain, extend, test, document, and operate the w8-biayn C++ performance-RL pipeline: PIE/SuperCoder data setup, C++ task JSON, perf/gem5 rewards, SkyRL/rLLM training, SkyPilot rendering, GCS dataset caching, and Google Cloud operations."
+description: "Maintain, extend, test, document, and operate the w8-biayn C++ performance-RL pipeline: full PIE data setup, C++ task JSON, perf/gem5 rewards, SkyRL/rLLM training, SkyPilot rendering, GCS dataset caching, labeled GCP operations, and uplift evaluation."
 ---
 
 # w8-biayn Framework
@@ -18,11 +18,12 @@ Read these before changing behavior:
 
 Active goal:
 
-- Build runnable C++ optimization tasks from PIE.
+- Build runnable C++ optimization tasks from official PIE.
 - Convert tasks into SkyRL/rLLM training datasets.
 - Train with SkyRL SFT and SkyRL GRPO.
 - Reward generated C++ by response format, compile/sanitizer correctness, visible and hidden tests, and `perf stat -e instructions:u`.
-- Use gem5 from LearningOpt PIE for calibration and final eval.
+- Evaluate base, SFT, and GRPO on held-out PIE tasks and prove uplift.
+- Use gem5 from LearningOpt PIE for calibration/final eval when that lane is implemented.
 
 ## Hard Boundaries
 
@@ -34,7 +35,7 @@ Do not replace SkyRL/rLLM with another framework.
 
 Allowed upstream use:
 
-- PIE: C++ v0-to-v1 data, eval/data lessons, and problem assets.
+- PIE: C++ v0-to-v1 data, official tests, and eval/data lessons.
 - LearningOpt PIE: gem5 reference/calibration environment.
 - SuperCoder: schema, correctness, and eval lessons.
 - SkyRL/rLLM: actual SFT and GRPO training stack.
@@ -50,11 +51,14 @@ Use `uv run w8-biayn upstreams clone` for pinned upstream copies under `.cache/u
 - Bootstrap: `scripts/bootstrap.sh`
 - CLI: `src/w8_biayn/cli.py`
 - Dataset setup and manifests: `src/w8_biayn/cpp_perf/data.py`
+- Coverage measurement: `src/w8_biayn/cpp_perf/coverage.py`
 - PIE parsing/task construction: `src/w8_biayn/cpp_perf/pie.py`
 - SkyRL dataset conversion: `src/w8_biayn/cpp_perf/skyrl_dataset.py`
+- Eval aggregation: `src/w8_biayn/cpp_perf/eval.py`
 - Task schema: `src/w8_biayn/cpp_perf/schema.py`
 - Sandbox/reward: `src/w8_biayn/cpp_perf/sandbox.py`, `src/w8_biayn/cpp_perf/reward.py`
 - SkyRL env and entrypoint glue: `src/w8_biayn/integrations/cpp_perf_env.py`, `src/w8_biayn/integrations/skyrl_cpp_perf_main.py`
+- Eval entrypoint: `src/w8_biayn/integrations/cpp_eval_main.py`
 - SkyPilot rendering: `src/w8_biayn/sky_config.py`
 - Scoped GCP auth: `src/w8_biayn/gcp_auth.py`, `src/w8_biayn/secrets.py`
 - Upstream pins: `src/w8_biayn/constants.py`, `src/w8_biayn/upstreams.py`
@@ -75,30 +79,31 @@ uv run w8-biayn upstreams clone
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
 ```
 
-If a change breaks this path, update code, tests, README, AGENTS, and this skill together.
+If a change breaks this path, update code, tests, README, AGENTS/CLAUDE, and this skill together.
 
 ## Data Workflow
 
 No one-off dataset munging. Every conversion or cleanup must be a CLI-backed project command.
 
-Current repeatable path:
+Full official PIE path:
 
 ```bash
+RUN_ID="r$(date -u +%Y%m%d%H%M%S)"
 uv run w8-biayn data pie download --out .w8-biayn/data/pie
-uv run w8-biayn data supercoder download --out .w8-biayn/data/supercoder
-uv run w8-biayn data pie build-tests-manifest --inputs-outputs-basepath .w8-biayn/data/pie/cases --coverage-json .w8-biayn/data/pie/coverage.json --out .w8-biayn/data/pie/tests-manifest.json
-uv run w8-biayn data pie build-tasks --pairs .w8-biayn/data/pie/train.jsonl --tests-json .w8-biayn/data/pie/tests-manifest.json --out .w8-biayn/data/tasks/train --split train
-uv run w8-biayn data pie build-tasks --pairs .w8-biayn/data/pie/validation.jsonl --tests-json .w8-biayn/data/pie/tests-manifest.json --out .w8-biayn/data/tasks/validation --split validation
-uv run w8-biayn data skyrl build --tasks-dir .w8-biayn/data/tasks --out .w8-biayn/data/skyrl
-uv run w8-biayn data cache upload --path .w8-biayn/data/skyrl --credentials .gcp-service-account.json
+uv run w8-biayn data pie prepare-full --source-root .w8-biayn/data/pie --out .w8-biayn/data/pie-full --force
+uv run w8-biayn data pie measure-coverage --prepared-root .w8-biayn/data/pie-full --out .w8-biayn/data/pie-full/coverage.json --report-out .w8-biayn/data/pie-full/coverage-report.json
+uv run w8-biayn data pie build-full-tasks --prepared-root .w8-biayn/data/pie-full --coverage-json .w8-biayn/data/pie-full/coverage.json --out .w8-biayn/data/tasks-full --min-train 1000 --min-validation 100 --min-test 100 --force
+uv run w8-biayn data skyrl build --tasks-dir .w8-biayn/data/tasks-full --out .w8-biayn/data/skyrl-full --profile full-official --run-id "$RUN_ID" --min-train-tasks 1000 --min-validation-tasks 100
+uv run w8-biayn data cache upload --path .w8-biayn/data/skyrl-full --gcs-prefix "gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/full-official/${RUN_ID}/skyrl" --credentials .gcp-service-account.json
 ```
 
-Data work still needed for full-scale execution:
+Admission gates:
 
-- Normalize raw PIE archives into the task-builder inputs when needed.
-- Generate oracle tests from PIE `v1` solutions.
-- Measure/enforce coverage through a CLI command instead of hand-supplied JSON.
-- Wire gem5 calibration and final eval through LearningOpt PIE.
+- train tasks >= 1000;
+- validation/test tasks >= 100;
+- coverage >= 95 percent line and 85 percent branch;
+- visible and hidden tests exist;
+- bundle manifest verifies before upload.
 
 Generated local data belongs under `.w8-biayn/data/` and is ignored by git.
 
@@ -113,11 +118,13 @@ Derived SkyRL bundles must include:
 
 Default schema version: `cpp-perf-v1`.
 
-Default GCS cache prefix:
+Use full-run GCS prefixes under:
 
 ```text
-gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/skyrl
+gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/full-official/<RUN_ID>/skyrl
 ```
+
+Do not overwrite full-run data prefixes without an explicit user request.
 
 ## PIE Task Rules
 
@@ -125,7 +132,7 @@ Preserve PIE discipline:
 
 - `v0` slower code becomes the prompt.
 - `v1` fast code is not shown during GRPO.
-- `v1` may be used as SFT target, oracle generator, and reference material.
+- `v1` may be used as SFT target, coverage/reference input, and oracle material.
 - Train/validation/test split stays by problem.
 - A task requires visible tests, hidden tests, reference performance, and at least 95 percent line / 85 percent branch coverage.
 
@@ -133,7 +140,7 @@ The prompt may include visible tests and `v0`. It must not include hidden tests 
 
 ## Reward Rules
 
-Model outputs must contain exactly one `<reasoning>...</reasoning>` block and exactly one fenced C++ code block.
+Model outputs must contain exactly one `<reasoning>...</reasoning>` block followed by exactly one fenced C++ code block.
 
 The reward is correctness gated:
 
@@ -147,31 +154,39 @@ The reward is correctness gated:
 
 For real scoring, the sandbox image must contain `g++`, `bash`, `taskset`, and `perf`. The CLI default is `w8-biayn-cpp-perf:latest`, built locally from `gcc:13` with `linux-perf`; pass `--image --no-build-image` only for a known-good prebuilt image.
 
-## Cloud And Training
+## Cloud, Training, And Cleanup
 
 All GCP/SkyPilot commands must support dry-run rendering before paid launch.
 
 Cloud commands must:
 
-- Use `.gcp-service-account.json` through scoped env vars.
-- Avoid `gcloud auth activate-service-account`.
-- Avoid mutating global `gcloud config`.
-- Avoid printing credential contents.
-- Render YAML into `.w8-biayn/rendered/`.
-- Use `w8-biayn status`, `w8-biayn logs`, and `w8-biayn down` for operations.
+- use `.gcp-service-account.json` through scoped env vars;
+- avoid `gcloud auth activate-service-account`;
+- avoid mutating global `gcloud config`;
+- avoid printing credential contents;
+- render YAML into `.w8-biayn/rendered/`;
+- label paid resources with `project`, `phase`, `pipeline`, `run_id`, `owner`, and `ttl`;
+- use `w8-biayn status`, `w8-biayn logs`, `w8-biayn down`, and `w8-biayn gcp cleanup`.
 
 Training renders and launches through SkyPilot:
 
 ```bash
-uv run w8-biayn config render cpp-sft --credentials .gcp-service-account.json
-uv run w8-biayn config render cpp-grpo --credentials .gcp-service-account.json
-uv run w8-biayn launch cpp-sft --credentials .gcp-service-account.json --accelerators A100:8 --train-batch-size 16 --no-down-after
-uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --accelerators A100:8 --train-batch-size 16 --n-samples-per-prompt 4 --no-down-after
+uv run w8-biayn config render cpp-sft --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID"
+uv run w8-biayn config render cpp-grpo --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID"
+uv run w8-biayn launch cpp-sft --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --accelerators A100:8 --train-batch-size 16 --no-down-after
+uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --accelerators A100:8 --train-batch-size 16 --n-samples-per-prompt 8 --no-down-after
 ```
 
-`launch` passes SkyPilot `--down` by default. Use `--no-down-after` for training runs that need post-run inspection.
+`launch` passes SkyPilot `--down` by default. Use `--no-down-after` only for training runs that need post-run inspection.
 
-GRPO reward execution uses Docker-outside-Docker: the GPU training container must mount `/var/run/docker.sock` and host `/tmp`, install or expose a Docker CLI inside the container, and pre-pull the sandbox image. The shared `/tmp` mount is required because the reward harness creates temporary source/test directories that the host Docker daemon bind-mounts into sandbox containers.
+On the shared GCP account, run one full-training cluster at a time and clean up every failed or completed attempt:
+
+```bash
+uv run w8-biayn gcp cleanup --run-id "$RUN_ID" --credentials .gcp-service-account.json --dry-run
+uv run w8-biayn gcp cleanup --run-id "$RUN_ID" --credentials .gcp-service-account.json --execute
+```
+
+GRPO reward execution uses Docker-outside-Docker: the GPU training container must mount `/var/run/docker.sock` and host `/tmp`.
 
 The GRPO entrypoint is:
 
@@ -181,11 +196,31 @@ python -m w8_biayn.integrations.skyrl_cpp_perf_main
 
 It registers `cpp-perf` inside SkyRL and delegates to SkyRL `BasePPOExp(cfg).run()`. It is glue, not a trainer.
 
-The default GRPO launch is a smoke run and should keep `trainer.ckpt_interval=-1` and `trainer.hf_save_interval=-1` until storage is configured.
-
 Full runs should pass explicit `--train-epochs`, `--eval-interval`, `--ckpt-interval`, `--hf-save-interval`, `--ckpt-path`, `--export-path`, and `--max-ckpts-to-keep`.
 
-Training defaults use `Qwen/Qwen2.5-Coder-7B-Instruct` and `A100:8` because the current project has A100 quota. GLM-5.1/H100 can be selected with `--model` and `--accelerators` after quota and memory are confirmed.
+Training defaults use `Qwen/Qwen2.5-Coder-7B-Instruct` and `A100:8`. Eval defaults to `A100:1`.
+
+## Evaluation Workflow
+
+Use `cpp-eval` on the same held-out data for base, SFT, and GRPO:
+
+```bash
+uv run w8-biayn launch cpp-eval --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --model Qwen/Qwen2.5-Coder-7B-Instruct --eval-label base --n-samples-per-prompt 1
+uv run w8-biayn launch cpp-eval --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --model "$RUN_GCS/cpp-sft/exports" --eval-label sft --n-samples-per-prompt 1
+uv run w8-biayn launch cpp-eval --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --model "$RUN_GCS/cpp-grpo/exports" --eval-label grpo --n-samples-per-prompt 1
+```
+
+`cpp-eval` stages `gs://` model exports to local VM disk before loading vLLM.
+
+Aggregate records:
+
+```bash
+uv run w8-biayn eval cpp --records base=base.records.jsonl --records sft=sft.records.jsonl --records grpo=grpo.records.jsonl --out uplift-summary.json
+```
+
+Uplift claim requires GRPO to beat base and SFT on `correct_and_faster_rate` and `mean_best_reward`, with `missing_instr_rate=0`.
+
+If uplift fails, clone/study SuperCoder and Microsoft/LearningOpt PIE into `/tmp`, compare filtering, prompts, reward shape, model choice, and hyperparameters, then port compatible fixes into this SkyRL/rLLM pipeline only.
 
 ## Documentation Rules
 
@@ -193,7 +228,7 @@ When commands, setup, dataset shape, cache behavior, cloud behavior, task schema
 
 1. `README.md`
 2. Mermaid diagrams in `README.md`
-3. `.agents/REPO_GUIDE.md` when repo rules change
+3. `.agents/REPO_GUIDE.md`
 4. This skill
 5. Tests when command behavior changes
 
@@ -217,6 +252,8 @@ uv run w8-biayn data doctor
 uv run w8-biayn benchmarks list
 uv run w8-biayn cpp harness preflight --dry-run
 uv run w8-biayn doctor --cpp-perf
-uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
-uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json
+uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json --run-id rdoc
+uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json --run-id rdoc
+uv run w8-biayn launch cpp-eval --dry-run --credentials .gcp-service-account.json --run-id rdoc
+uv run w8-biayn gcp cleanup --run-id rdoc --credentials .gcp-service-account.json --dry-run
 ```

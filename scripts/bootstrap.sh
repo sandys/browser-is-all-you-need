@@ -85,6 +85,24 @@ Install Linux perf tools for your kernel before using instruction-count rewards.
 EOF
 fi
 
+if ! command -v g++ >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+
+g++ is not installed or not on PATH.
+Install a C++ compiler before building PIE tasks or measuring coverage.
+
+EOF
+fi
+
+if ! command -v gcov >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+
+gcov is not installed or not on PATH.
+Install GCC coverage tools before running `w8-biayn data pie measure-coverage`.
+
+EOF
+fi
+
 echo
 echo "Bootstrap complete."
 echo

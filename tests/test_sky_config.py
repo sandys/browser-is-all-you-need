@@ -38,6 +38,8 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert grpo["run"].index("uv pip install --no-deps -e /workspace") < grpo["run"].index(
         "python -m w8_biayn.integrations.skyrl_cpp_perf_main"
     )
+    assert "W8_BIAYN_MODEL_PATH" in grpo["run"]
+    assert 'trainer.policy.model.path="$W8_BIAYN_MODEL_PATH"' in grpo["run"]
     assert "environment.env_class=cpp-perf" in grpo["run"]
     assert "-v /var/run/docker.sock:/var/run/docker.sock" in grpo["run"]
     assert "-v /tmp:/tmp" in grpo["run"]
@@ -130,5 +132,21 @@ def test_render_cpp_eval_yaml_uses_eval_entrypoint_and_a100_one():
     assert "python -m w8_biayn.integrations.cpp_eval_main" in config["run"]
     assert "--label \"base\"" in config["run"]
     assert "--max-tasks 8" in config["run"]
+    assert "W8_EVAL_MODEL" in config["run"]
     assert "gcloud storage cp --recursive" in config["run"]
     assert "runs/cpp-perf/rtest/cpp-eval" in config["run"]
+
+
+def test_render_training_stages_gcs_model_exports():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            model="gs://bucket/runs/cpp-sft/exports",
+        )
+    )
+
+    assert 'export W8_BIAYN_MODEL_PATH="gs://bucket/runs/cpp-sft/exports"' in rendered
+    assert "gcloud storage cp --recursive \"$W8_BIAYN_MODEL_PATH/*\" \"$W8_LOCAL_MODEL_DIR/\"" in rendered
+    assert 'trainer.policy.model.path="$W8_BIAYN_MODEL_PATH"' in rendered

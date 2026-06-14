@@ -365,7 +365,7 @@ def data_doctor() -> None:
             table.add_row(module_name, "ok", str(detail))
         except ImportError:
             table.add_row(module_name, "missing", f"run ./scripts/bootstrap.sh to install {module_name}")
-    for tool in ("gcloud", "git"):
+    for tool in ("gcloud", "git", "g++", "gcov", "timeout"):
         found = shutil.which(tool)
         table.add_row(tool, "ok" if found else "missing", found or "not on PATH")
     table.add_row("schema", "ok", CPP_DATA_SCHEMA_VERSION)
