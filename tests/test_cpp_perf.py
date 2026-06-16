@@ -8,7 +8,7 @@ from w8_biayn.cpp_perf.coverage import coverage_passes, parse_lcov_summary
 from w8_biayn.cpp_perf.judge import judge_output_matches, normalize_judge_output
 from w8_biayn.cpp_perf.pie import build_tasks, read_pie_pairs
 from w8_biayn.cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
-from w8_biayn.cpp_perf.sandbox import dry_run_plan, parse_perf_instructions, run_test_command
+from w8_biayn.cpp_perf.sandbox import dry_run_plan, parse_runtime_benchmark_output, run_test_command
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult, ReferencePerformance, TestCase, TestCoverage
 
 
@@ -135,7 +135,10 @@ def test_judge_output_comparison_allows_trailing_whitespace_only():
 def test_model_output_format_and_extraction():
     assert valid_model_output(valid_output())
     assert extract_code_block(valid_output()).startswith("int main")
+    assert valid_model_output("<reasoning>x</reasoning>\n```cpp int main(){return 0;}```")
+    assert extract_code_block("<reasoning>x</reasoning>\n```cpp int main(){return 0;}```") == "int main(){return 0;}\n"
     assert not valid_model_output("```cpp\nint main(){}\n```")
+    assert not valid_model_output("<reasoning>x</reasoning>\n```python\nprint(1)\n```")
     assert not valid_model_output("<reasoning>x</reasoning>\n```cpp\nx\n```\n```cpp\ny\n```")
     assert not valid_model_output(
         "<reasoning>x</reasoning>\n<reasoning>y</reasoning>\n```cpp\nint main(){}\n```\n"
@@ -152,38 +155,54 @@ def test_reward_orders_compile_partial_correct_and_faster():
     def partial(_task: CppTask, _code: str) -> HarnessResult:
         return HarnessResult(tests_passed=1, tests_total=2)
 
+    def timeout(_task: CppTask, _code: str) -> HarnessResult:
+        return HarnessResult(timeout=True, tests_passed=2, tests_total=2)
+
     def slower_correct(_task: CppTask, _code: str) -> HarnessResult:
-        return HarnessResult(tests_passed=2, tests_total=2, instr_count=1200)
+        return HarnessResult(
+            tests_passed=2,
+            tests_total=2,
+            runtime_cpu_ns=1200,
+            reference_runtime_cpu_ns=1000,
+        )
 
     def faster_correct(_task: CppTask, _code: str) -> HarnessResult:
-        return HarnessResult(tests_passed=2, tests_total=2, instr_count=500)
+        return HarnessResult(
+            tests_passed=2,
+            tests_total=2,
+            runtime_cpu_ns=500,
+            reference_runtime_cpu_ns=1000,
+        )
 
     assert compute_reward(task, "bad", runner=faster_correct).reward == -1.0
     assert compute_reward(task, valid_output(), runner=compile_error).reward == -0.5
+    assert compute_reward(task, valid_output(), runner=timeout).reason == "timeout"
+    assert compute_reward(task, valid_output(), runner=timeout).reward == -0.5
     assert compute_reward(task, valid_output(), runner=partial).reward == pytest.approx(-0.1)
     assert compute_reward(task, valid_output(), runner=slower_correct).reward == pytest.approx(1.0)
     assert compute_reward(task, valid_output(), runner=faster_correct).reward > 1.0
 
-    def missing_instr(_task: CppTask, _code: str) -> HarnessResult:
-        return HarnessResult(tests_passed=2, tests_total=2, instr_count=None)
+    def missing_runtime(_task: CppTask, _code: str) -> HarnessResult:
+        return HarnessResult(tests_passed=2, tests_total=2, runtime_cpu_ns=None, reference_runtime_cpu_ns=1000)
 
-    missing = compute_reward(task, valid_output(), runner=missing_instr)
-    assert missing.reward == -0.5
-    assert missing.reason == "missing_instruction_count"
+    missing = compute_reward(task, valid_output(), runner=missing_runtime)
+    assert missing.reward == 0.5
+    assert missing.reason == "missing_runtime"
 
 
-def test_sandbox_dry_run_and_perf_parser():
+def test_sandbox_dry_run_and_runtime_parser():
     plan = dry_run_plan(sample_task(), image="gcc:13", cpu="3")
     assert "--network none" in plan
     assert "g++ -O3 -std=c++20 candidate.cpp -o candidate" in plan
-    assert "perf stat -e instructions:u -x" in plan
+    assert "python3 /tmp/w8_runtime_bench.py" in plan
+    assert "--binary ./candidate" in plan
+    assert "--binary ./reference" in plan
     assert "expected.norm" in " ".join(run_test_command(0, "/tmp/w8", image="gcc:13"))
 
-    assert parse_perf_instructions("12345,,instructions:u,100,100\n") == 12345
-    assert parse_perf_instructions("<not counted>,,instructions:u,100,100\n") is None
-    assert parse_perf_instructions("<not supported>,,instructions:u,100,100\n") is None
-    assert parse_perf_instructions("garbage\n") is None
-    assert parse_perf_instructions("") is None
+    parsed = parse_runtime_benchmark_output('noise\n{"ok":true,"runtime_cpu_ns":12,"runtime_wall_ns":20}\n')
+    assert parsed == {"ok": True, "runtime_cpu_ns": 12, "runtime_wall_ns": 20}
+    assert parse_runtime_benchmark_output("garbage\n") is None
+    assert parse_runtime_benchmark_output("") is None
 
 
 def test_task_json_round_trip(tmp_path):

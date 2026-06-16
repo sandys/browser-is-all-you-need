@@ -22,7 +22,7 @@ def test_cpp_perf_env_scores_one_turn_with_existing_reward(tmp_path):
     task_path = sample_task().write_json(tmp_path / "task.json")
 
     def runner(_task: CppTask, _code: str) -> HarnessResult:
-        return HarnessResult(tests_passed=2, tests_total=2, instr_count=500)
+        return HarnessResult(tests_passed=2, tests_total=2, runtime_cpu_ns=500, reference_runtime_cpu_ns=1000)
 
     env = CppPerfEnv(
         env_config={"runner": runner},
@@ -34,7 +34,8 @@ def test_cpp_perf_env_scores_one_turn_with_existing_reward(tmp_path):
     assert result["reward"] > 1.0
     assert result["metadata"]["task_id"] == "pie_cpp_000001"
     assert result["metadata"]["tests_passed"] == 2
-    assert env.get_metrics()["instr_count"] == 500
+    assert env.get_metrics()["runtime_cpu_ns"] == 500
+    assert env.get_metrics()["reference_runtime_cpu_ns"] == 1000
 
 
 def test_cpp_perf_env_invalid_format_is_negative(tmp_path):

@@ -43,18 +43,22 @@ def aggregate_eval_records(records: Iterable[dict[str, Any]], *, label: str) -> 
     correct_and_faster = [
         row
         for row in correct
-        if _positive_number(row.get("instr_count")) and _positive_number(row.get("reference_value"))
-        and float(row["instr_count"]) < float(row["reference_value"])
+        if _positive_number(row.get("runtime_cpu_ns")) and _positive_number(row.get("reference_runtime_cpu_ns"))
+        and float(row["runtime_cpu_ns"]) < float(row["reference_runtime_cpu_ns"])
     ]
-    missing_instr = [row for row in correct if row.get("instr_count") is None]
+    missing_runtime = [
+        row
+        for row in correct
+        if row.get("runtime_cpu_ns") is None or row.get("reference_runtime_cpu_ns") is None
+    ]
     compile_errors = [row for row in rows if row.get("compile_error") is True]
     sanitizer_errors = [row for row in rows if row.get("sanitizer_error") is True]
     invalid_format = [row for row in rows if row.get("reason") == "invalid_format"]
     timeouts = [row for row in rows if row.get("timeout") is True]
     speedups = [
-        float(row["reference_value"]) / float(row["instr_count"])
+        float(row["reference_runtime_cpu_ns"]) / float(row["runtime_cpu_ns"])
         for row in correct_and_faster
-        if float(row["instr_count"]) > 0
+        if float(row["runtime_cpu_ns"]) > 0
     ]
     best_rewards = [float(row.get("reward", 0.0)) for row in best_rows]
     sample_rewards = [float(row.get("reward", 0.0)) for row in rows]
@@ -66,7 +70,7 @@ def aggregate_eval_records(records: Iterable[dict[str, Any]], *, label: str) -> 
         "samples_per_task_mean": sample_count / task_count if task_count else 0.0,
         "pass_rate": len(correct) / task_count if task_count else 0.0,
         "correct_and_faster_rate": len(correct_and_faster) / task_count if task_count else 0.0,
-        "missing_instr_rate": len(missing_instr) / task_count if task_count else 0.0,
+        "missing_runtime_rate": len(missing_runtime) / task_count if task_count else 0.0,
         "compile_error_rate": len(compile_errors) / sample_count if sample_count else 0.0,
         "sanitizer_error_rate": len(sanitizer_errors) / sample_count if sample_count else 0.0,
         "timeout_rate": len(timeouts) / sample_count if sample_count else 0.0,

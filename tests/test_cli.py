@@ -5,6 +5,7 @@ import json
 import yaml
 from typer.testing import CliRunner
 
+from w8_biayn import cli as cli_module
 from w8_biayn.cli import app
 
 
@@ -52,6 +53,8 @@ def test_cli_config_render_cpp_smoke(tmp_path):
     assert config["name"] == "w8-biayn-cpp-smoke"
     assert config["resources"]["infra"] == "gcp"
     assert config["envs"]["W8_BIAYN_MODEL"] == "zai-org/GLM-5.1"
+    assert config["envs"]["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] == "/tmp/w8-gcp-service-account.json"
+    assert config["envs"]["GOOGLE_CLOUD_PROJECT"] == "proj"
     assert "vllm" in config["run"]
     assert "SkyRL" in config["setup"]
     assert "domdiff" not in rendered.lower()
@@ -71,6 +74,109 @@ def test_cli_launch_cpp_smoke_dry_run_prints_sky_command(tmp_path):
     assert "run_id: rtest" in result.output
     assert "sky launch -c w8-biayn-cpp-smoke-rtest" in result.output
     assert ".w8-biayn/rendered/cpp-smoke.sky.yaml" in result.output
+
+
+def test_cli_rejects_low_utilization_multinode_grpo_render(tmp_path):
+    credentials = tmp_path / "sa.json"
+    output = tmp_path / "cpp-grpo.sky.yaml"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--accelerators",
+            "A100:8",
+            "--num-nodes",
+            "2",
+            "--train-batch-size",
+            "32",
+            "--n-samples-per-prompt",
+            "4",
+            "--max-env-workers",
+            "128",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "effective samples per step 128 < 256" in result.output
+    assert not output.exists()
+
+
+def test_cli_allows_tuned_multinode_grpo_render(tmp_path):
+    credentials = tmp_path / "sa.json"
+    output = tmp_path / "cpp-grpo.sky.yaml"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--accelerators",
+            "A100:8",
+            "--num-nodes",
+            "2",
+            "--train-batch-size",
+            "32",
+            "--n-samples-per-prompt",
+            "8",
+            "--max-env-workers",
+            "256",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    rendered = output.read_text(encoding="utf-8")
+    assert "trainer.train_batch_size=32" in rendered
+    assert "generator.n_samples_per_prompt=8" in rendered
+    assert "environment.skyrl_gym.max_env_workers=256" in rendered
+
+
+def test_cli_allows_low_utilization_multinode_grpo_with_explicit_override(tmp_path):
+    credentials = tmp_path / "sa.json"
+    output = tmp_path / "cpp-grpo.sky.yaml"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--accelerators",
+            "A100:8",
+            "--num-nodes",
+            "2",
+            "--train-batch-size",
+            "32",
+            "--n-samples-per-prompt",
+            "4",
+            "--max-env-workers",
+            "128",
+            "--allow-low-multinode-utilization",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load(output.read_text(encoding="utf-8"))
+    assert config["envs"]["W8_BIAYN_ALLOW_LOW_MULTINODE_UTILIZATION"] == "true"
+    assert config["envs"]["W8_BIAYN_EFFECTIVE_SAMPLES_PER_STEP"] == "128"
 
 
 def test_cli_ops_wraps_backend_debug_commands(tmp_path):
@@ -147,6 +253,162 @@ def test_cli_ops_wraps_backend_debug_commands(tmp_path):
     assert legacy_down.exit_code == 0, legacy_down.output
     assert "sky down w8-biayn-cpp-grpo-rtest" in legacy_down.output
     assert "sky down -y" not in legacy_down.output
+
+
+def test_cli_ops_run_status_emits_dashboard_json(tmp_path):
+    credentials = tmp_path / "sa.json"
+    out = tmp_path / "status.json"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ops",
+            "run-status",
+            "--run-id",
+            "rtest",
+            "--credentials",
+            str(credentials),
+            "--dataset-gcs-prefix",
+            "gs://proj-w8-biayn/datasets/cpp-perf/cpp-perf-v1/full-official/rdata/skyrl",
+            "--pipeline",
+            "cpp-sft",
+            "--expected-sft-final-step",
+            "1074",
+            "--node-health",
+            "--out",
+            str(out),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert written == payload
+    assert payload["schema_version"] == "w8-run-status-v1"
+    assert payload["run_id"] == "rtest"
+    assert payload["summary"]["current_pipeline"] == "cpp-sft"
+    assert payload["summary"]["resources"]["total_instance_count"] == 0
+    assert payload["dataset"]["gcs_prefix"].endswith("/rdata/skyrl")
+    assert payload["dataset"]["checks"][0]["command"] == [
+        "gcloud",
+        "storage",
+        "cat",
+        "gs://proj-w8-biayn/datasets/cpp-perf/cpp-perf-v1/full-official/rdata/skyrl/_w8_data_manifest.json",
+    ]
+    assert payload["pipelines"][0]["pipeline"] == "cpp-sft"
+    assert payload["pipelines"][0]["cluster"] == "w8-biayn-cpp-sft-rtest"
+    assert payload["pipelines"][0]["phase"]["group"] == "unknown"
+    assert payload["pipelines"][0]["progress"]["pipeline"] == "cpp-sft"
+    assert payload["pipelines"][0]["speed_comparison"]["reason"] == "no_baseline_status"
+    assert payload["pipelines"][0]["commands"]["queue"] == [
+        "uv",
+        "run",
+        "w8-biayn",
+        "ops",
+        "queue",
+        "w8-biayn-cpp-sft-rtest",
+    ]
+    assert payload["pipelines"][0]["artifacts"]["export"]["expected_final_step"] == 1074
+    assert payload["pipelines"][0]["node_health"]["skipped"] is True
+    assert payload["pipelines"][0]["checks"][0]["command"] == [
+        "sky",
+        "queue",
+        "--output",
+        "json",
+        "w8-biayn-cpp-sft-rtest",
+    ]
+    assert str(credentials) in payload["cleanup"]["commands"]["dry_run"]
+    assert payload["cleanup"]["commands"]["execute"][-1] == "--execute"
+
+
+def test_cli_ops_run_status_loads_baseline_status_for_dashboard_json(tmp_path, monkeypatch):
+    credentials = tmp_path / "sa.json"
+    baseline = tmp_path / "single-node-status.json"
+    write_credentials(credentials)
+    baseline.write_text(
+        json.dumps(
+            {
+                "run_id": "rsingle",
+                "pipelines": [
+                    {
+                        "pipeline": "cpp-grpo",
+                        "progress": {
+                            "throughput": {"rollout_samples_per_second": 6.59},
+                            "grpo_config": {"total_gpu_count": 8},
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_build_run_status(**kwargs):
+        captured.update(kwargs)
+        return {
+            "schema_version": "w8-run-status-v1",
+            "run_id": kwargs["run_id"],
+            "summary": {
+                "current_pipeline": "cpp-grpo",
+                "speed_comparison": {
+                    "available": True,
+                    "primary": {
+                        "verdict": "slower",
+                        "rollout_speedup_factor": 0.6889,
+                        "cost_verdict": "cost_inefficient",
+                    },
+                },
+            },
+            "pipelines": [
+                {
+                    "pipeline": "cpp-grpo",
+                    "speed_comparison": {
+                        "available": True,
+                        "primary": {
+                            "source": str(baseline),
+                            "verdict": "slower",
+                            "rollout_speedup_factor": 0.6889,
+                            "cost_verdict": "cost_inefficient",
+                        },
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(cli_module, "build_run_status", fake_build_run_status)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ops",
+            "run-status",
+            "--run-id",
+            "rtest",
+            "--credentials",
+            str(credentials),
+            "--pipeline",
+            "cpp-grpo",
+            "--baseline-status",
+            str(baseline),
+            "--check-retries",
+            "2",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert captured["command_retries"] == 2
+    assert captured["baseline_statuses"][0]["_status_source"] == str(baseline)
+    assert captured["baseline_statuses"][0]["run_id"] == "rsingle"
+    comparison = payload["pipelines"][0]["speed_comparison"]["primary"]
+    assert comparison["source"] == str(baseline)
+    assert comparison["rollout_speedup_factor"] == 0.6889
+    assert comparison["verdict"] == "slower"
+    assert comparison["cost_verdict"] == "cost_inefficient"
 
 
 def test_cli_measure_coverage_resumes_existing_report(tmp_path, monkeypatch):
@@ -280,8 +542,8 @@ def test_cli_cpp_task_build_and_reward_dry_run(tmp_path):
 
     preflight_result = CliRunner().invoke(app, ["cpp", "harness", "preflight", "--dry-run"])
     assert preflight_result.exit_code == 0, preflight_result.output
-    assert "C++ perf-counter preflight dry run" in preflight_result.output
-    assert "instructions:u" in preflight_result.output
+    assert "C++ runtime preflight dry run" in preflight_result.output
+    assert "python3 /tmp/w8_runtime_bench.py" in preflight_result.output
 
 
 def test_cli_data_build_skyrl_and_cache_dry_run(tmp_path):
@@ -391,7 +653,7 @@ def test_cli_eval_cpp_aggregates_records(tmp_path):
     records.write_text(
         '{"task_id":"t1","reward":1.2,"reason":"correct","all_tests_pass":true,'
         '"compile_error":false,"sanitizer_error":false,"timeout":false,'
-        '"instr_count":50,"reference_value":100}\n',
+        '"runtime_cpu_ns":50,"reference_runtime_cpu_ns":100}\n',
         encoding="utf-8",
     )
 

@@ -37,12 +37,6 @@ PIE_GENERATED_TEST_CASES_URL = "https://drive.google.com/file/d/1migwX4wpED0gDDx
 PIE_MERGED_TEST_CASES_URL = "https://drive.google.com/file/d/1evBDJapwRvCQK6VUCTV8ZE9WG2k3QJQr/view?usp=sharing"
 PIE_PROBLEM_STATEMENTS_URL = "https://github.com/madaan/pie-perf/raw/main/data/problem_statements_translated.zip"
 
-# Custom-kernel R&D lane. This stays opt-in and separate from the C++ reward
-# harness; it remains useful for isolated SkyRL/Megatron experiments.
-OPTIMIZATION_PROFILES = ("baseline", "a100-kernel-lab", "a100-safe")
-DEFAULT_OPTIMIZATION_PROFILE = "baseline"
-DEFAULT_KERNEL_LAB_SPEC = "logprob,entropy,ppo"
-
 
 @dataclass(frozen=True)
 class Upstream:

@@ -76,15 +76,6 @@ Install Docker before running the C++ sandbox harness:
 EOF
 fi
 
-if ! command -v perf >/dev/null 2>&1; then
-  cat >&2 <<'EOF'
-
-perf is not installed or not on PATH.
-Install Linux perf tools for your kernel before using instruction-count rewards.
-
-EOF
-fi
-
 if ! command -v g++ >/dev/null 2>&1; then
   cat >&2 <<'EOF'
 

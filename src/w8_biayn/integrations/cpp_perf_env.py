@@ -54,7 +54,11 @@ class CppPerfEnv(BaseTextEnv):
                 "sanitizer_error": False,
                 "tests_passed": 0,
                 "tests_total": 0,
-                "instr_count": None,
+                "runtime_cpu_ns": None,
+                "runtime_wall_ns": None,
+                "reference_runtime_cpu_ns": None,
+                "reference_runtime_wall_ns": None,
+                "runtime_speedup": None,
                 "candidate_bytes": 0,
                 "exception": str(exc),
             }
@@ -73,7 +77,11 @@ class CppPerfEnv(BaseTextEnv):
             "sanitizer_error": bool(harness.sanitizer_error) if harness else False,
             "tests_passed": harness.tests_passed if harness else 0,
             "tests_total": harness.tests_total if harness else 0,
-            "instr_count": harness.instr_count if harness else None,
+            "runtime_cpu_ns": harness.runtime_cpu_ns if harness else None,
+            "runtime_wall_ns": harness.runtime_wall_ns if harness else None,
+            "reference_runtime_cpu_ns": harness.reference_runtime_cpu_ns if harness else None,
+            "reference_runtime_wall_ns": harness.reference_runtime_wall_ns if harness else None,
+            "runtime_speedup": harness.runtime_speedup if harness else None,
             "candidate_bytes": len(code.encode("utf-8")) if code is not None else 0,
         }
         return {

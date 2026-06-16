@@ -17,6 +17,7 @@ Out of scope unless a later phase is explicitly requested:
 - MiniWoB
 - AndroidWorld
 - Go
+- Custom GPU kernel labs or unrelated performance experiments
 
 ## Required Reading
 
@@ -109,16 +110,20 @@ The reward is correctness gated:
 
 - Invalid format is negative.
 - Compile or sanitizer failure is negative.
+- Timeout is negative.
 - Partial tests remain below any fully correct answer.
-- Fully correct answers get a base reward plus bounded instruction-count efficiency.
-- `perf stat -e instructions:u` is the fast RL reward metric.
+- Fully correct answers with missing non-timeout runtime measurement get a correctness-only fallback below any measured fully correct answer.
+- Fully correct answers get a base reward plus bounded runtime-efficiency.
+- Child-process CPU time in nanoseconds is the fast RL reward metric.
+- Wall-clock nanoseconds are recorded as diagnostics.
 - gem5 is calibration/final-eval reference only.
-- `w8-biayn cpp harness preflight` is required before GRPO.
+- `w8-biayn cpp harness preflight` is required before GRPO to prove Docker runtime measurement works.
 
-Model outputs must contain exactly one `<reasoning>...</reasoning>` block followed by exactly one fenced C++ code block.
+Model outputs must contain exactly one `<reasoning>...</reasoning>` block followed by exactly one fenced C++ code block. The code may start on the next line or after whitespace on the opening C++ fence line; any second code block is invalid.
 
-A host without numeric `instructions:u` is invalid for GRPO. Having the `perf` binary in the image is not enough.
-A GCP A100/A2 VM can return `<not supported>` for `instructions:u`; do not keep retrying GPU hosts that fail this preflight.
+The sandbox compiles the candidate and PIE `v1` oracle, runs all visible and hidden tests, then benchmarks both binaries in the same Docker sandbox with the same CPU pinning, compiler flags, and tests. Default timing uses 1 warmup and 3 measured repeats, median CPU time per test, summed across tests.
+
+Do not add PMU, Linux perf, PERFMON, or `perf_event_paranoid` dependencies to the active reward path.
 
 ## Training Rules
 
@@ -134,14 +139,19 @@ uv run w8-biayn config render cpp-grpo --credentials .gcp-service-account.json -
 Full training must pass explicit storage and retention:
 
 ```bash
-uv run w8-biayn launch cpp-sft --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --accelerators A100:8 --train-batch-size 16 --train-epochs 2 --eval-interval 50 --ckpt-interval 100 --hf-save-interval 100 --ckpt-path "$RUN_GCS/cpp-sft/ckpts" --export-path "$RUN_GCS/cpp-sft/exports" --max-ckpts-to-keep 2 --no-down-after
-uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --model "$RUN_GCS/cpp-sft/exports" --accelerators A100:8 --train-batch-size 16 --n-samples-per-prompt 8 --train-epochs 3 --eval-interval 25 --ckpt-interval 50 --hf-save-interval 100 --ckpt-path "$RUN_GCS/cpp-grpo/ckpts" --export-path "$RUN_GCS/cpp-grpo/exports" --max-ckpts-to-keep 2 --no-down-after
+uv run w8-biayn launch cpp-sft --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --accelerators A100:8 --disk-size 1024 --train-batch-size 16 --train-epochs 2 --eval-interval 50 --ckpt-interval 100 --hf-save-interval 100 --ckpt-path "$RUN_GCS/cpp-sft/ckpts" --export-path "$RUN_GCS/cpp-sft/exports" --max-ckpts-to-keep 2 --no-down-after
+uv run w8-biayn launch cpp-grpo --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --run-id "$RUN_ID" --model "$RUN_GCS/cpp-sft/exports" --accelerators A100:8 --disk-size 1024 --train-batch-size 16 --n-samples-per-prompt 8 --train-epochs 3 --no-eval-before-train --eval-interval 25 --max-env-workers 128 --ckpt-interval 50 --hf-save-interval 100 --ckpt-path "$RUN_GCS/cpp-grpo/ckpts" --export-path "$RUN_GCS/cpp-grpo/exports" --max-ckpts-to-keep 2 --no-down-after
 ```
+
+If an SFT attempt writes checkpoints and then fails, resume the same run with `--resume-from latest`, `--disk-size 1024` or larger, and the same `--ckpt-path`.
+If a GRPO attempt writes a complete checkpoint and then fails or is canceled, resume the same run with `--resume-from latest`, `--disk-size 1024` or larger, and the same `--ckpt-path`. Multi-node GRPO uses `--num-nodes N`; rendered colocated SkyRL starts a rank-gated Ray cluster inside the GPU containers, runs `skyrl_cpp_perf_main` only on rank 0, and sets rollout engines to `N * GPUs_PER_NODE` for TP=1/DP=1 so policy and inference placement match. Multi-node GRPO must pass the CLI utilization gate: effective samples per step (`train_batch_size * n_samples_per_prompt`) must be at least 16 per GPU and `max_env_workers` must be at least the effective samples per step. For 2x[A100:8], use `--train-batch-size 32 --n-samples-per-prompt 8 --max-env-workers 256`; use `--allow-low-multinode-utilization` only for a deliberate experiment. Use `--no-eval-before-train` to skip the expensive initial validation pass. Rendered GRPO uses non-batched trajectory generation so SkyRL-Gym can overlap C++ reward calls; raise `--max-env-workers` when Docker reward compilation/runtime is the bottleneck.
+If the checkpoint is complete but the HF export has no model weight files, rerun `cpp-sft` as an export-only recovery with `--export-checkpoint "$RUN_GCS/cpp-sft/ckpts/global_step_N"`, `--export-path "~/exports/"`, `--disk-size 1024`, and `--no-down-after`; then verify `ops run-status` reports `artifacts.export.final_export_exists=true` and `artifacts.export.final_export.weight_object_count>0` before starting GRPO.
+When GRPO or eval uses a `gs://` model export, the launcher must stage it into a path mounted inside the GPU container before invoking SkyRL or vLLM; host-only staged paths are invalid.
 
 The GRPO entrypoint is `python -m w8_biayn.integrations.skyrl_cpp_perf_main`. It registers `cpp-perf` and delegates to SkyRL `BasePPOExp(cfg).run()`.
 
-Rendered GRPO must run a host-side C++ perf preflight before GCS restore, model staging, GPU image pulls, or framework installs, and must run the preflight again before `skyrl_cpp_perf_main`. GRPO rewards use Docker-outside-Docker, so rendered YAML must mount `/var/run/docker.sock` and host `/tmp` into the GPU training container.
-Rendered GRPO and eval must also lower the host `kernel.perf_event_paranoid` setting to `0` before perf preflight; a default GCP value of `4` blocks `perf stat -e instructions:u` even when the sandbox image has `perf`.
+Rendered GRPO must run a host-side C++ runtime preflight before GCS restore, model staging, GPU image pulls, or framework installs, and must run the preflight again before `skyrl_cpp_perf_main`. GRPO rewards use Docker-outside-Docker, so rendered YAML must mount `/var/run/docker.sock` and host `/tmp` into the GPU training container.
+Rendered GRPO and eval must not require PMU access or mutate `kernel.perf_event_paranoid`.
 
 ## Cloud Rules
 
@@ -154,7 +164,9 @@ Cloud commands must:
 - avoid printing credential contents;
 - render YAML into `.w8-biayn/rendered/`;
 - label paid resources with `project`, `phase`, `pipeline`, `run_id`, `owner`, and `ttl`;
-- provide operations through `w8-biayn ops status`, `w8-biayn ops logs`, `w8-biayn ops queue`, `w8-biayn ops cancel`, `w8-biayn ops down`, `w8-biayn ops gpus`, and `w8-biayn gcp cleanup`.
+- provide operations through `w8-biayn ops status`, `w8-biayn ops run-status`, `w8-biayn ops logs`, `w8-biayn ops queue`, `w8-biayn ops cancel`, `w8-biayn ops down`, `w8-biayn ops gpus`, and `w8-biayn gcp cleanup`.
+
+Use `w8-biayn ops run-status --run-id "$RUN_ID" --credentials .gcp-service-account.json --dataset-gcs-prefix "$DATA_GCS" --out ".w8-biayn/runs/$RUN_ID/status.json"` for dashboard/polling status. For reruns or cluster-size experiments, pass prior snapshots with `--baseline-status ".w8-biayn/runs/<baseline-run-id>/status.json"` so the output includes `speed_comparison`; do not answer "is it faster?" from GPU count alone. Speedup factors greater than `1.0` are faster, factors less than `1.0` are slower, and `gpu_speedup_efficiency` is speedup divided by GPU scale. A `cost_verdict` of `cost_inefficient` means more GPUs did not increase the primary comparable throughput. The JSON schema is `w8-run-status-v1` and includes dataset manifest state, per-pipeline cluster/job state, labeled GCP instances, checkpoint markers and shard completeness for the promoted `latest` checkpoint, highest checkpoint directory, active `in_progress` checkpoint upload, export readiness including final export object counts/bytes and model weight presence, recent log-derived stage/step/checkpoint/export/error signals, normalized phase/progress/resource/command fields, GRPO config (`effective_samples_per_step`, total GPUs, samples/GPU/step, reward workers), trajectory/evaluation/training throughput, GPU-normalized throughput, ETA/timing metrics, reward metrics, bottleneck verdicts from SkyRL timing, optional baseline speed comparison with GPU speedup efficiency/cost verdict, and cleanup safety. Logs include `tail_lines_requested`, `tail_lines_scanned`, and `tail_may_be_truncated`; increase `--log-tail` before relying on stage parsing when the tail may be truncated. Pass `--node-health` for opt-in read-only SSH health with GPU utilization/memory, disk free space, top processes, derived node activity, and explicit `sample_scope`; do not present head-only health as whole-cluster worker telemetry. Each backend/GCS/health check includes its command, return code, `timed_out`, and `attempt_count`; tune timeout with `--check-timeout` and retry timed-out read-only checks with `--check-retries`.
 
 Do not put raw `sky ...` commands in docs, runbooks, or agent handoffs. Keep SkyPilot/SkyRL backend details behind the `w8-biayn` CLI so the operator DX stays stable if the backend changes.
 
@@ -185,7 +197,7 @@ Aggregate records with:
 uv run w8-biayn eval cpp --records base=base.records.jsonl --records sft=sft.records.jsonl --records grpo=grpo.records.jsonl --out uplift-summary.json
 ```
 
-Uplift claim requires GRPO to beat base and SFT on `correct_and_faster_rate` and `mean_best_reward`, with `missing_instr_rate=0`.
+Uplift claim requires GRPO to beat base and SFT on `correct_and_faster_rate` and `mean_best_reward`, with `missing_runtime_rate=0`.
 
 If uplift fails, clone/study SuperCoder and Microsoft/LearningOpt PIE into `/tmp`, compare filtering, prompts, reward shape, model choice, and hyperparameters, then port compatible fixes into this SkyRL/rLLM pipeline only.
 
@@ -255,6 +267,7 @@ uv run w8-biayn benchmarks list
 uv run w8-biayn cpp harness preflight --dry-run
 uv run w8-biayn doctor --cpp-perf
 uv run w8-biayn ops status --credentials .gcp-service-account.json --dry-run
+uv run w8-biayn ops run-status --run-id rdoc --credentials .gcp-service-account.json --dry-run
 uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regions --dry-run
 uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json --run-id rdoc
 uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json --run-id rdoc

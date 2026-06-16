@@ -51,17 +51,19 @@ from .cpp_perf.sandbox import (
     DEFAULT_DOCKER_IMAGE,
     build_sandbox_image,
     dry_run_plan,
-    perf_preflight_plan,
+    runtime_preflight_plan,
     run_in_sandbox,
-    run_perf_preflight,
+    run_runtime_preflight,
     sandbox_image_build_plan,
 )
 from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
+from .run_status import PIPELINES as STATUS_PIPELINES
+from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
-from .sky_config import Pipeline, RenderOptions, write_sky_yaml
+from .sky_config import GRPO_MIN_SAMPLES_PER_GPU_STEP, Pipeline, RenderOptions, write_sky_yaml
 
 app = typer.Typer(help="Command and control for C++ performance RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
@@ -231,15 +233,43 @@ def _require_launch_labels(options: RenderOptions) -> None:
         raise typer.BadParameter(f"launch labels missing required keys: {', '.join(missing)}")
 
 
+def _require_grpo_multinode_utilization(options: RenderOptions) -> None:
+    if (
+        options.pipeline != "cpp-grpo"
+        or options.num_nodes <= 1
+        or options.allow_low_multinode_utilization
+        or options.grpo_multinode_utilization_ok
+    ):
+        return
+    failures = []
+    if options.effective_samples_per_step < options.min_multinode_effective_samples_per_step:
+        failures.append(
+            "effective samples per step "
+            f"{options.effective_samples_per_step} < {options.min_multinode_effective_samples_per_step} "
+            f"({GRPO_MIN_SAMPLES_PER_GPU_STEP} samples/GPU/step across {options.total_gpu_count} GPUs)"
+        )
+    if options.max_env_workers < options.effective_samples_per_step:
+        failures.append(
+            f"max env workers {options.max_env_workers} < effective samples per step "
+            f"{options.effective_samples_per_step}"
+        )
+    hint = (
+        "For 2x[A100:8], use for example "
+        "--train-batch-size 32 --n-samples-per-prompt 8 --max-env-workers 256, "
+        "or pass --allow-low-multinode-utilization for an intentional experiment."
+    )
+    raise typer.BadParameter("; ".join(failures) + f". {hint}")
+
+
 @app.command()
 def doctor(
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     cloud: bool = typer.Option(False, help="Run GCP/cloud backend checks."),
-    cpp_perf: bool = typer.Option(False, "--cpp-perf", help="Check C++ perf-harness prerequisites."),
-    preflight: bool = typer.Option(True, "--preflight/--no-preflight", help="Run the C++ perf-counter preflight."),
-    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image used for the C++ perf preflight."),
-    cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used for taskset in the C++ perf preflight."),
-    build_image: bool = typer.Option(True, "--build-image/--no-build-image", help="Build the default perf sandbox image before preflight."),
+    cpp_perf: bool = typer.Option(False, "--cpp-perf", help="Check C++ performance-harness prerequisites."),
+    preflight: bool = typer.Option(True, "--preflight/--no-preflight", help="Run the C++ runtime preflight."),
+    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image used for the C++ runtime preflight."),
+    cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used for taskset in the C++ runtime preflight."),
+    build_image: bool = typer.Option(True, "--build-image/--no-build-image", help="Build the default runtime sandbox image before preflight."),
 ) -> None:
     """Validate local prerequisites without printing secrets."""
 
@@ -250,7 +280,7 @@ def doctor(
 
     tools = ["uv", "git"]
     if cpp_perf:
-        tools.extend(["docker", "g++", "perf", "taskset", "timeout"])
+        tools.extend(["docker", "g++", "python3", "taskset", "timeout"])
     if cloud:
         tools.extend(["gcloud", "sky"])
     for tool in tools:
@@ -259,13 +289,6 @@ def doctor(
 
     preflight_failed = False
     if cpp_perf:
-        perf_paranoid = Path("/proc/sys/kernel/perf_event_paranoid")
-        if perf_paranoid.exists():
-            value = perf_paranoid.read_text(encoding="utf-8").strip()
-            status = "ok" if int(value) <= 2 else "warn"
-            table.add_row("perf_event_paranoid", status, value)
-        else:
-            table.add_row("perf_event_paranoid", "missing", "Linux perf sysctl not found")
         governor = Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
         if governor.exists():
             value = governor.read_text(encoding="utf-8").strip()
@@ -284,15 +307,18 @@ def doctor(
                         image if build_ok else (build.stderr or build.stdout)[-500:],
                     )
                 if build_ok:
-                    result = run_perf_preflight(image=image, cpu=cpu)
+                    result = run_runtime_preflight(image=image, cpu=cpu)
                     status = "ok" if result.ok else "error"
-                    detail = f"{result.reason}; instr_count={result.instr_count}; image={image}; cpu={cpu}"
-                    table.add_row("instructions:u preflight", status, detail)
+                    detail = (
+                        f"{result.reason}; runtime_cpu_ns={result.runtime_cpu_ns}; "
+                        f"runtime_wall_ns={result.runtime_wall_ns}; image={image}; cpu={cpu}"
+                    )
+                    table.add_row("runtime preflight", status, detail)
                     preflight_failed = not result.ok
                 else:
                     preflight_failed = True
             else:
-                table.add_row("instructions:u preflight", "error", "docker missing")
+                table.add_row("runtime preflight", "error", "docker missing")
                 preflight_failed = True
 
     try:
@@ -820,7 +846,7 @@ def cpp_task_build(
 def cpp_harness_run(
     task: str = typer.Option(..., "--task", help="Task JSON path."),
     candidate: str = typer.Option(..., "--candidate", help="Candidate C++ file path."),
-    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image containing g++, perf, taskset, and bash."),
+    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image containing g++, python3, taskset, and bash."),
     cpu: str = typer.Option(DEFAULT_CPU, help="Isolated CPU id used for taskset."),
     work_dir: Optional[str] = typer.Option(None, help="Optional scratch directory to keep logs/artifacts."),
     dry_run: bool = typer.Option(False, help="Print sandbox commands without running Docker."),
@@ -829,7 +855,7 @@ def cpp_harness_run(
 
     loaded_task = CppTask.read_json(task)
     if dry_run:
-        console.print(dry_run_plan(loaded_task, image=image, cpu=cpu))
+        console.print(dry_run_plan(loaded_task, image=image, cpu=cpu), markup=False, soft_wrap=True)
         return
     code = Path(candidate).read_text(encoding="utf-8")
     result = run_in_sandbox(loaded_task, code, image=image, cpu=cpu, work_dir=work_dir)
@@ -838,18 +864,18 @@ def cpp_harness_run(
 
 @harness_app.command("preflight")
 def cpp_harness_preflight(
-    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image containing g++, perf, taskset, and bash."),
+    image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Docker image containing g++, python3, taskset, and bash."),
     cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used for taskset."),
     work_dir: Optional[str] = typer.Option(None, help="Optional scratch directory to keep logs/artifacts."),
-    build_image: bool = typer.Option(True, "--build-image/--no-build-image", help="Build the default perf sandbox image before running."),
+    build_image: bool = typer.Option(True, "--build-image/--no-build-image", help="Build the default runtime sandbox image before running."),
     dry_run: bool = typer.Option(False, help="Print the sandbox preflight command without running Docker."),
 ) -> None:
-    """Verify that the sandbox can collect a numeric `instructions:u` count."""
+    """Verify that the sandbox can compile, run, and measure CPU time."""
 
     if dry_run:
         if build_image:
-            console.print(sandbox_image_build_plan(image=image))
-        console.print(perf_preflight_plan(image=image, cpu=cpu))
+            console.print(sandbox_image_build_plan(image=image), markup=False, soft_wrap=True)
+        console.print(runtime_preflight_plan(image=image, cpu=cpu), markup=False, soft_wrap=True)
         return
     if build_image:
         build = build_sandbox_image(image=image)
@@ -863,7 +889,7 @@ def cpp_harness_preflight(
                 }
             )
             raise typer.Exit(1)
-    result = run_perf_preflight(image=image, cpu=cpu, work_dir=work_dir)
+    result = run_runtime_preflight(image=image, cpu=cpu, work_dir=work_dir)
     console.print_json(data=result.as_dict())
     if not result.ok:
         raise typer.Exit(1)
@@ -887,7 +913,7 @@ def cpp_reward_score(
         if valid:
             code = extract_code_block(output_text)
             console.print(f"candidate_bytes: {len(code.encode('utf-8'))}")
-            console.print(dry_run_plan(loaded_task, image=image, cpu=cpu))
+            console.print(dry_run_plan(loaded_task, image=image, cpu=cpu), markup=False, soft_wrap=True)
         return
 
     def runner(candidate_task: CppTask, code: str):
@@ -908,6 +934,7 @@ def config_render(
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
     accelerators: Optional[str] = typer.Option(None, help="Cloud backend accelerator request."),
     num_nodes: int = typer.Option(1, help="Cloud backend node count."),
+    disk_size: Optional[int] = typer.Option(None, help="Cloud backend boot disk size in GB."),
     cluster: Optional[str] = typer.Option(None, help="Cloud backend cluster name."),
     model: Optional[str] = typer.Option(None, help="Open model to load/train."),
     gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
@@ -915,18 +942,31 @@ def config_render(
     train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
     n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
     train_epochs: int = typer.Option(1, help="Training epochs for cpp-sft/cpp-grpo."),
+    eval_before_train: bool = typer.Option(
+        True,
+        "--eval-before-train/--no-eval-before-train",
+        help="Run the initial GRPO eval pass before training updates.",
+    ),
     eval_interval: int = typer.Option(50, help="Evaluation interval for cpp-sft/cpp-grpo."),
+    max_env_workers: int = typer.Option(32, help="Maximum SkyRL Gym environment workers for cpp-grpo rewards."),
     ckpt_interval: int = typer.Option(-1, help="Checkpoint interval; negative disables smoke checkpoints."),
     hf_save_interval: int = typer.Option(-1, help="HF export interval; negative disables smoke exports."),
     ckpt_path: str = typer.Option("~/ckpts/", help="Checkpoint root for full training runs."),
     export_path: str = typer.Option("~/exports/", help="HF export root for full training runs."),
     max_ckpts_to_keep: int = typer.Option(-1, help="Maximum checkpoints to retain; -1 keeps all."),
+    resume_from: str = typer.Option("", help="Training checkpoint resume source: empty, latest, or a global_step_N path."),
+    export_checkpoint: str = typer.Option("", help="SFT export-only checkpoint source: a global_step_N path."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
     eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
     eval_max_tasks: Optional[int] = typer.Option(None, help="Optional validation task limit for cpp-eval."),
+    allow_low_multinode_utilization: bool = typer.Option(
+        False,
+        "--allow-low-multinode-utilization",
+        help="Permit multi-node GRPO with low samples/GPU or too few reward workers.",
+    ),
 ) -> None:
     """Render a cloud backend YAML file."""
 
@@ -936,6 +976,7 @@ def config_render(
         bucket=bucket,
         accelerators=accelerators,
         num_nodes=num_nodes,
+        disk_size=disk_size,
         cluster=cluster,
         model=model,
         gpu_container_image=gpu_container_image,
@@ -943,19 +984,25 @@ def config_render(
         train_batch_size=train_batch_size,
         n_samples_per_prompt=n_samples_per_prompt,
         train_epochs=train_epochs,
+        eval_before_train=eval_before_train,
         eval_interval=eval_interval,
+        max_env_workers=max_env_workers,
         ckpt_interval=ckpt_interval,
         hf_save_interval=hf_save_interval,
         ckpt_path=ckpt_path,
         export_path=export_path,
         max_ckpts_to_keep=max_ckpts_to_keep,
+        resume_from=resume_from,
+        export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
         run_id=run_id,
         owner=owner,
         eval_label=eval_label,
         eval_max_tasks=eval_max_tasks,
+        allow_low_multinode_utilization=allow_low_multinode_utilization,
     )
+    _require_grpo_multinode_utilization(options)
     written = write_sky_yaml(options, output)
     console.print(str(written))
 
@@ -967,6 +1014,7 @@ def launch(
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
     accelerators: Optional[str] = typer.Option(None, help="Cloud backend accelerator request."),
     num_nodes: int = typer.Option(1, help="Cloud backend node count."),
+    disk_size: Optional[int] = typer.Option(None, help="Cloud backend boot disk size in GB."),
     cluster: Optional[str] = typer.Option(None, help="Cloud backend cluster name."),
     model: Optional[str] = typer.Option(None, help="Open model to load/train."),
     gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
@@ -974,12 +1022,20 @@ def launch(
     train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
     n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
     train_epochs: int = typer.Option(1, help="Training epochs for cpp-sft/cpp-grpo."),
+    eval_before_train: bool = typer.Option(
+        True,
+        "--eval-before-train/--no-eval-before-train",
+        help="Run the initial GRPO eval pass before training updates.",
+    ),
     eval_interval: int = typer.Option(50, help="Evaluation interval for cpp-sft/cpp-grpo."),
+    max_env_workers: int = typer.Option(32, help="Maximum SkyRL Gym environment workers for cpp-grpo rewards."),
     ckpt_interval: int = typer.Option(-1, help="Checkpoint interval; negative disables smoke checkpoints."),
     hf_save_interval: int = typer.Option(-1, help="HF export interval; negative disables smoke exports."),
     ckpt_path: str = typer.Option("~/ckpts/", help="Checkpoint root for full training runs."),
     export_path: str = typer.Option("~/exports/", help="HF export root for full training runs."),
     max_ckpts_to_keep: int = typer.Option(-1, help="Maximum checkpoints to retain; -1 keeps all."),
+    resume_from: str = typer.Option("", help="Training checkpoint resume source: empty, latest, or a global_step_N path."),
+    export_checkpoint: str = typer.Option("", help="SFT export-only checkpoint source: a global_step_N path."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
@@ -989,6 +1045,11 @@ def launch(
     yes: bool = typer.Option(True, help="Skip cloud backend confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
+    allow_low_multinode_utilization: bool = typer.Option(
+        False,
+        "--allow-low-multinode-utilization",
+        help="Permit multi-node GRPO with low samples/GPU or too few reward workers.",
+    ),
 ) -> None:
     """Render config and launch a cloud backend job."""
 
@@ -999,6 +1060,7 @@ def launch(
         bucket=bucket,
         accelerators=accelerators,
         num_nodes=num_nodes,
+        disk_size=disk_size,
         cluster=cluster,
         model=model,
         gpu_container_image=gpu_container_image,
@@ -1006,20 +1068,26 @@ def launch(
         train_batch_size=train_batch_size,
         n_samples_per_prompt=n_samples_per_prompt,
         train_epochs=train_epochs,
+        eval_before_train=eval_before_train,
         eval_interval=eval_interval,
+        max_env_workers=max_env_workers,
         ckpt_interval=ckpt_interval,
         hf_save_interval=hf_save_interval,
         ckpt_path=ckpt_path,
         export_path=export_path,
         max_ckpts_to_keep=max_ckpts_to_keep,
+        resume_from=resume_from,
+        export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
         run_id=effective_run_id,
         owner=owner,
         eval_label=eval_label,
         eval_max_tasks=eval_max_tasks,
+        allow_low_multinode_utilization=allow_low_multinode_utilization,
     )
     _require_launch_labels(options)
+    _require_grpo_multinode_utilization(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = _service_account_env(credentials, project_id=options.project_id)
     sky_args = ["sky", "launch", "-c", options.name]
@@ -1259,6 +1327,94 @@ def ops_gpus(
     _run_backend_command(args, credentials=credentials, dry_run=dry_run)
 
 
+@ops_app.command("run-status")
+def ops_run_status(
+    run_id: str = typer.Option(..., "--run-id", help="Run id to inspect."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI. Defaults from the credentials project."),
+    dataset_gcs_prefix: Optional[str] = typer.Option(None, help="SkyRL dataset GCS prefix to verify."),
+    pipeline: Optional[list[str]] = typer.Option(
+        None,
+        "--pipeline",
+        help="Pipeline to inspect. Repeatable. Defaults to cpp-sft, cpp-grpo, and cpp-eval.",
+    ),
+    owner: str = typer.Option("sss", help="Owner label used for run-scoped GCP resources."),
+    job_id: Optional[str] = typer.Option(None, "--job-id", help="Optional backend job id for log inspection."),
+    log_tail: int = typer.Option(800, "--log-tail", help="Backend log tail lines to scan for status signals."),
+    expected_world_size: int = typer.Option(8, help="Expected FSDP world size for checkpoint shard validation."),
+    expected_sft_final_step: Optional[int] = typer.Option(
+        None,
+        "--expected-sft-final-step",
+        help="Expected final SFT step used to check final HF export readiness.",
+    ),
+    expected_grpo_final_step: Optional[int] = typer.Option(
+        None,
+        "--expected-grpo-final-step",
+        help="Expected final GRPO step used to check final HF export readiness.",
+    ),
+    check_timeout: int = typer.Option(
+        180,
+        "--check-timeout",
+        help="Seconds allowed for each backend/GCS check before returning a partial status.",
+    ),
+    check_retries: int = typer.Option(
+        0,
+        "--check-retries",
+        min=0,
+        help="Retries for timed-out read-only backend/GCS/SSH checks.",
+    ),
+    node_health: bool = typer.Option(
+        False,
+        "--node-health",
+        help="Include read-only SSH GPU/disk/process health for running cluster nodes.",
+    ),
+    baseline_status: Optional[list[str]] = typer.Option(
+        None,
+        "--baseline-status",
+        help="Prior run-status JSON path to compare throughput against. Repeatable.",
+    ),
+    out: Optional[str] = typer.Option(None, "--out", help="Optional path to also write the JSON snapshot."),
+    dry_run: bool = typer.Option(False, help="Emit planned checks without calling cloud backends."),
+) -> None:
+    """Emit one JSON status snapshot for a run, suitable for dashboards."""
+
+    selected_pipelines = pipeline or list(STATUS_PIPELINES)
+    unknown = sorted(set(selected_pipelines) - set(STATUS_PIPELINES))
+    if unknown:
+        raise typer.BadParameter(f"unknown pipeline(s): {', '.join(unknown)}")
+    project_id = _project_id(credentials)
+    artifact_bucket = (bucket or default_bucket_for_project(project_id)).rstrip("/")
+    baseline_payloads = []
+    for status_path in baseline_status or []:
+        payload = json.loads(Path(status_path).read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            payload["_status_source"] = status_path
+            baseline_payloads.append(payload)
+    payload = build_run_status(
+        run_id=run_id,
+        project_id=project_id,
+        artifact_bucket=artifact_bucket,
+        env=_service_account_env(credentials, project_id=project_id),
+        credentials_path=credentials,
+        dataset_gcs_prefix=dataset_gcs_prefix,
+        pipelines=selected_pipelines,
+        owner=owner,
+        log_tail=log_tail,
+        job_id=job_id,
+        expected_world_size=expected_world_size,
+        expected_sft_final_step=expected_sft_final_step,
+        expected_grpo_final_step=expected_grpo_final_step,
+        include_node_health=node_health,
+        baseline_statuses=baseline_payloads,
+        command_timeout_s=check_timeout,
+        command_retries=check_retries,
+        dry_run=dry_run,
+    )
+    if out:
+        _write_json(out, payload)
+    console.print_json(data=payload)
+
+
 @app.command()
 def status(
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
@@ -1321,6 +1477,7 @@ def _render_options(
     bucket: Optional[str],
     accelerators: Optional[str],
     num_nodes: int,
+    disk_size: Optional[int],
     cluster: Optional[str],
     model: Optional[str],
     gpu_container_image: str,
@@ -1328,18 +1485,23 @@ def _render_options(
     train_batch_size: int,
     n_samples_per_prompt: int,
     train_epochs: int,
+    eval_before_train: bool,
     eval_interval: int,
+    max_env_workers: int,
     ckpt_interval: int,
     hf_save_interval: int,
     ckpt_path: str,
     export_path: str,
     max_ckpts_to_keep: int,
+    resume_from: str,
+    export_checkpoint: str,
     sandbox_image: str,
     sandbox_cpu: str,
     run_id: Optional[str],
     owner: str,
     eval_label: str,
     eval_max_tasks: Optional[int],
+    allow_low_multinode_utilization: bool,
 ) -> RenderOptions:
     project_id = _project_id(credentials)
     is_training = pipeline in ("cpp-sft", "cpp-grpo")
@@ -1354,6 +1516,7 @@ def _render_options(
         credentials_path=credentials,
         accelerators=accelerators or default_accelerators,
         num_nodes=num_nodes,
+        disk_size=disk_size,
         cluster_name=cluster,
         model=model or (DEFAULT_CPP_TRAIN_MODEL if is_training or is_eval else DEFAULT_CPP_MODEL),
         gpu_container_image=gpu_container_image,
@@ -1361,16 +1524,21 @@ def _render_options(
         train_batch_size=train_batch_size,
         n_samples_per_prompt=n_samples_per_prompt,
         train_epochs=train_epochs,
+        eval_before_train=eval_before_train,
         eval_interval=eval_interval,
+        max_env_workers=max_env_workers,
         ckpt_interval=ckpt_interval,
         hf_save_interval=hf_save_interval,
         ckpt_path=ckpt_path,
         export_path=export_path,
         max_ckpts_to_keep=max_ckpts_to_keep,
+        resume_from=resume_from,
+        sft_export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
         run_id=run_id,
         owner=owner,
         eval_label=eval_label,
         eval_max_tasks=eval_max_tasks,
+        allow_low_multinode_utilization=allow_low_multinode_utilization,
     )

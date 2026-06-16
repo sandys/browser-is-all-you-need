@@ -24,7 +24,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="pie-one-smoke",
         tier="smoke",
-        harness="PIE + gem5 + perf + SkyRL bridge",
+        harness="PIE + runtime CPU-time harness + SkyRL bridge",
         command="uv run w8-biayn launch cpp-smoke",
         metric="GLM-5.1 loads and one C++ optimization prompt generates",
         reason="Proves the SkyPilot/GCP/SkyRL bridge before reward-loop work scales.",

@@ -13,8 +13,8 @@ def test_aggregate_eval_records_prefers_best_per_task():
             "compile_error": False,
             "sanitizer_error": False,
             "timeout": False,
-            "instr_count": None,
-            "reference_value": 100,
+            "runtime_cpu_ns": None,
+            "reference_runtime_cpu_ns": 100,
         },
         {
             "task_id": "t1",
@@ -24,8 +24,8 @@ def test_aggregate_eval_records_prefers_best_per_task():
             "compile_error": False,
             "sanitizer_error": False,
             "timeout": False,
-            "instr_count": 50,
-            "reference_value": 100,
+            "runtime_cpu_ns": 50,
+            "reference_runtime_cpu_ns": 100,
         },
         {
             "task_id": "t2",
@@ -35,8 +35,8 @@ def test_aggregate_eval_records_prefers_best_per_task():
             "compile_error": False,
             "sanitizer_error": False,
             "timeout": False,
-            "instr_count": None,
-            "reference_value": 100,
+            "runtime_cpu_ns": None,
+            "reference_runtime_cpu_ns": 100,
         },
     ]
 
@@ -46,7 +46,7 @@ def test_aggregate_eval_records_prefers_best_per_task():
     assert summary["sample_count"] == 3
     assert summary["pass_rate"] == 1.0
     assert summary["correct_and_faster_rate"] == 0.5
-    assert summary["missing_instr_rate"] == 0.5
+    assert summary["missing_runtime_rate"] == 0.5
     assert summary["invalid_format_rate"] == 1 / 3
     assert summary["mean_correct_faster_speedup"] == 2.0
 

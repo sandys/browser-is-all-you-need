@@ -30,7 +30,7 @@ class TestCoverage(BaseModel):
 class ReferencePerformance(BaseModel):
     """Reference performance for the best known correct solution."""
 
-    metric: Literal["instr_count"] = "instr_count"
+    metric: Literal["runtime_cpu_ns", "cpu_time_ns", "legacy_cpu_time"] = "runtime_cpu_ns"
     value: int = Field(gt=0)
     gem5_cycles: int | None = Field(default=None, gt=0)
     compiler_flags: str = "-O3 -std=c++20"
@@ -94,7 +94,11 @@ class HarnessResult(BaseModel):
     sanitizer_error: bool = False
     tests_passed: int = 0
     tests_total: int = 0
-    instr_count: int | None = Field(default=None, ge=0)
+    runtime_cpu_ns: int | None = Field(default=None, ge=0)
+    runtime_wall_ns: int | None = Field(default=None, ge=0)
+    reference_runtime_cpu_ns: int | None = Field(default=None, ge=0)
+    reference_runtime_wall_ns: int | None = Field(default=None, ge=0)
+    runtime_speedup: float | None = Field(default=None, ge=0.0)
     logs: dict[str, str] = Field(default_factory=dict)
 
     @property
