@@ -33,6 +33,18 @@ def test_extract_log_signals_tracks_steps_checkpoints_and_errors():
     assert signals["errors"] == ["Traceback (most recent call last):"]
 
 
+def test_extract_log_signals_marks_checkpoint_save_stage():
+    signals = _extract_log_signals(
+        [
+            "2026-06-16 18:47:28.827 | INFO | Started: 'save_checkpoint'",
+            "2026-06-16 18:47:28.827 | INFO | Saving checkpoint at step 800 to gs://bucket/ckpts/global_step_800",
+        ]
+    )
+
+    assert signals["stage"] == "checkpoint_stage"
+    assert [event["stage"] for event in signals["stage_events"]] == ["checkpoint_stage", "checkpoint_stage"]
+
+
 def test_extract_log_signals_ignores_benign_setup_warnings():
     signals = _extract_log_signals(
         [
@@ -46,10 +58,27 @@ def test_extract_log_signals_ignores_benign_setup_warnings():
             "2026-06-14 | ERROR | aiohttp.connector:__del__:388 - Unclosed connector",
             "FutureWarning: Tip: In future versions of Ray, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0 to turn off this error message",
             "Job started. Streaming logs... (Ctrl-C to exit log streaming; job will not be killed)",
+            "(cleanup_old_checkpoints pid=9143) 2026-06-17 15:57:01.698 | WARNING  | "
+            "skyrl.train.utils.trainer_utils:cleanup_old_checkpoints:164 - Failed to remove old checkpoint "
+            "gs://bucket/run/ckpts/global_step_150: {\"code\": 404, \"message\": \"The specified key does not exist.\", "
+            "\"errors\": [{\"reason\": \"notFound\"}]}",
+        ]
+    )
+
+    assert signals["stage"] is None
+    assert signals["errors"] == []
+
+
+def test_extract_log_signals_ignores_nccl_timeout_env_knob():
+    signals = _extract_log_signals(
+        [
+            "docker run -e SKYRL_WORKER_NCCL_TIMEOUT_IN_S=3600 "
+            "-e SKYRL_RAY_PG_TIMEOUT_IN_S=1800 image bash -lc '...'",
         ]
     )
 
     assert signals["errors"] == []
+    assert signals["config"]["skyrl.worker_nccl_timeout_s"] == 3600
 
 
 def test_extract_log_signals_ignores_multinode_ray_startup_noise():
@@ -243,9 +272,15 @@ def test_extract_log_signals_reports_training_and_generation_stages():
 def test_progress_summary_normalizes_training_throughput_and_metrics():
     signals = _extract_log_signals(
         [
-            "trainer.ckpt_interval=50 trainer.train_batch_size=16 generator.n_samples_per_prompt=8 "
+            "trainer.ckpt_interval=50 trainer.max_ckpts_to_keep=8 trainer.train_batch_size=16 generator.n_samples_per_prompt=8 "
+            "trainer.micro_train_batch_size_per_gpu=1 "
+            "trainer.algorithm.use_kl_loss=true trainer.algorithm.kl_loss_coef=0.001 "
+            "trainer.algorithm.use_entropy_loss=true trainer.algorithm.entropy_loss_coef=0.001 "
             "trainer.placement.policy_num_nodes=1 trainer.placement.policy_num_gpus_per_node=8 "
-            "generator.inference_engine.num_engines=8 environment.skyrl_gym.max_env_workers=128",
+            "trainer.policy.fsdp_config.fsdp_size=8 trainer.ref.fsdp_config.fsdp_size=8 "
+            "generator.inference_engine.num_engines=8 environment.skyrl_gym.max_env_workers=128 "
+            "generator.inference_engine.gpu_memory_utilization=0.7 "
+            "SKYRL_RAY_PG_TIMEOUT_IN_S=1800 SKYRL_WORKER_NCCL_TIMEOUT_IN_S=3600",
             "Training Batches Processed:   1%|▏         | 12/804 [58:25<62:28:36, 283.99s/it]2026-06-15 13:24:42.955 | INFO     | skyrl.train.trainer:train:220 - Finished: 'step', time cost: 288.78s",
             "Generating Trajectories: 100%|██████████| 128/128 [00:45<00:00,  2.84it/s]",
             "2026-06-15 13:25:28.074 | INFO | Finished: 'generate', time cost: 45.11s",
@@ -270,23 +305,148 @@ def test_progress_summary_normalizes_training_throughput_and_metrics():
     assert progress["metrics"]["reward"]["avg_pass_at_4"] == 0.6875
     assert progress["metrics"]["batch_num_seq"] == 128
     assert progress["grpo_config"]["effective_samples_per_step"] == 128
+    assert progress["grpo_config"]["micro_train_batch_size_per_gpu"] == 1
+    assert progress["grpo_config"]["use_kl_loss"] is True
+    assert progress["grpo_config"]["kl_loss_coef"] == 0.001
+    assert progress["grpo_config"]["use_entropy_loss"] is True
+    assert progress["grpo_config"]["entropy_loss_coef"] == 0.001
+    assert progress["grpo_config"]["vllm_gpu_memory_utilization"] == 0.7
     assert progress["grpo_config"]["total_gpu_count"] == 8
+    assert progress["grpo_config"]["policy_fsdp_size"] == 8
+    assert progress["grpo_config"]["ref_fsdp_size"] == 8
+    assert progress["grpo_config"]["fsdp_mesh_shape"] == {"ddp": 1, "fsdp": 8}
+    assert progress["grpo_config"]["hsdp_active"] is False
     assert progress["grpo_config"]["samples_per_gpu_per_step"] == 16
+    assert progress["grpo_config"]["skyrl_ray_pg_timeout_s"] == 1800
+    assert progress["grpo_config"]["skyrl_worker_nccl_timeout_s"] == 3600
+    assert progress["grpo_config"]["max_ckpts_to_keep"] == 8
     assert progress["throughput"]["training_samples_per_gpu_hour"] > 200
     assert progress["bottleneck"]["verdict"] == "policy_update_dominant"
     assert progress["bottleneck"]["dominant_stage"]["stage"] == "policy_train"
 
 
+def test_progress_summary_flags_grpo_entropy_collapse():
+    signals = _extract_log_signals(
+        [
+            "trainer.train_batch_size=16 generator.n_samples_per_prompt=8 "
+            "trainer.algorithm.use_kl_loss=true trainer.algorithm.kl_loss_coef=0.001 "
+            "trainer.algorithm.use_entropy_loss=true trainer.algorithm.entropy_loss_coef=0.001",
+            "'loss/avg_final_rewards': '-1.0000', 'policy/policy_entropy': '0.00068', "
+            "'policy/grad_norm': '0.0', 'policy/policy_loss': '0.0', 'reward/avg_pass_at_8': '0.0'",
+        ]
+    )
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=signals, artifacts={})
+
+    assert progress["training_health"]["verdict"] == "collapsed"
+    assert progress["training_health"]["should_stop"] is True
+    assert progress["training_health"]["reason"] == "entropy_collapse_zero_advantage_trap"
+    assert progress["training_health"]["signals"]["policy_entropy"] == 0.00068
+
+
+def test_sft_progress_summary_uses_last_step_metrics_and_expected_final_step():
+    signals = _extract_log_signals(
+        [
+            "python -m skyrl.train.main_sft strategy=fsdp model.path=Qwen/Qwen2.5-Coder-7B-Instruct "
+            "dataset_name=/data/sft batch_size=16 num_epochs=2 placement.num_nodes=1 "
+            "placement.num_gpus_per_node=8 micro_train_batch_size_per_gpu=1 "
+            "ckpt_interval=100 hf_save_interval=100 max_ckpts_to_keep=2 "
+            "SKYRL_RAY_PG_TIMEOUT_IN_S=1800 SKYRL_WORKER_NCCL_TIMEOUT_IN_S=3600",
+            "2026-06-16 | INFO | Step 8: loss=0.2847, grad_norm=2.33",
+            "'timing/step': '2.1009', 'timing/forward_backward': '2.0071', "
+            "'train/tokens_per_second': '7492.4949'",
+        ]
+    )
+
+    progress = run_status._progress_summary(
+        pipeline="cpp-sft",
+        log_signals=signals,
+        artifacts={},
+        expected_final_step=1074,
+    )
+
+    assert progress["primary"] == "training_batches"
+    assert progress["training"]["completed"] == 8
+    assert progress["training"]["total"] == 1074
+    assert progress["training"]["remaining"] == 1066
+    assert progress["training"]["timing"]["last_duration_s"] == 2.1009
+    assert progress["training"]["timing"]["eta_s"] == 2239.559
+    assert progress["training"]["throughput"]["samples_per_hour"] > 27000
+    assert progress["checkpoint"]["next_checkpoint_step"] == 100
+    assert progress["checkpoint"]["steps_until_next_checkpoint"] == 92
+    assert progress["sft_config"]["batch_size"] == 16
+    assert progress["sft_config"]["micro_train_batch_size_per_gpu"] == 1
+    assert progress["sft_config"]["num_epochs"] == 2
+    assert progress["sft_config"]["total_gpu_count"] == 8
+    assert progress["sft_config"]["skyrl_ray_pg_timeout_s"] == 1800
+    assert progress["sft_config"]["skyrl_worker_nccl_timeout_s"] == 3600
+    assert progress["sft_config"]["max_ckpts_to_keep"] == 2
+    assert progress["throughput"]["training_samples_per_gpu_hour"] > 3000
+
+
+def test_progress_summary_uses_rendered_config_after_launch_command_leaves_tail(tmp_path, monkeypatch):
+    monkeypatch.setattr(run_status, "RENDERED_CONFIG_DIR", tmp_path)
+    (tmp_path / "cpp-sft.sky.yaml").write_text(
+        """
+run: |
+  export SKYRL_RAY_PG_TIMEOUT_IN_S="${SKYRL_RAY_PG_TIMEOUT_IN_S:-1800}"
+  export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-3600}"
+  python -m skyrl.train.main_sft \\
+    batch_size=16 \\
+    micro_train_batch_size_per_gpu=1 \\
+    num_epochs=2 \\
+    placement.num_nodes=1 \\
+    placement.num_gpus_per_node=8 \\
+    ckpt_interval=100 \\
+    hf_save_interval=100
+"""
+    )
+    signals = _extract_log_signals(
+        [
+            "2026-06-16 | INFO | Step 699: loss=0.1104, grad_norm=1.07",
+            "'timing/step': '1.6074', 'train/tokens_per_second': '9289.4219'",
+        ]
+    )
+    signals = run_status._with_rendered_config_fallback(pipeline="cpp-sft", log_signals=signals)
+
+    progress = run_status._progress_summary(
+        pipeline="cpp-sft",
+        log_signals=signals,
+        artifacts={},
+        expected_final_step=1074,
+    )
+
+    assert signals["config_sources"] == ["rendered_yaml"]
+    assert progress["training"]["samples_per_step"] == 16
+    assert progress["training"]["throughput"]["samples_per_hour"] > 35000
+    assert progress["checkpoint"]["interval"] == 100
+    assert progress["checkpoint"]["next_checkpoint_step"] == 700
+    assert progress["checkpoint"]["steps_until_next_checkpoint"] == 1
+    assert progress["sft_config"]["batch_size"] == 16
+    assert progress["sft_config"]["micro_train_batch_size_per_gpu"] == 1
+    assert progress["sft_config"]["total_gpu_count"] == 8
+    assert progress["sft_config"]["skyrl_ray_pg_timeout_s"] == 1800
+    assert progress["sft_config"]["skyrl_worker_nccl_timeout_s"] == 3600
+    assert progress["throughput"]["training_samples_per_gpu_hour"] > 4000
+
+
 def test_speed_comparison_reports_baseline_rollout_factor():
     current_signals = _extract_log_signals(
         [
-            "trainer.train_batch_size=32 generator.n_samples_per_prompt=4 "
+            "trainer.train_batch_size=32 generator.n_samples_per_prompt=8 "
             "trainer.placement.policy_num_nodes=2 trainer.placement.policy_num_gpus_per_node=8 "
+            "trainer.policy.fsdp_config.fsdp_size=8 trainer.ref.fsdp_config.fsdp_size=8 "
             "generator.inference_engine.num_engines=16",
-            "Generating Trajectories: 100%|██████████| 128/128 [00:45<00:00,  2.84it/s]",
+            "Generating Trajectories: 100%|██████████| 256/256 [01:30<00:00,  2.84it/s]",
         ]
     )
     current = run_status._progress_summary(pipeline="cpp-grpo", log_signals=current_signals, artifacts={})
+    assert current["grpo_config"]["effective_samples_per_step"] == 256
+    assert current["grpo_config"]["samples_per_gpu_per_step"] == 16
+    assert current["grpo_config"]["policy_fsdp_size"] == 8
+    assert current["grpo_config"]["ref_fsdp_size"] == 8
+    assert current["grpo_config"]["fsdp_mesh_shape"] == {"ddp": 2, "fsdp": 8}
+    assert current["grpo_config"]["hsdp_active"] is True
     baseline = {
         "_status_source": "single-node.json",
         "run_id": "rsingle",
@@ -458,6 +618,205 @@ def test_pipeline_state_prefers_active_retry_over_old_failures():
     assert state == "running"
 
 
+def test_pipeline_status_reads_logs_for_selected_active_retry(monkeypatch):
+    observed: dict[str, str | None] = {}
+
+    monkeypatch.setattr(
+        run_status,
+        "_sky_queue",
+        lambda *_, **__: (
+            {
+                "jobs": [
+                    {"job_id": 1, "status": "FAILED", "resources": "1x[A100:8]"},
+                    {"job_id": 2, "status": "RUNNING", "resources": "1x[A100:8]"},
+                ]
+            },
+            {"name": "sky_queue", "ok": True},
+        ),
+    )
+
+    def fake_log_signals(_cluster: str, *, job_id: str | None, **_kwargs):
+        observed["job_id"] = job_id
+        return (
+            {
+                "stage": "data_restore",
+                "errors": [],
+                "config": {},
+                "metrics": {},
+                "timings": {},
+                "stage_events": [],
+                "checkpoint_events": [],
+                "export_events": [],
+            },
+            {"name": "sky_logs", "ok": True},
+        )
+
+    monkeypatch.setattr(run_status, "_log_signals", fake_log_signals)
+    monkeypatch.setattr(
+        run_status,
+        "_artifact_status",
+        lambda **_: {"checkpoint": {}, "export": {}, "checks": []},
+    )
+
+    status = run_status._pipeline_status(
+        pipeline="cpp-sft",
+        run_id="rretry",
+        artifact_bucket="gs://bucket",
+        env={},
+        instances=[{"status": "RUNNING"}],
+        log_tail=800,
+        job_id=None,
+        expected_world_size=8,
+        expected_final_step=None,
+        include_node_health=False,
+        baseline_statuses=[],
+        timeout_s=180,
+        retries=0,
+        dry_run=False,
+    )
+
+    assert observed["job_id"] == "2"
+    assert status["active_job"]["job_id"] == 2
+    assert status["state"] == "running"
+
+
+def test_pipeline_phase_uses_active_in_progress_checkpoint_when_log_tail_is_stale(monkeypatch):
+    monkeypatch.setattr(
+        run_status,
+        "_sky_queue",
+        lambda *_, **__: (
+            {"jobs": [{"job_id": 1, "status": "RUNNING", "resources": "1x[A100:8]"}]},
+            {"name": "sky_queue", "ok": True},
+        ),
+    )
+    monkeypatch.setattr(
+        run_status,
+        "_log_signals",
+        lambda *_, **__: (
+            {
+                "stage": "container_pull",
+                "errors": [],
+                "config": {},
+                "metrics": {},
+                "timings": {},
+                "stage_events": [],
+                "checkpoint_events": [],
+                "export_events": [],
+                "tail_may_be_truncated": True,
+            },
+            {"name": "sky_logs", "ok": True},
+        ),
+    )
+    monkeypatch.setattr(
+        run_status,
+        "_artifact_status",
+        lambda **_: {
+            "checkpoint": {
+                "latest_marker": 700,
+                "latest": {"step": 700, "resumable": True},
+                "highest": {"step": 800, "resumable": False},
+                "in_progress": {"step": 800, "resumable": False},
+            },
+            "export": {},
+            "checks": [],
+        },
+    )
+
+    status = run_status._pipeline_status(
+        pipeline="cpp-sft",
+        run_id="rcheckpoint",
+        artifact_bucket="gs://bucket",
+        env={},
+        instances=[{"status": "RUNNING"}],
+        log_tail=2500,
+        job_id=None,
+        expected_world_size=8,
+        expected_final_step=1074,
+        include_node_health=False,
+        baseline_statuses=[],
+        timeout_s=180,
+        retries=0,
+        dry_run=False,
+    )
+
+    assert status["phase"]["current"] == "checkpoint_stage"
+    assert status["phase"]["source"] == "artifacts"
+    assert status["phase"]["log_stage"] == "container_pull"
+    assert status["phase"]["artifact_activity"] == "checkpoint_stage"
+
+
+def test_pipeline_recovery_recommends_fresh_cluster_after_nccl_failure(monkeypatch):
+    monkeypatch.setattr(
+        run_status,
+        "_sky_queue",
+        lambda *_, **__: (
+            {"jobs": [{"job_id": 7, "status": "FAILED", "resources": "1x[A100:8]"}]},
+            {"name": "sky_queue", "ok": True},
+        ),
+    )
+    monkeypatch.setattr(
+        run_status,
+        "_log_signals",
+        lambda *_, **__: (
+            {
+                "stage": "failed",
+                "errors": [
+                    "RuntimeError: NCCL Error 1: unhandled cuda error",
+                    "skyrl.train.fsdp_utils:fsdp2_load_full_state_dict distribute_tensor scatter failed",
+                ],
+                "config": {},
+                "metrics": {},
+                "timings": {},
+                "stage_events": [{"stage": "checkpoint_load", "line": "Loading checkpoint"}],
+                "checkpoint_events": [],
+                "export_events": [],
+            },
+            {"name": "sky_logs", "ok": True},
+        ),
+    )
+    monkeypatch.setattr(
+        run_status,
+        "_artifact_status",
+        lambda **_: {
+            "checkpoint": {
+                "latest_marker": 700,
+                "latest": {"step": 700, "resumable": True},
+                "highest": {"step": 700, "resumable": True},
+                "in_progress": None,
+            },
+            "export": {},
+            "checks": [],
+        },
+    )
+
+    status = run_status._pipeline_status(
+        pipeline="cpp-sft",
+        run_id="rfresh",
+        artifact_bucket="gs://bucket",
+        env={},
+        instances=[{"status": "RUNNING"}],
+        log_tail=2500,
+        job_id=None,
+        expected_world_size=8,
+        expected_final_step=1074,
+        include_node_health=False,
+        baseline_statuses=[],
+        timeout_s=180,
+        retries=0,
+        dry_run=False,
+    )
+
+    assert status["state"] == "failed"
+    assert status["recovery"]["available"] is True
+    assert status["recovery"]["recommended_action"] == "fresh_cluster_resume"
+    assert status["recovery"]["fresh_cluster_recommended"] is True
+    assert status["recovery"]["requires_down_before_resume"] is True
+    assert status["recovery"]["resume_from"] == "latest"
+    assert status["recovery"]["resume_checkpoint_step"] == 700
+    assert status["recovery"]["signals"] == ["distributed_state_failure"]
+    assert status["recovery"]["commands"]["down"] == ["uv", "run", "w8-biayn", "ops", "down", status["cluster"]]
+
+
 def test_export_detail_requires_model_weights(monkeypatch):
     listing = "\n".join(
         [
@@ -621,6 +980,26 @@ def test_parse_node_health_marks_docker_runtime_without_layer_extract():
     )
 
     assert payload["activity"] == "docker_runtime"
+
+
+def test_parse_node_health_prefers_checkpoint_worker_over_background_docker():
+    payload = run_status._parse_node_health(
+        "\n".join(
+            [
+                "__W8_GPU__",
+                "0, 0, 32103, 40960",
+                "__W8_DF__",
+                "Filesystem 1024-blocks Used Available Capacity Mounted on",
+                "/dev/root 1041235968 188860928 851570080 19% /",
+                "__W8_PS__",
+                "PID ELAPSED %CPU %MEM CMD",
+                "26744 2558 27.4 1.6 ray::FSDPPolicyWorkerBase.save_checkpoint",
+                "1636 3475 10.2 0.0 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock",
+            ]
+        )
+    )
+
+    assert payload["activity"] == "checkpoint_stage"
 
 
 def test_parse_node_health_prefers_dataset_restore_over_background_docker():

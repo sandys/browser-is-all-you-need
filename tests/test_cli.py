@@ -134,6 +134,8 @@ def test_cli_allows_tuned_multinode_grpo_render(tmp_path):
             "8",
             "--max-env-workers",
             "256",
+            "--micro-train-batch-size-per-gpu",
+            "2",
         ],
     )
 
@@ -142,6 +144,47 @@ def test_cli_allows_tuned_multinode_grpo_render(tmp_path):
     assert "trainer.train_batch_size=32" in rendered
     assert "generator.n_samples_per_prompt=8" in rendered
     assert "environment.skyrl_gym.max_env_workers=256" in rendered
+    assert "trainer.micro_train_batch_size_per_gpu=2" in rendered
+    assert "trainer.algorithm.use_kl_loss=true" in rendered
+    assert "trainer.algorithm.use_entropy_loss=true" in rendered
+    assert "generator.inference_engine.gpu_memory_utilization=0.7" in rendered
+
+
+def test_cli_rejects_small_disk_for_multinode_grpo_resume(tmp_path):
+    credentials = tmp_path / "sa.json"
+    output = tmp_path / "cpp-grpo.sky.yaml"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--accelerators",
+            "A100:8",
+            "--num-nodes",
+            "2",
+            "--train-batch-size",
+            "32",
+            "--n-samples-per-prompt",
+            "8",
+            "--max-env-workers",
+            "256",
+            "--resume-from",
+            "latest",
+            "--disk-size",
+            "1024",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "multi-node GRPO resume requires --disk-size 2048 or larger" in result.output
+    assert not output.exists()
 
 
 def test_cli_allows_low_utilization_multinode_grpo_with_explicit_override(tmp_path):
@@ -491,6 +534,12 @@ def test_cli_render_cpp_grpo_defaults_to_training_model_and_a100(tmp_path):
     assert config["envs"]["W8_BIAYN_MODEL"] == "Qwen/Qwen2.5-Coder-7B-Instruct"
     assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" in config["run"]
     assert "environment.env_class=cpp-perf" in config["run"]
+    assert "trainer.micro_train_batch_size_per_gpu=1" in config["run"]
+    assert "trainer.algorithm.use_kl_loss=true" in config["run"]
+    assert "trainer.algorithm.kl_loss_coef=0.001" in config["run"]
+    assert "trainer.algorithm.use_entropy_loss=true" in config["run"]
+    assert "trainer.algorithm.entropy_loss_coef=0.001" in config["run"]
+    assert "generator.inference_engine.gpu_memory_utilization=0.7" in config["run"]
     assert "w8-biayn cpp harness preflight" in config["run"]
     assert "-v /var/run/docker.sock:/var/run/docker.sock" in config["run"]
     assert "-v /tmp:/tmp" in config["run"]

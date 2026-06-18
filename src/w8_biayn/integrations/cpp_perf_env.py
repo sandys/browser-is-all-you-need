@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from w8_biayn.cpp_perf.reward import compute_reward, extract_code_block
+from w8_biayn.cpp_perf.reward import compute_reward
 from w8_biayn.cpp_perf.schema import CppTask
 from w8_biayn.cpp_perf.skyrl_dataset import CPP_PERF_ENV_ID
 
@@ -42,10 +42,7 @@ class CppPerfEnv(BaseTextEnv):
         code = None
         try:
             breakdown = compute_reward(self.task, action, runner=runner if callable(runner) else None)
-            try:
-                code = extract_code_block(action)
-            except ValueError:
-                pass
+            code = breakdown.code
         except Exception as exc:  # pragma: no cover - guards real rollout workers
             self.last_metrics = {
                 "reward": -1.0,
@@ -83,13 +80,17 @@ class CppPerfEnv(BaseTextEnv):
             "reference_runtime_wall_ns": harness.reference_runtime_wall_ns if harness else None,
             "runtime_speedup": harness.runtime_speedup if harness else None,
             "candidate_bytes": len(code.encode("utf-8")) if code is not None else 0,
+            "format_valid": breakdown.format_valid,
         }
         return {
             "observations": [],
             "reward": breakdown.reward,
             "done": True,
             "metadata": self.last_metrics | {"task_id": self.task.task_id},
-            "postprocessed_action": code,
+            # Do not return postprocessed_action here. SkyRL re-tokenizes that string
+            # while keeping the original rollout logprobs, which can break token/logprob
+            # length alignment at generation caps. Reward extraction stays internal.
+            "postprocessed_action": None,
         }
 
     def get_metrics(self) -> dict[str, Any]:

@@ -11,10 +11,18 @@ import tempfile
 from pathlib import Path
 from typing import Iterator
 
-import ray
-from skyrl.train.config.sft_config import SFTConfig, build_skyrl_config_for_sft, validate_sft_cfg
-from skyrl.train.sft_trainer import SFTTrainer
-from skyrl.train.utils.utils import initialize_ray
+try:
+    import ray
+    from skyrl.train.config.sft_config import SFTConfig, build_skyrl_config_for_sft, validate_sft_cfg
+    from skyrl.train.sft_trainer import SFTTrainer
+    from skyrl.train.utils.utils import initialize_ray
+except ImportError:  # pragma: no cover - local tests can import helpers without SkyRL
+    ray = None
+    SFTConfig = None
+    build_skyrl_config_for_sft = None
+    validate_sft_cfg = None
+    SFTTrainer = None
+    initialize_ray = None
 
 
 STEP_RE = re.compile(r"global_step_(\d+)")
@@ -22,6 +30,16 @@ WEIGHT_SUFFIXES = (".safetensors", ".bin")
 
 
 def main() -> None:
+    if (
+        ray is None
+        or SFTConfig is None
+        or build_skyrl_config_for_sft is None
+        or validate_sft_cfg is None
+        or SFTTrainer is None
+        or initialize_ray is None
+    ):
+        raise ImportError("SkyRL is required to export SFT checkpoints")
+
     parser = argparse.ArgumentParser(description="Export a SkyRL SFT checkpoint to HF format.")
     parser.add_argument("--model", required=True, help="Base HF model path used to initialize the FSDP workers.")
     parser.add_argument("--checkpoint", required=True, help="SkyRL global_step_N checkpoint directory.")
@@ -59,7 +77,8 @@ def main() -> None:
     trainer = SFTTrainer(cfg, skyrl_cfg=skyrl_cfg)
     try:
         trainer.setup()
-        with _policy_checkpoint_source(args.checkpoint, args.num_gpus_per_node) as policy_checkpoint:
+        world_size = args.num_nodes * args.num_gpus_per_node
+        with _policy_checkpoint_source(args.checkpoint, world_size) as policy_checkpoint:
             trainer.dispatch.load_checkpoint(
                 "policy",
                 policy_checkpoint,

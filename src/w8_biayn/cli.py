@@ -19,10 +19,8 @@ from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
     DEFAULT_CPP_EVAL_ACCELERATORS,
-    DEFAULT_CPP_MODEL,
     DEFAULT_CPP_SMOKE_ACCELERATORS,
     DEFAULT_CPP_TRAIN_ACCELERATORS,
-    DEFAULT_CPP_TRAIN_MODEL,
     DEFAULT_CREDENTIALS_PATH,
     DEFAULT_DATA_ROOT,
     DEFAULT_RENDER_DIR,
@@ -45,7 +43,7 @@ from .cpp_perf.data import (
 from .cpp_perf.coverage import measure_cpp_coverage
 from .cpp_perf.eval import aggregate_eval_records, compare_eval_summaries, read_jsonl
 from .cpp_perf.pie import build_tasks, build_tasks_with_report, load_tests_manifest, read_pie_pairs
-from .cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
+from .cpp_perf.reward import compute_reward, extract_reward_code, valid_model_output
 from .cpp_perf.sandbox import (
     DEFAULT_CPU,
     DEFAULT_DOCKER_IMAGE,
@@ -63,7 +61,13 @@ from .run_status import PIPELINES as STATUS_PIPELINES
 from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
-from .sky_config import GRPO_MIN_SAMPLES_PER_GPU_STEP, Pipeline, RenderOptions, write_sky_yaml
+from .sky_config import (
+    GRPO_MIN_SAMPLES_PER_GPU_STEP,
+    GRPO_MULTINODE_RESUME_MIN_DISK_GB,
+    Pipeline,
+    RenderOptions,
+    write_sky_yaml,
+)
 
 app = typer.Typer(help="Command and control for C++ performance RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
@@ -259,6 +263,18 @@ def _require_grpo_multinode_utilization(options: RenderOptions) -> None:
         "or pass --allow-low-multinode-utilization for an intentional experiment."
     )
     raise typer.BadParameter("; ".join(failures) + f". {hint}")
+
+
+def _require_grpo_multinode_resume_disk(options: RenderOptions) -> None:
+    if options.pipeline != "cpp-grpo" or options.num_nodes <= 1 or not options.resume_from.strip():
+        return
+    if options.effective_disk_size >= GRPO_MULTINODE_RESUME_MIN_DISK_GB:
+        return
+    raise typer.BadParameter(
+        "multi-node GRPO resume requires "
+        f"--disk-size {GRPO_MULTINODE_RESUME_MIN_DISK_GB} or larger; 1024 GB failed during "
+        "FSDP checkpoint restore with [Errno 28] No space left on device."
+    )
 
 
 @app.command()
@@ -910,8 +926,11 @@ def cpp_reward_score(
     if dry_run:
         valid = valid_model_output(output_text)
         console.print(f"valid_format: {valid}")
-        if valid:
-            code = extract_code_block(output_text)
+        try:
+            code, _format_valid = extract_reward_code(output_text)
+        except ValueError:
+            code = None
+        if code is not None:
             console.print(f"candidate_bytes: {len(code.encode('utf-8'))}")
             console.print(dry_run_plan(loaded_task, image=image, cpu=cpu), markup=False, soft_wrap=True)
         return
@@ -940,6 +959,28 @@ def config_render(
     gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
     dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
     train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
+    micro_train_batch_size_per_gpu: int = typer.Option(
+        1,
+        "--micro-train-batch-size-per-gpu",
+        help="Per-GPU micro train batch for cpp-sft/cpp-grpo; try 2 only as a memory-checked tuning experiment.",
+    ),
+    grpo_use_kl_loss: bool = typer.Option(
+        True,
+        "--grpo-use-kl-loss/--no-grpo-use-kl-loss",
+        help="Apply a KL loss anchor during cpp-grpo to reduce policy drift from the SFT/reference model.",
+    ),
+    grpo_kl_loss_coef: float = typer.Option(0.001, help="KL loss coefficient for cpp-grpo."),
+    grpo_use_entropy_loss: bool = typer.Option(
+        True,
+        "--grpo-use-entropy-loss/--no-grpo-use-entropy-loss",
+        help="Apply an entropy bonus during cpp-grpo to reduce deterministic policy collapse.",
+    ),
+    grpo_entropy_loss_coef: float = typer.Option(0.001, help="Entropy loss coefficient for cpp-grpo."),
+    grpo_vllm_gpu_memory_utilization: float = typer.Option(
+        0.7,
+        "--grpo-vllm-gpu-memory-utilization",
+        help="vLLM GPU memory reservation for colocated cpp-grpo rollout engines.",
+    ),
     n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
     train_epochs: int = typer.Option(1, help="Training epochs for cpp-sft/cpp-grpo."),
     eval_before_train: bool = typer.Option(
@@ -982,6 +1023,12 @@ def config_render(
         gpu_container_image=gpu_container_image,
         dataset_gcs_prefix=dataset_gcs_prefix,
         train_batch_size=train_batch_size,
+        micro_train_batch_size_per_gpu=micro_train_batch_size_per_gpu,
+        grpo_use_kl_loss=grpo_use_kl_loss,
+        grpo_kl_loss_coef=grpo_kl_loss_coef,
+        grpo_use_entropy_loss=grpo_use_entropy_loss,
+        grpo_entropy_loss_coef=grpo_entropy_loss_coef,
+        grpo_vllm_gpu_memory_utilization=grpo_vllm_gpu_memory_utilization,
         n_samples_per_prompt=n_samples_per_prompt,
         train_epochs=train_epochs,
         eval_before_train=eval_before_train,
@@ -1003,6 +1050,7 @@ def config_render(
         allow_low_multinode_utilization=allow_low_multinode_utilization,
     )
     _require_grpo_multinode_utilization(options)
+    _require_grpo_multinode_resume_disk(options)
     written = write_sky_yaml(options, output)
     console.print(str(written))
 
@@ -1020,6 +1068,28 @@ def launch(
     gpu_container_image: str = typer.Option(DEFAULT_CPP_CONTAINER_IMAGE, help="GPU Docker image for the smoke."),
     dataset_gcs_prefix: Optional[str] = typer.Option(None, help="Versioned SkyRL dataset GCS prefix."),
     train_batch_size: int = typer.Option(16, help="Training batch size for cpp-sft/cpp-grpo."),
+    micro_train_batch_size_per_gpu: int = typer.Option(
+        1,
+        "--micro-train-batch-size-per-gpu",
+        help="Per-GPU micro train batch for cpp-sft/cpp-grpo; try 2 only as a memory-checked tuning experiment.",
+    ),
+    grpo_use_kl_loss: bool = typer.Option(
+        True,
+        "--grpo-use-kl-loss/--no-grpo-use-kl-loss",
+        help="Apply a KL loss anchor during cpp-grpo to reduce policy drift from the SFT/reference model.",
+    ),
+    grpo_kl_loss_coef: float = typer.Option(0.001, help="KL loss coefficient for cpp-grpo."),
+    grpo_use_entropy_loss: bool = typer.Option(
+        True,
+        "--grpo-use-entropy-loss/--no-grpo-use-entropy-loss",
+        help="Apply an entropy bonus during cpp-grpo to reduce deterministic policy collapse.",
+    ),
+    grpo_entropy_loss_coef: float = typer.Option(0.001, help="Entropy loss coefficient for cpp-grpo."),
+    grpo_vllm_gpu_memory_utilization: float = typer.Option(
+        0.7,
+        "--grpo-vllm-gpu-memory-utilization",
+        help="vLLM GPU memory reservation for colocated cpp-grpo rollout engines.",
+    ),
     n_samples_per_prompt: int = typer.Option(4, help="GRPO samples per prompt."),
     train_epochs: int = typer.Option(1, help="Training epochs for cpp-sft/cpp-grpo."),
     eval_before_train: bool = typer.Option(
@@ -1066,6 +1136,12 @@ def launch(
         gpu_container_image=gpu_container_image,
         dataset_gcs_prefix=dataset_gcs_prefix,
         train_batch_size=train_batch_size,
+        micro_train_batch_size_per_gpu=micro_train_batch_size_per_gpu,
+        grpo_use_kl_loss=grpo_use_kl_loss,
+        grpo_kl_loss_coef=grpo_kl_loss_coef,
+        grpo_use_entropy_loss=grpo_use_entropy_loss,
+        grpo_entropy_loss_coef=grpo_entropy_loss_coef,
+        grpo_vllm_gpu_memory_utilization=grpo_vllm_gpu_memory_utilization,
         n_samples_per_prompt=n_samples_per_prompt,
         train_epochs=train_epochs,
         eval_before_train=eval_before_train,
@@ -1088,6 +1164,7 @@ def launch(
     )
     _require_launch_labels(options)
     _require_grpo_multinode_utilization(options)
+    _require_grpo_multinode_resume_disk(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     env = _service_account_env(credentials, project_id=options.project_id)
     sky_args = ["sky", "launch", "-c", options.name]
@@ -1483,6 +1560,12 @@ def _render_options(
     gpu_container_image: str,
     dataset_gcs_prefix: Optional[str],
     train_batch_size: int,
+    micro_train_batch_size_per_gpu: int,
+    grpo_use_kl_loss: bool,
+    grpo_kl_loss_coef: float,
+    grpo_use_entropy_loss: bool,
+    grpo_entropy_loss_coef: float,
+    grpo_vllm_gpu_memory_utilization: float,
     n_samples_per_prompt: int,
     train_epochs: int,
     eval_before_train: bool,
@@ -1509,6 +1592,14 @@ def _render_options(
     default_accelerators = DEFAULT_CPP_TRAIN_ACCELERATORS if is_training else DEFAULT_CPP_SMOKE_ACCELERATORS
     if is_eval:
         default_accelerators = DEFAULT_CPP_EVAL_ACCELERATORS
+    if micro_train_batch_size_per_gpu < 1:
+        raise typer.BadParameter("--micro-train-batch-size-per-gpu must be at least 1")
+    if grpo_kl_loss_coef < 0:
+        raise typer.BadParameter("--grpo-kl-loss-coef must be non-negative")
+    if grpo_entropy_loss_coef < 0:
+        raise typer.BadParameter("--grpo-entropy-loss-coef must be non-negative")
+    if not 0 < grpo_vllm_gpu_memory_utilization <= 1:
+        raise typer.BadParameter("--grpo-vllm-gpu-memory-utilization must be in (0, 1]")
     return RenderOptions(
         pipeline=pipeline,
         project_id=project_id,
@@ -1518,10 +1609,16 @@ def _render_options(
         num_nodes=num_nodes,
         disk_size=disk_size,
         cluster_name=cluster,
-        model=model or (DEFAULT_CPP_TRAIN_MODEL if is_training or is_eval else DEFAULT_CPP_MODEL),
+        model=model,
         gpu_container_image=gpu_container_image,
         dataset_gcs_prefix=dataset_gcs_prefix,
         train_batch_size=train_batch_size,
+        micro_train_batch_size_per_gpu=micro_train_batch_size_per_gpu,
+        grpo_use_kl_loss=grpo_use_kl_loss,
+        grpo_kl_loss_coef=grpo_kl_loss_coef,
+        grpo_use_entropy_loss=grpo_use_entropy_loss,
+        grpo_entropy_loss_coef=grpo_entropy_loss_coef,
+        grpo_vllm_gpu_memory_utilization=grpo_vllm_gpu_memory_utilization,
         n_samples_per_prompt=n_samples_per_prompt,
         train_epochs=train_epochs,
         eval_before_train=eval_before_train,

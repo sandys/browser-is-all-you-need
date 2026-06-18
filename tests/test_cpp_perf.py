@@ -7,7 +7,13 @@ import pytest
 from w8_biayn.cpp_perf.coverage import coverage_passes, parse_lcov_summary
 from w8_biayn.cpp_perf.judge import judge_output_matches, normalize_judge_output
 from w8_biayn.cpp_perf.pie import build_tasks, read_pie_pairs
-from w8_biayn.cpp_perf.reward import compute_reward, extract_code_block, valid_model_output
+from w8_biayn.cpp_perf.reward import (
+    MISSING_RUNTIME_REWARD,
+    compute_reward,
+    extract_code_block,
+    extract_reward_code,
+    valid_model_output,
+)
 from w8_biayn.cpp_perf.sandbox import dry_run_plan, parse_runtime_benchmark_output, run_test_command
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult, ReferencePerformance, TestCase, TestCoverage
 
@@ -146,6 +152,15 @@ def test_model_output_format_and_extraction():
     assert not valid_model_output("```cpp\nint main(){}\n```\n<reasoning>x</reasoning>\n")
 
 
+def test_recoverable_code_extraction_accepts_bare_cpp_but_not_prose():
+    code, strict = extract_reward_code("#include <bits/stdc++.h>\nint main(){return 0;}\n")
+
+    assert strict is False
+    assert code.startswith("#include")
+    with pytest.raises(ValueError):
+        extract_reward_code("not a formatted answer")
+
+
 def test_reward_orders_compile_partial_correct_and_faster():
     task = sample_task()
 
@@ -175,7 +190,18 @@ def test_reward_orders_compile_partial_correct_and_faster():
         )
 
     assert compute_reward(task, "bad", runner=faster_correct).reward == -1.0
+    bare_correct = compute_reward(task, "#include <bits/stdc++.h>\nint main(){return 0;}\n", runner=faster_correct)
+    assert bare_correct.reason == "recoverable_format_correct"
+    assert bare_correct.format_valid is False
+    assert 0 < bare_correct.reward < MISSING_RUNTIME_REWARD
     assert compute_reward(task, valid_output(), runner=compile_error).reward == -0.5
+    bare_compile_error = compute_reward(
+        task,
+        "#include <bits/stdc++.h>\nint main(){return 0;}\n",
+        runner=compile_error,
+    )
+    assert bare_compile_error.reason == "recoverable_format_compile_error"
+    assert -1.0 < bare_compile_error.reward < -0.5
     assert compute_reward(task, valid_output(), runner=timeout).reason == "timeout"
     assert compute_reward(task, valid_output(), runner=timeout).reward == -0.5
     assert compute_reward(task, valid_output(), runner=partial).reward == pytest.approx(-0.1)

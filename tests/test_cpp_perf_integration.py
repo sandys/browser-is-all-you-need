@@ -48,6 +48,25 @@ def test_cpp_perf_env_invalid_format_is_negative(tmp_path):
     assert result["metadata"]["reason"] == "invalid_format"
 
 
+def test_cpp_perf_env_shapes_recoverable_bare_cpp(tmp_path):
+    task_path = sample_task().write_json(tmp_path / "task.json")
+
+    def runner(_task: CppTask, _code: str) -> HarnessResult:
+        return HarnessResult(tests_passed=2, tests_total=2, runtime_cpu_ns=500, reference_runtime_cpu_ns=1000)
+
+    env = CppPerfEnv(
+        env_config={"runner": runner},
+        extras={"extra_info": {"task_path": str(task_path)}},
+    )
+    result = env.step("#include <bits/stdc++.h>\nint main(){return 0;}\n")
+
+    assert -1.0 < result["reward"] < 0.5
+    assert result["metadata"]["reason"] == "recoverable_format_correct"
+    assert result["metadata"]["format_valid"] is False
+    assert result["metadata"]["candidate_bytes"] > 0
+    assert result["postprocessed_action"] is None
+
+
 def test_cpp_perf_env_turns_reward_exception_into_negative_result(tmp_path):
     task_path = sample_task().write_json(tmp_path / "task.json")
 

@@ -14,6 +14,7 @@ from .constants import (
     DEFAULT_CPP_CONTAINER_IMAGE,
     DEFAULT_CPP_MODEL,
     DEFAULT_CPP_SMOKE_ACCELERATORS,
+    DEFAULT_CPP_TRAIN_MODEL,
     DEFAULT_CREDENTIALS_PATH,
     DEFAULT_RENDER_DIR,
     RLLM_PIN,
@@ -26,6 +27,9 @@ from .secrets import default_bucket_for_project
 Pipeline = Literal["cpp-smoke", "cpp-sft", "cpp-grpo", "cpp-eval"]
 LABEL_VALUE_MAX = 63
 GRPO_MIN_SAMPLES_PER_GPU_STEP = 16
+GRPO_MULTINODE_RESUME_MIN_DISK_GB = 2048
+SKYRL_RAY_PG_TIMEOUT_S = 1800
+SKYRL_WORKER_NCCL_TIMEOUT_S = 3600
 
 
 class LiteralStr(str):
@@ -49,11 +53,17 @@ class RenderOptions:
     num_nodes: int = 1
     disk_size: int | None = None
     cluster_name: str | None = None
-    model: str = DEFAULT_CPP_MODEL
+    model: str | None = None
     gpu_container_image: str = DEFAULT_CPP_CONTAINER_IMAGE
     dataset_gcs_prefix: str | None = None
     remote_data_dir: str = "$HOME/.w8-biayn/data/skyrl"
     train_batch_size: int = 16
+    micro_train_batch_size_per_gpu: int = 1
+    grpo_use_kl_loss: bool = True
+    grpo_kl_loss_coef: float = 0.001
+    grpo_use_entropy_loss: bool = True
+    grpo_entropy_loss_coef: float = 0.001
+    grpo_vllm_gpu_memory_utilization: float = 0.7
     n_samples_per_prompt: int = 4
     train_epochs: int = 1
     eval_before_train: bool = True
@@ -90,6 +100,14 @@ class RenderOptions:
         return self.dataset_gcs_prefix or f"{self.artifact_bucket}/datasets/cpp-perf/{CPP_DATA_SCHEMA_VERSION}/skyrl"
 
     @property
+    def effective_model(self) -> str:
+        if self.model:
+            return self.model
+        if self.pipeline == "cpp-smoke":
+            return DEFAULT_CPP_MODEL
+        return DEFAULT_CPP_TRAIN_MODEL
+
+    @property
     def gpu_count(self) -> int:
         return gpu_count_from_accelerators(self.accelerators)
 
@@ -124,6 +142,8 @@ class RenderOptions:
     def effective_disk_size(self) -> int:
         if self.disk_size is not None:
             return self.disk_size
+        if self.pipeline == "cpp-grpo" and self.num_nodes > 1 and self.resume_from.strip():
+            return GRPO_MULTINODE_RESUME_MIN_DISK_GB
         if self.pipeline in {"cpp-sft", "cpp-grpo", "cpp-eval"}:
             return 1024
         return 256
@@ -242,7 +262,7 @@ def smoke_run_script(options: RenderOptions) -> LiteralStr:
 {gcp_env_exports(options)}
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_BIAYN_PIPELINE="cpp-smoke"
-export W8_BIAYN_MODEL="{options.model}"
+export W8_BIAYN_MODEL="{options.effective_model}"
 export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
 docker pull "$W8_GPU_CONTAINER_IMAGE"
 docker run --rm --gpus all --network host --shm-size=32g \\
@@ -268,7 +288,7 @@ source /tmp/w8-cpp-smoke/bin/activate
 uv pip install vllm transformers accelerate
 python - <<PY
 from vllm import LLM, SamplingParams
-model = "{options.model}"
+model = "{options.effective_model}"
 prompt = "Optimize this C++ program while preserving behavior.\\n```cpp\\n#include <bits/stdc++.h>\\nint main(){{long long n,s=0; std::cin>>n; for(long long i=1;i<=n;i++) s+=i; std::cout<<s<<\"\\\\n\";}}\\n```"
 llm = LLM(model=model, max_model_len=4096, trust_remote_code=True)
 outputs = llm.generate([prompt], SamplingParams(max_tokens=128, temperature=0.2))
@@ -288,8 +308,8 @@ def training_prelude(options: RenderOptions) -> str:
 {gcp_env_exports(options)}
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_BIAYN_PIPELINE="{options.pipeline}"
-export W8_BIAYN_MODEL="{options.model}"
-export W8_BIAYN_MODEL_PATH="{options.model}"
+export W8_BIAYN_MODEL="{options.effective_model}"
+export W8_BIAYN_MODEL_PATH="{options.effective_model}"
 export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
 export W8_DATA_GCS_PREFIX="{options.data_gcs_prefix}"
 export W8_DATA_DIR="{options.remote_data_dir}"
@@ -299,6 +319,8 @@ export W8_ARTIFACT_DIR="$HOME/.w8-biayn/runs/{options.run_id or options.pipeline
 export W8_CKPT_PATH="{options.ckpt_path}"
 export W8_EXPORT_PATH="{options.export_path}"
 export W8_SFT_EXPORT_CHECKPOINT="{options.sft_export_checkpoint}"
+export SKYRL_RAY_PG_TIMEOUT_IN_S="${{SKYRL_RAY_PG_TIMEOUT_IN_S:-{SKYRL_RAY_PG_TIMEOUT_S}}}"
+export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${{SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-{SKYRL_WORKER_NCCL_TIMEOUT_S}}}"
 mkdir -p "$W8_DATA_DIR"
 rm -rf "$W8_ARTIFACT_DIR"
 mkdir -p "$W8_ARTIFACT_DIR/ckpts" "$W8_ARTIFACT_DIR/exports"
@@ -313,6 +335,37 @@ if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is required on the SkyPilot host to restore dataset cache from GCS" >&2
   exit 2
 fi
+resolve_gcs_model_export() {{
+  local source="${{1%/}}"
+  if [[ "$source" =~ /global_step_[0-9]+/policy$ ]]; then
+    echo "$source"
+    return 0
+  fi
+  local steps=()
+  mapfile -t steps < <(gcloud storage ls "$source/" 2>/dev/null | sed -n 's#.*/global_step_\\([0-9][0-9]*\\)/$#\\1#p' | sort -nr)
+  if [ "${{#steps[@]}}" -eq 0 ]; then
+    echo "$source"
+    return 0
+  fi
+  local step
+  for step in "${{steps[@]}}"; do
+    local candidate="$source/global_step_${{step}}/policy"
+    if gcloud storage ls "$candidate/*.safetensors" >/dev/null 2>&1 || gcloud storage ls "$candidate/pytorch_model*.bin" >/dev/null 2>&1 || gcloud storage ls "$candidate/model*.bin" >/dev/null 2>&1; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo "no complete HF policy export with weights found under $source" >&2
+  return 2
+}}
+assert_local_hf_model() {{
+  local model_dir=$1
+  test -f "$model_dir/config.json"
+  if ! find "$model_dir" -maxdepth 1 \\( -name "*.safetensors" -o -name "pytorch_model*.bin" -o -name "model*.bin" \\) -print -quit | grep -q .; then
+    echo "no model weight files found under $model_dir" >&2
+    return 2
+  fi
+}}
 """
     if options.pipeline == "cpp-sft" and options.sft_export_checkpoint:
         data_restore = """echo "cpp-sft export-only: skipping dataset restore"
@@ -327,10 +380,14 @@ test -d "$W8_DATA_DIR/tasks"
         + data_restore
         + f"""
 if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
+  export W8_BIAYN_MODEL_SOURCE="$W8_BIAYN_MODEL_PATH"
+  export W8_BIAYN_MODEL_PATH="$(resolve_gcs_model_export "$W8_BIAYN_MODEL_PATH")"
+  echo "resolved GCS model export: $W8_BIAYN_MODEL_SOURCE -> $W8_BIAYN_MODEL_PATH"
   export W8_LOCAL_MODEL_DIR="$W8_ARTIFACT_DIR/model"
   rm -rf "$W8_LOCAL_MODEL_DIR"
   mkdir -p "$W8_LOCAL_MODEL_DIR"
   gcloud storage cp --recursive "$W8_BIAYN_MODEL_PATH/*" "$W8_LOCAL_MODEL_DIR/"
+  assert_local_hf_model "$W8_LOCAL_MODEL_DIR"
   export W8_BIAYN_MODEL_PATH="/artifacts/model"
 fi
 docker pull "$W8_GPU_CONTAINER_IMAGE"
@@ -361,6 +418,8 @@ def training_container_prefix(options: RenderOptions) -> str:
   -e W8_CKPT_PATH="$W8_CKPT_PATH" \\
   -e W8_EXPORT_PATH="$W8_EXPORT_PATH" \\
   -e W8_SFT_EXPORT_CHECKPOINT="$W8_SFT_EXPORT_CHECKPOINT" \\
+  -e SKYRL_RAY_PG_TIMEOUT_IN_S="$SKYRL_RAY_PG_TIMEOUT_IN_S" \\
+  -e SKYRL_WORKER_NCCL_TIMEOUT_IN_S="$SKYRL_WORKER_NCCL_TIMEOUT_IN_S" \\
   -e SKYPILOT_NODE_RANK="${SKYPILOT_NODE_RANK:-0}" \\
   -e SKYPILOT_NODE_IPS="${SKYPILOT_NODE_IPS:-}" \\
   -e SKYPILOT_NUM_NODES="${SKYPILOT_NUM_NODES:-1}" \\
@@ -388,6 +447,7 @@ source /tmp/w8-train/bin/activate
 uv pip install -e /workspace
 uv pip install -e /root/.cache/w8-biayn/upstreams/rllm
 cd /root/.cache/w8-biayn/upstreams/SkyRL
+python -m w8_biayn.integrations.skyrl_io_patch
 uv sync --active --extra fsdp --extra gcp
 cd /workspace
 uv pip install gcsfs
@@ -415,13 +475,21 @@ fi
 
 
 def grpo_training_command(options: RenderOptions) -> str:
+    # fsdp_size = GPUs-per-node keeps policy/ref FSDP sharding node-local (HSDP) on
+    # multi-node runs: the model reduce-scatters over NVLink and only does one gradient
+    # all-reduce across the slow inter-node link per step, instead of all-gathering the
+    # whole model across nodes on every micro-step. On a single node it equals the world
+    # size, so SkyRL renders a no-op flat mesh and behavior is unchanged.
     return f"""python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
   'data.train_data=[/data/grpo/train.parquet]' \\
   'data.val_data=[/data/grpo/validation.parquet]' \\
   environment.env_class=cpp-perf \\
   environment.skyrl_gym.max_env_workers={options.max_env_workers} \\
   trainer.algorithm.advantage_estimator=grpo \\
-  trainer.algorithm.use_kl_loss=false \\
+  trainer.algorithm.use_kl_loss={str(options.grpo_use_kl_loss).lower()} \\
+  trainer.algorithm.kl_loss_coef={options.grpo_kl_loss_coef:g} \\
+  trainer.algorithm.use_entropy_loss={str(options.grpo_use_entropy_loss).lower()} \\
+  trainer.algorithm.entropy_loss_coef={options.grpo_entropy_loss_coef:g} \\
   trainer.policy.model.path="$W8_BIAYN_MODEL_PATH" \\
   trainer.strategy=fsdp \\
   trainer.placement.colocate_all=true \\
@@ -429,6 +497,8 @@ def grpo_training_command(options: RenderOptions) -> str:
   trainer.placement.policy_num_gpus_per_node={options.gpu_count} \\
   trainer.placement.ref_num_nodes={options.num_nodes} \\
   trainer.placement.ref_num_gpus_per_node={options.gpu_count} \\
+  trainer.policy.fsdp_config.fsdp_size={options.gpu_count} \\
+  trainer.ref.fsdp_config.fsdp_size={options.gpu_count} \\
   trainer.logger={options.logger} \\
   trainer.epochs={options.train_epochs} \\
   trainer.eval_before_train={str(options.eval_before_train).lower()} \\
@@ -441,7 +511,7 @@ def grpo_training_command(options: RenderOptions) -> str:
   trainer.resume_mode={_skyrl_resume_mode(options.resume_from)} \\
   trainer.train_batch_size={options.train_batch_size} \\
   trainer.policy_mini_batch_size={options.train_batch_size} \\
-  trainer.micro_train_batch_size_per_gpu=1 \\
+  trainer.micro_train_batch_size_per_gpu={options.micro_train_batch_size_per_gpu} \\
   trainer.max_prompt_length=8192 \\
   generator.max_turns=1 \\
   generator.n_samples_per_prompt={options.n_samples_per_prompt} \\
@@ -453,6 +523,7 @@ def grpo_training_command(options: RenderOptions) -> str:
   generator.inference_engine.run_engines_locally=true \\
   generator.inference_engine.weight_sync_backend=nccl \\
   generator.inference_engine.async_engine=true \\
+  generator.inference_engine.gpu_memory_utilization={options.grpo_vllm_gpu_memory_utilization:g} \\
   generator.batched=false \\
   generator.sampling_params.max_generate_length=1024 \\
   generator.sampling_params.temperature=0.8"""
@@ -519,7 +590,7 @@ python -m w8_biayn.integrations.skyrl_sft_export_checkpoint_main \\
   --num-nodes {options.num_nodes} \\
   --num-gpus-per-node {options.gpu_count} \\
   --batch-size {options.train_batch_size} \\
-  --micro-train-batch-size-per-gpu 1 \\
+  --micro-train-batch-size-per-gpu {options.micro_train_batch_size_per_gpu} \\
   --max-length 8192 \\
   --logger {options.logger}
 """
@@ -538,7 +609,7 @@ python -m skyrl.train.main_sft \\
   placement.num_nodes={options.num_nodes} \\
   placement.num_gpus_per_node={options.gpu_count} \\
   batch_size={options.train_batch_size} \\
-  micro_train_batch_size_per_gpu=1 \\
+  micro_train_batch_size_per_gpu={options.micro_train_batch_size_per_gpu} \\
   num_epochs={options.train_epochs} \\
   max_length=8192 \\
   ckpt_path="$W8_CKPT_PATH" \\
@@ -581,14 +652,18 @@ def eval_run_script(options: RenderOptions) -> LiteralStr:
     return LiteralStr(
         training_prelude(options)
         + f"""export W8_EVAL_OUTPUT_DIR="/tmp/w8-cpp-eval-{options.run_id or 'manual'}"
-export W8_EVAL_MODEL="{options.model}"
+export W8_EVAL_MODEL="{options.effective_model}"
 rm -rf "$W8_EVAL_OUTPUT_DIR"
 mkdir -p "$W8_EVAL_OUTPUT_DIR"
 if [[ "$W8_EVAL_MODEL" == gs://* ]]; then
+  export W8_EVAL_MODEL_SOURCE="$W8_EVAL_MODEL"
+  export W8_EVAL_MODEL="$(resolve_gcs_model_export "$W8_EVAL_MODEL")"
+  echo "resolved GCS eval model export: $W8_EVAL_MODEL_SOURCE -> $W8_EVAL_MODEL"
   export W8_EVAL_LOCAL_MODEL="$W8_EVAL_OUTPUT_DIR/model"
   rm -rf "$W8_EVAL_LOCAL_MODEL"
   mkdir -p "$W8_EVAL_LOCAL_MODEL"
   gcloud storage cp --recursive "$W8_EVAL_MODEL/*" "$W8_EVAL_LOCAL_MODEL/"
+  assert_local_hf_model "$W8_EVAL_LOCAL_MODEL"
   export W8_EVAL_MODEL="$W8_EVAL_LOCAL_MODEL"
 fi
 docker run --rm --gpus all --network host --shm-size=32g \\
@@ -662,7 +737,7 @@ def render_sky_yaml(options: RenderOptions) -> str:
         "envs": {
             "W8_BIAYN_PIPELINE": options.pipeline,
             "W8_BIAYN_ARTIFACT_BUCKET": options.artifact_bucket,
-            "W8_BIAYN_MODEL": options.model,
+            "W8_BIAYN_MODEL": options.effective_model,
             "W8_BIAYN_DATA_GCS_PREFIX": options.data_gcs_prefix,
             "W8_BIAYN_RUN_ID": options.run_id or "",
             "W8_BIAYN_TOTAL_GPU_COUNT": str(options.total_gpu_count),
