@@ -253,6 +253,10 @@ def test_render_cpp_grpo_multinode_uses_total_rollout_engines_and_resume_mode():
     assert "generator.inference_engine.tensor_parallel_size=1" in run
     assert "generator.inference_engine.data_parallel_size=1" in run
     assert "trainer.resume_mode=latest" in run
+    assert "-e NCCL_IB_DISABLE=1" in run
+    assert '-e NCCL_SOCKET_IFNAME="^lo,docker,veth"' in run
+    assert '-e GLOO_SOCKET_IFNAME="^lo,docker,veth"' in run
+    assert "-e NCCL_DEBUG=WARN" in run
     assert '-e SKYPILOT_NODE_RANK="${SKYPILOT_NODE_RANK:-0}"' in run
     assert '-e SKYPILOT_NODE_IPS="${SKYPILOT_NODE_IPS:-}"' in run
     assert "if [ \"${SKYPILOT_NODE_RANK:-0}\" = \"0\" ]" in run
