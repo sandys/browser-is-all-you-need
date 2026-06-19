@@ -255,7 +255,8 @@ def test_render_cpp_grpo_multinode_uses_total_rollout_engines_and_resume_mode():
     assert "trainer.resume_mode=latest" in run
     assert "-e NCCL_IB_DISABLE=1" in run
     assert '-e NCCL_SOCKET_IFNAME="^lo,docker,veth"' in run
-    assert '-e GLOO_SOCKET_IFNAME="^lo,docker,veth"' in run
+    assert 'export W8_GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-$(ip route show default' in run
+    assert '-e GLOO_SOCKET_IFNAME="$W8_GLOO_SOCKET_IFNAME"' in run
     assert "-e NCCL_DEBUG=WARN" in run
     assert '-e SKYPILOT_NODE_RANK="${SKYPILOT_NODE_RANK:-0}"' in run
     assert '-e SKYPILOT_NODE_IPS="${SKYPILOT_NODE_IPS:-}"' in run

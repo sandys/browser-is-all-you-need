@@ -329,6 +329,7 @@ export W8_EXPORT_PATH="{options.export_path}"
 export W8_SFT_EXPORT_CHECKPOINT="{options.sft_export_checkpoint}"
 export SKYRL_RAY_PG_TIMEOUT_IN_S="${{SKYRL_RAY_PG_TIMEOUT_IN_S:-{SKYRL_RAY_PG_TIMEOUT_S}}}"
 export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${{SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-{SKYRL_WORKER_NCCL_TIMEOUT_S}}}"
+export W8_GLOO_SOCKET_IFNAME="${{GLOO_SOCKET_IFNAME:-$(ip route show default 2>/dev/null | awk '{{print $5; exit}}')}}"
 mkdir -p "$W8_DATA_DIR"
 rm -rf "$W8_ARTIFACT_DIR"
 mkdir -p "$W8_ARTIFACT_DIR/ckpts" "$W8_ARTIFACT_DIR/exports"
@@ -478,7 +479,7 @@ def training_container_prefix(options: RenderOptions) -> str:
   -e SKYRL_WORKER_NCCL_TIMEOUT_IN_S="$SKYRL_WORKER_NCCL_TIMEOUT_IN_S" \\
   -e NCCL_IB_DISABLE=1 \\
   -e NCCL_SOCKET_IFNAME="^lo,docker,veth" \\
-  -e GLOO_SOCKET_IFNAME="^lo,docker,veth" \\
+  -e GLOO_SOCKET_IFNAME="$W8_GLOO_SOCKET_IFNAME" \\
   -e NCCL_DEBUG=WARN \\
   -e SKYPILOT_NODE_RANK="${SKYPILOT_NODE_RANK:-0}" \\
   -e SKYPILOT_NODE_IPS="${SKYPILOT_NODE_IPS:-}" \\
