@@ -239,6 +239,31 @@ def test_extract_log_signals_reports_grpo_progress_bars():
     assert signals["evaluation_progress"]["percent"] == 100
 
 
+def test_extract_log_signals_reports_cpp_eval_scoring_progress():
+    signals = _extract_log_signals(
+        [
+            "W8 eval generation start: label=sft total=1035",
+            "W8 eval generation complete: label=sft total=1035",
+            "W8 eval scoring start: label=sft total=1035",
+            "W8 eval scoring progress: Evaluation Progress:  48%| 500/1035",
+        ]
+    )
+
+    assert signals["stage"] == "eval_scoring"
+    assert signals["evaluation_progress"] == {
+        "completed": 500,
+        "total": 1035,
+        "percent": 48,
+        "line": "W8 eval scoring progress: Evaluation Progress:  48%| 500/1035",
+    }
+    assert [event["stage"] for event in signals["stage_events"]] == [
+        "eval_generation",
+        "eval_generation",
+        "eval_scoring",
+        "eval_scoring",
+    ]
+
+
 def test_extract_log_signals_reports_training_and_generation_stages():
     signals = _extract_log_signals(
         [
@@ -342,6 +367,63 @@ def test_progress_summary_flags_grpo_entropy_collapse():
     assert progress["training_health"]["should_stop"] is True
     assert progress["training_health"]["reason"] == "entropy_collapse_zero_advantage_trap"
     assert progress["training_health"]["signals"]["policy_entropy"] == 0.00068
+
+
+def test_progress_summary_prefers_high_precision_policy_health_metrics():
+    signals = _extract_log_signals(
+        [
+            "2026-06-18 | INFO | {'policy_entropy': 8.228687511291355e-05, "
+            "'response_length': 1024.0, 'policy_loss': -0.0012181581696495414, "
+            "'grad_norm': 1.1297262972220778e-05}",
+            "2026-06-18 | INFO | Step 250: 'policy/policy_entropy': '0.0001', "
+            "'policy/grad_norm': '0.0000', 'policy/policy_loss': '-0.0012'",
+        ]
+    )
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=signals, artifacts={})
+
+    assert progress["metrics"]["policy/policy_entropy"] == 8.228687511291355e-05
+    assert progress["metrics"]["policy/grad_norm"] == 1.1297262972220778e-05
+    assert progress["training_health"]["signals"]["policy_entropy"] == 8.228687511291355e-05
+    assert progress["training_health"]["signals"]["grad_norm"] == 1.1297262972220778e-05
+
+
+def test_progress_summary_flags_deterministic_low_gradient_with_checkpoint():
+    signals = _extract_log_signals(
+        [
+            "2026-06-18 | INFO | {'policy_entropy': 9.5e-05, 'policy_loss': -0.0009, 'grad_norm': 1.5e-05}",
+            "2026-06-18 | INFO | {'policy_entropy': 7.3e-05, 'policy_loss': 0.0, 'grad_norm': 8.4e-06}",
+            "2026-06-18 | INFO | {'policy_entropy': 8.3e-05, 'policy_loss': -0.0, 'grad_norm': 5.3e-05}",
+            "'loss/avg_final_rewards': '0.9550', 'reward/avg_pass_at_8': '0.8750'",
+        ]
+    )
+    artifacts = {"checkpoint": {"latest": {"step": 250, "resumable": True}}}
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=signals, artifacts=artifacts)
+
+    assert progress["training_health"]["verdict"] == "deterministic_low_gradient"
+    assert progress["training_health"]["severity"] == "warning"
+    assert progress["training_health"]["should_stop"] is True
+    assert progress["training_health"]["reason"] == "low_entropy_low_gradient_plateau"
+    assert progress["training_health"]["signals"]["recent_low_gradient_events"] == 3
+    assert progress["training_health"]["signals"]["checkpoint_resumable"] is True
+
+
+def test_progress_summary_does_not_flag_single_low_gradient_event():
+    signals = _extract_log_signals(
+        [
+            "2026-06-18 | INFO | {'policy_entropy': 9.5e-05, 'policy_loss': -0.0009, 'grad_norm': 1.5e-05}",
+            "2026-06-18 | INFO | {'policy_entropy': 7.3e-05, 'policy_loss': 0.0, 'grad_norm': 0.022}",
+            "2026-06-18 | INFO | {'policy_entropy': 8.3e-05, 'policy_loss': -0.0, 'grad_norm': 0.051}",
+            "'loss/avg_final_rewards': '0.9550', 'reward/avg_pass_at_8': '0.8750'",
+        ]
+    )
+    artifacts = {"checkpoint": {"latest": {"step": 250, "resumable": True}}}
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=signals, artifacts=artifacts)
+
+    assert progress["training_health"]["verdict"] == "healthy_or_insufficient_collapse_signal"
+    assert progress["training_health"]["should_stop"] is False
 
 
 def test_sft_progress_summary_uses_last_step_metrics_and_expected_final_step():
@@ -546,6 +628,54 @@ def test_artifact_status_reports_in_progress_checkpoint(monkeypatch):
     assert checkpoint["highest"]["promoted"] is False
     assert checkpoint["in_progress"]["step"] == 700
     assert checkpoint["in_progress"]["resumable"] is False
+
+
+def test_artifact_status_reports_eval_output_files(monkeypatch):
+    def fake_ls(uri: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        assert uri == "gs://bucket/runs/cpp-perf/run/cpp-eval/**"
+        return (
+            "\n".join(
+                [
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/base.records.jsonl",
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/base.summary.json",
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/sft.records.jsonl",
+                ]
+            ),
+            {"name": f"ls:{uri}", "ok": True},
+        )
+
+    monkeypatch.setattr(run_status, "_storage_ls", fake_ls)
+
+    status = run_status._artifact_status(
+        pipeline="cpp-eval",
+        run_gcs_prefix="gs://bucket/runs/cpp-perf/run/cpp-eval",
+        env={},
+        expected_world_size=8,
+        expected_final_step=None,
+        timeout_s=1,
+        retries=0,
+        dry_run=False,
+    )
+
+    outputs = status["eval_outputs"]
+    assert outputs["labels"] == ["base", "sft"]
+    assert outputs["complete_labels"] == ["base"]
+    assert outputs["records"] == [
+        {
+            "label": "base",
+            "uri": "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/base.records.jsonl",
+        },
+        {
+            "label": "sft",
+            "uri": "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/sft.records.jsonl",
+        },
+    ]
+    assert outputs["summaries"] == [
+        {
+            "label": "base",
+            "uri": "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/base.summary.json",
+        }
+    ]
 
 
 def test_pipeline_state_reports_provisioning_before_checkpointed():
@@ -1112,6 +1242,28 @@ def test_parse_node_health_marks_skyrl_startup_activity():
     )
 
     assert payload["activity"] == "skyrl_startup"
+
+
+def test_parse_node_health_marks_cpp_eval_activity():
+    payload = run_status._parse_node_health(
+        "\n".join(
+            [
+                "__W8_GPU__",
+                "0, 0, 37247, 40960",
+                "__W8_DF__",
+                "Filesystem 1024-blocks Used Available Capacity Mounted on",
+                "/dev/root 1041235968 81766548 958664460 8% /",
+                "__W8_PS__",
+                "PID ELAPSED %CPU %MEM CMD",
+                (
+                    "28796 670 30.2 10.5 python -m w8_biayn.integrations.cpp_eval_main "
+                    "--data-dir /data --model /artifacts/model --label sft"
+                ),
+            ]
+        )
+    )
+
+    assert payload["activity"] == "evaluation"
 
 
 def test_parse_node_health_marks_policy_update_activity():

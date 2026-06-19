@@ -224,7 +224,7 @@ uv run w8-biayn launch cpp-sft \
 ```
 
 For the full official SFT setup above, `1074` is the expected final step for two epochs at batch size 16 on the current PIE bundle. Keep `--ckpt-interval 100` for recovery, but use a final-step `--hf-save-interval` unless you explicitly need intermediate HF model exports; `save_hf_model` is CPU/GCS-heavy and can leave the A100s idle for tens of minutes per export. If a resumed run changes the expected final step, update `--hf-save-interval` and the `ops run-status --expected-sft-final-step` value together.
-Pipeline defaults are per purpose: `cpp-smoke` uses `H100:8` and `zai-org/GLM-5.1`, `cpp-sft`/`cpp-grpo` use `A100:8` and `Qwen/Qwen2.5-Coder-7B-Instruct`, and `cpp-eval` uses `A100:1` and `Qwen/Qwen2.5-Coder-7B-Instruct`. Override `--model` and `--accelerators` explicitly when a run is meant to test another model or GPU shape.
+Pipeline defaults are per purpose: `cpp-smoke` uses `H100:8` and `zai-org/GLM-5.1`, `cpp-sft`/`cpp-grpo` use `A100:8` and `Qwen/Qwen2.5-Coder-7B-Instruct`, and `cpp-eval` uses `A100:1` and `Qwen/Qwen2.5-Coder-7B-Instruct`. Rendered training jobs request `128+` GB host memory; rendered eval jobs request `80+` GB so GCP single-A100 shapes are not filtered out before provisioning. Eval pins `vllm==0.6.6.post1`, `transformers==4.57.6`, and CUDA 12.4 PyTorch wheels because unpinned latest vLLM can select a CUDA 13 stack that the A2 driver cannot load. Override `--model` and `--accelerators` explicitly when a run is meant to test another model or GPU shape.
 
 Launch GRPO after SFT produces a usable export. Use the SFT export as `--model` when available:
 
@@ -289,7 +289,7 @@ uv run w8-biayn launch cpp-sft \
   --resume-from latest
 ```
 
-If the SkyRL checkpoint is complete but the HF export is incomplete, recover the export without another SFT epoch. Use a local artifact export path so the launcher uploads the finished HF directory back under `${RUN_GCS}/cpp-sft/exports`:
+If a SkyRL SFT checkpoint is complete but the HF export is incomplete, recover the export without another SFT epoch. Use a local artifact export path so the launcher uploads the finished HF directory back under `${RUN_GCS}/cpp-sft/exports`:
 
 ```bash
 uv run w8-biayn launch cpp-sft \
@@ -307,7 +307,23 @@ uv run w8-biayn launch cpp-sft \
 
 Verify recovery with `ops run-status`: `artifacts.export.final_export_exists` must be `true` and `artifacts.export.final_export.weight_object_count` must be greater than zero before GRPO uses the SFT export.
 
-When `--model` points at a `gs://` export for GRPO or eval, the launcher stages the model into a directory mounted inside the GPU container before invoking SkyRL or vLLM. Do not pass host-only staged paths into containerized training.
+The same export-only path can export a GRPO policy checkpoint for evaluation after an early stop. Pass the SFT HF export used to initialize GRPO as `--model`, and pass the GRPO checkpoint as `--export-checkpoint`; the launcher uploads the result under `${RUN_GCS}/cpp-grpo/exports`:
+
+```bash
+uv run w8-biayn launch cpp-grpo \
+  --credentials .gcp-service-account.json \
+  --dataset-gcs-prefix "${DATA_GCS}" \
+  --run-id "${RUN_ID}" \
+  --model "${RUN_GCS}/cpp-sft/exports/global_step_1074/policy" \
+  --accelerators A100:8 \
+  --disk-size 1024 \
+  --train-batch-size 16 \
+  --export-path "~/exports/" \
+  --export-checkpoint "${RUN_GCS}/cpp-grpo/ckpts/global_step_250" \
+  --no-down-after
+```
+
+When `--model` points at a `gs://` export for GRPO or eval, the launcher stages the model into a directory mounted inside the GPU container before invoking SkyRL or vLLM. During staging it normalizes legacy exported tokenizer configs by moving an `extra_special_tokens` list to `additional_special_tokens`, which current Transformers can load. Eval uses the mounted staged path directly; it must not copy the same HF export a second time inside the container. Do not pass host-only staged paths into containerized training. Warm-cluster reruns skip dataset restore only when the local marker matches the requested `--dataset-gcs-prefix` and the manifest/tasks are still present.
 
 GRPO does not require PMU access or Linux perf counters. The required host capability is Docker-outside-Docker plus enough CPU stability for the runtime harness to compare candidate and oracle binaries consistently.
 
@@ -341,7 +357,7 @@ uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regi
 
 For a rerun or cluster-size experiment, pass one or more prior snapshots with `--baseline-status ".w8-biayn/runs/<baseline-run-id>/status.json"` so the JSON includes `speed_comparison` for training-step and rollout throughput. Interpret speedup factors directly: greater than `1.0` is faster than the baseline, less than `1.0` is slower, and `gpu_speedup_efficiency` is the speedup divided by the GPU scale factor. A `cost_verdict` of `cost_inefficient` means the current run used more GPUs without increasing the primary comparable throughput.
 
-`ops run-status` emits `w8-run-status-v1` JSON for dashboards and polling loops. It includes dataset manifest state, per-pipeline cluster/job state, labeled GCP instances, checkpoint marker and shard completeness for the promoted `latest` checkpoint, highest checkpoint directory, active `in_progress` checkpoint upload, export readiness including final export object counts/bytes and model weight presence, recent log-derived stage/step/checkpoint/export/error signals, normalized phase/progress/resource/command fields, SFT config/last-step progress including micro train batch and SkyRL timeout settings, GRPO config (`effective_samples_per_step`, total GPUs, samples/GPU/step, micro train batch, KL/entropy settings, vLLM GPU memory utilization, checkpoint retention, reward workers, FSDP sizes, HSDP mesh/activity, SkyRL timeout settings), trajectory/evaluation/training throughput, GPU-normalized throughput, ETA/timing metrics, reward metrics, GRPO `training_health` collapse verdicts, bottleneck verdicts from SkyRL timing, optional `speed_comparison` against prior `--baseline-status` snapshots, and cleanup safety. Config fields are merged from logs and the local rendered YAML, with `logs.config_sources` and `logs.rendered_config_path`, so long-running dashboards keep stable batch/checkpoint/FSDP settings even after the launch command scrolls out of the log tail. Pass `--node-health` for opt-in read-only SSH health with GPU utilization/memory, disk free space, top processes, a derived node activity, and an explicit `sample_scope` so dashboards do not mistake head-only probes for whole-cluster telemetry. Logs include `tail_lines_requested`, `tail_lines_scanned`, and `tail_may_be_truncated`; treat a truncated tail as a hint to increase `--log-tail` before drawing conclusions from stage parsing. Each backend/GCS/health check is listed with its command, return code, `timed_out`, and `attempt_count`; tune per-check timeout with `--check-timeout` and retry timed-out read-only checks with `--check-retries`.
+`ops run-status` emits `w8-run-status-v1` JSON for dashboards and polling loops. It includes dataset manifest state, per-pipeline cluster/job state, labeled GCP instances, checkpoint marker and shard completeness for the promoted `latest` checkpoint, highest checkpoint directory, active `in_progress` checkpoint upload, export readiness including final export object counts/bytes and model weight presence, recent log-derived stage/step/checkpoint/export/error signals, normalized phase/progress/resource/command fields, SFT config/last-step progress including micro train batch and SkyRL timeout settings, GRPO config (`effective_samples_per_step`, total GPUs, samples/GPU/step, micro train batch, KL/entropy settings, vLLM GPU memory utilization, checkpoint retention, reward workers, FSDP sizes, HSDP mesh/activity, SkyRL timeout settings), cpp-eval generation/scoring progress, trajectory/evaluation/training throughput, GPU-normalized throughput, ETA/timing metrics, reward metrics, GRPO `training_health` collapse verdicts, bottleneck verdicts from SkyRL timing, optional `speed_comparison` against prior `--baseline-status` snapshots, and cleanup safety. Config fields are merged from logs and the local rendered YAML, with `logs.config_sources` and `logs.rendered_config_path`, so long-running dashboards keep stable batch/checkpoint/FSDP settings even after the launch command scrolls out of the log tail. Pass `--node-health` for opt-in read-only SSH health with GPU utilization/memory, disk free space, top processes, a derived node activity, and an explicit `sample_scope` so dashboards do not mistake head-only probes for whole-cluster telemetry. Logs include `tail_lines_requested`, `tail_lines_scanned`, and `tail_may_be_truncated`; treat a truncated tail as a hint to increase `--log-tail` before drawing conclusions from stage parsing. Each backend/GCS/health check is listed with its command, return code, `timed_out`, and `attempt_count`; tune per-check timeout with `--check-timeout` and retry timed-out read-only checks with `--check-retries`.
 
 ### Run Status JSON Structure
 
@@ -369,7 +385,7 @@ root
       run_gcs_prefix, checks[]
       checkpoint: {prefix, latest_marker, steps[], latest, highest, in_progress}
       export: {prefix, steps[], expected_final_step, final_export_prefix, final_export_exists, final_export}
-      eval_outputs: {prefix, objects[]}          # cpp-eval only
+      eval_outputs: {prefix, objects[], records[], summaries[], labels[], complete_labels[]}  # cpp-eval only
     logs
       stage, stage_events[], last_step, last_loss, last_eval_loss
       trajectory_progress, evaluation_progress, training_progress
@@ -391,7 +407,7 @@ root
   cleanup: {safe_to_cleanup, active_job_count, active_instance_count, provisioning_instance_count, working_pipeline_count, commands}
 ```
 
-Each `checks[]` entry has `name`, `command[]`, `ok`, `returncode`, `skipped`, `timed_out`, `attempt_count`, and optional stdout/stderr tails. The checkpoint detail objects (`latest`, `highest`, and `in_progress`) contain `prefix`, `step`, `promoted`, `trainer_state_present`, `expected_world_size`, rank counts, world sizes, ranks, object counts, byte totals, and `resumable`. When an active job has an incomplete higher checkpoint than the promoted `latest`, `phase.source` becomes `artifacts` and `phase.artifact_activity` reports `checkpoint_stage`, which protects dashboards from stale or truncated log tails. The export detail object contains object counts, byte totals, config/tokenizer/weight presence, `weight_object_count`, sampled object URIs, and `complete`. `training_health.verdict=collapsed` with `should_stop=true` means GRPO metrics match the terminal entropy-collapse/zero-advantage pattern and the operator should stop the run rather than waiting for recovery. `recovery.available=true` means a failed/canceled checkpointed training job has a machine-readable next action; `recommended_action=fresh_cluster_resume` means the latest checkpoint is resumable but the failed job has distributed-state or interrupted-export signals, so tear down the cluster before relaunching with `--resume-from latest`. `speed_comparison.primary` is present only when `--baseline-status` yields comparable throughput; factors greater than `1.0` are faster, factors less than `1.0` are slower, and `cost_verdict=cost_inefficient` means extra GPUs did not improve the primary comparable throughput. `cleanup.safe_to_cleanup=false` means do not tear the run down automatically.
+Each `checks[]` entry has `name`, `command[]`, `ok`, `returncode`, `skipped`, `timed_out`, `attempt_count`, and optional stdout/stderr tails. The checkpoint detail objects (`latest`, `highest`, and `in_progress`) contain `prefix`, `step`, `promoted`, `trainer_state_present`, `expected_world_size`, rank counts, world sizes, ranks, object counts, byte totals, and `resumable`. When an active job has an incomplete higher checkpoint than the promoted `latest`, `phase.source` becomes `artifacts` and `phase.artifact_activity` reports `checkpoint_stage`, which protects dashboards from stale or truncated log tails. The export detail object contains object counts, byte totals, config/tokenizer/weight presence, `weight_object_count`, sampled object URIs, and `complete`. `eval_outputs.records[]` and `eval_outputs.summaries[]` expose uploaded eval artifacts by label; `complete_labels[]` contains labels that have both a records JSONL and summary JSON. `training_health.verdict=collapsed` with `should_stop=true` means GRPO metrics match the terminal entropy-collapse/zero-advantage pattern and the operator should stop the run rather than waiting for recovery. `training_health.verdict=deterministic_low_gradient` with `should_stop=true` means recent raw trainer metrics show very low entropy and tiny gradients while a resumable checkpoint exists; stop and evaluate that checkpoint before spending more GPU time. `recovery.available=true` means a failed/canceled checkpointed training job has a machine-readable next action; `recommended_action=fresh_cluster_resume` means the latest checkpoint is resumable but the failed job has distributed-state or interrupted-export signals, so tear down the cluster before relaunching with `--resume-from latest`. `speed_comparison.primary` is present only when `--baseline-status` yields comparable throughput; factors greater than `1.0` are faster, factors less than `1.0` are slower, and `cost_verdict=cost_inefficient` means extra GPUs did not improve the primary comparable throughput. `cleanup.safe_to_cleanup=false` means do not tear the run down automatically.
 
 ## Uplift Evaluation
 
@@ -429,7 +445,7 @@ uv run w8-biayn launch cpp-eval \
   --eval-max-tasks 200
 ```
 
-`cpp-eval` stages `gs://` model exports to local VM storage before loading vLLM. If the model is an export root with multiple `global_step_*` directories, the launcher resolves the highest complete `global_step_N/policy` export and validates that the staged local directory has `config.json` and model weights before vLLM starts. Eval artifacts are uploaded to:
+`cpp-eval` stages `gs://` model exports to local VM storage before loading vLLM, normalizes legacy tokenizer config shape if needed, and mounts that staged directory into the eval container. If the model is an export root with multiple `global_step_*` directories, the launcher resolves the highest complete `global_step_N/policy` export and validates that the staged local directory has `config.json` and model weights before vLLM starts. After generation, `cpp_eval_main` releases the vLLM object and CUDA cache before CPU/Docker scoring, then emits `W8 eval generation ...` and `W8 eval scoring ...` markers that `ops run-status` maps to `eval_generation`, `eval_scoring`, and `progress.evaluation`. On a warm cluster, dataset restore is skipped only when the stored prefix marker matches the requested dataset prefix and the local manifest/tasks are present. Eval artifacts are uploaded to:
 
 ```text
 gs://<project>-w8-biayn/runs/cpp-perf/<RUN_ID>/cpp-eval/
@@ -494,7 +510,7 @@ src/w8_biayn/integrations/cpp_perf_env.py    SkyRL environment adapter
 src/w8_biayn/integrations/skyrl_cpp_perf_main.py
                                                SkyRL GRPO entrypoint glue
 src/w8_biayn/integrations/skyrl_sft_export_checkpoint_main.py
-                                               SFT checkpoint HF export recovery
+                                               SkyRL policy checkpoint HF export recovery
 src/w8_biayn/integrations/skyrl_io_patch.py    SkyRL checkpoint download compatibility patch
 src/w8_biayn/integrations/cpp_eval_main.py   vLLM eval generation and scoring
 src/w8_biayn/run_status.py                   ops run-status JSON snapshots

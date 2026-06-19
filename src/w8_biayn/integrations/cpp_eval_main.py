@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from pathlib import Path
 from typing import Any
@@ -32,14 +33,22 @@ def main() -> None:
         max_tokens=args.max_tokens,
     )
     prompts = [_prompt_text(row) for row in rows]
+    print(f"W8 eval generation start: label={args.label} total={len(prompts)}", flush=True)
     outputs = llm.generate(prompts, sampling)
+    print(f"W8 eval generation complete: label={args.label} total={len(outputs)}", flush=True)
+    del llm
+    _release_cuda_memory()
 
     records_path = output_dir / f"{args.label}.records.jsonl"
     records: list[dict[str, Any]] = []
+    total_samples = sum(len(request_output.outputs) for request_output in outputs)
+    scored_samples = 0
+    print(f"W8 eval scoring start: label={args.label} total={total_samples}", flush=True)
     with records_path.open("w", encoding="utf-8") as handle:
         for row, request_output in zip(rows, outputs, strict=True):
             task = CppTask.read_json(Path(args.data_dir) / row["extra_info"]["task_path"])
             for sample_index, generated in enumerate(request_output.outputs):
+                scored_samples += 1
                 record = score_generation(
                     task,
                     generated.text,
@@ -51,9 +60,17 @@ def main() -> None:
                 records.append(record)
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
                 handle.flush()
+                if scored_samples == 1 or scored_samples == total_samples or scored_samples % 25 == 0:
+                    percent = int(scored_samples * 100 / total_samples) if total_samples else 100
+                    print(
+                        "W8 eval scoring progress: "
+                        f"Evaluation Progress: {percent:3d}%| {scored_samples}/{total_samples}",
+                        flush=True,
+                    )
     summary = aggregate_eval_records(records, label=args.label)
     summary.pop("best_records", None)
     write_json(output_dir / f"{args.label}.summary.json", summary)
+    print(f"W8 eval scoring complete: label={args.label} total={total_samples}", flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -119,6 +136,18 @@ def _prompt_text(row: dict[str, Any]) -> str:
         if isinstance(first, dict):
             return str(first.get("content", ""))
     return str(prompt)
+
+
+def _release_cuda_memory() -> None:
+    """Best-effort release of vLLM GPU memory before CPU/Docker scoring."""
+
+    gc.collect()
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":

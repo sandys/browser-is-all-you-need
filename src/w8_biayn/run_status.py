@@ -43,6 +43,8 @@ STAGE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("weight_sync", re.compile(r"(init_weight_sync_state|sync_weights|Initialized weight sync state)", re.IGNORECASE)),
     ("checkpoint_load", re.compile(r"(load_checkpoint|Loading checkpoint|Loaded checkpoint|restore checkpoint)", re.IGNORECASE)),
     ("checkpoint_stage", re.compile(r"(Started: 'save_checkpoint'|Saving checkpoint at step|Checkpoint saved for global_step_|Finished: 'save_checkpoint')", re.IGNORECASE)),
+    ("eval_generation", re.compile(r"W8 eval generation (start|complete)", re.IGNORECASE)),
+    ("eval_scoring", re.compile(r"W8 eval scoring (start|progress|complete)", re.IGNORECASE)),
     ("trajectory_generation", re.compile(r"(Generating Trajectories:|Started: 'generate'|Finished: 'generate'|Capping concurrency for generation)", re.IGNORECASE)),
     ("training", re.compile(r"(Training Batches Processed:|Started: 'step'|Finished: 'step')", re.IGNORECASE)),
     ("evaluation", re.compile(r"Evaluation Progress:", re.IGNORECASE)),
@@ -66,6 +68,8 @@ DISTRIBUTED_STATE_FAILURE_RE = re.compile(
 EXPORT_RECOVERY_STAGES = {"hf_export", "artifact_upload", "export_entrypoint"}
 CHECKPOINT_DIR_RE = re.compile(r"/global_step_(\d+)/?$")
 RANK_RE = re.compile(r"/(model|optim|extra_state)_world_size_(\d+)_rank_(\d+)\.pt$")
+EVAL_RECORD_RE = re.compile(r"/([^/]+)\.records\.jsonl$")
+EVAL_SUMMARY_RE = re.compile(r"/([^/]+)\.summary\.json$")
 GSUTIL_OBJECT_RE = re.compile(r"^\s*(\d+)\s+(\S+)\s+(gs://\S+)$")
 GSUTIL_TOTAL_RE = re.compile(r"^TOTAL:\s+(\d+)\s+objects?,\s+(\d+)\s+bytes")
 MODEL_WEIGHT_SUFFIXES = (".safetensors", ".bin")
@@ -86,6 +90,8 @@ STAGE_GROUPS = {
     "weight_sync": "synchronization",
     "trajectory_generation": "rollout",
     "rollout_inference": "rollout",
+    "eval_generation": "evaluation",
+    "eval_scoring": "evaluation",
     "reward_compile": "reward",
     "reward_benchmark": "reward",
     "docker_runtime": "reward",
@@ -113,6 +119,8 @@ STAGE_PRIORITY = {
     "policy_update": 65,
     "trajectory_generation": 60,
     "rollout_inference": 60,
+    "eval_scoring": 58,
+    "eval_generation": 57,
     "evaluation": 55,
     "weight_sync": 50,
     "model_init": 45,
@@ -162,6 +170,16 @@ CONFIG_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 METRIC_RE = re.compile(
     r"['\"]?([A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+|batch_num_seq|batch_padded_seq_len)['\"]?\s*:\s*['\"]?([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
 )
+TRAINER_POLICY_METRIC_RE = re.compile(
+    r"['\"](policy_entropy|grad_norm|policy_loss|response_length)['\"]\s*:\s*"
+    r"([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+)
+TRAINER_POLICY_METRIC_KEYS = {
+    "policy_entropy": "policy/policy_entropy",
+    "grad_norm": "policy/grad_norm",
+    "policy_loss": "policy/policy_loss",
+    "response_length": "policy/response_length",
+}
 NODE_HEALTH_CMD = (
     "set +e; "
     "echo __W8_GPU__; "
@@ -615,19 +633,37 @@ def _artifact_status(
             payload["checks"].extend(final_export_detail.pop("checks", []))
     if pipeline == "cpp-eval":
         eval_listing, eval_check = _storage_ls(
-            f"{run_gcs_prefix}/",
+            f"{run_gcs_prefix}/**",
             env=env,
             long=False,
             timeout_s=timeout_s,
             retries=retries,
             dry_run=dry_run,
         )
-        payload["eval_outputs"] = {
-            "prefix": run_gcs_prefix,
-            "objects": _gs_uris(eval_listing),
-        }
+        payload["eval_outputs"] = _eval_output_detail(run_gcs_prefix, eval_listing)
         payload["checks"].append(eval_check)
     return payload
+
+
+def _eval_output_detail(prefix: str, listing: str) -> dict[str, Any]:
+    objects = _gs_uris(listing)
+    records = []
+    summaries = []
+    for uri in objects:
+        if record_match := EVAL_RECORD_RE.search(uri):
+            records.append({"label": record_match.group(1), "uri": uri})
+        if summary_match := EVAL_SUMMARY_RE.search(uri):
+            summaries.append({"label": summary_match.group(1), "uri": uri})
+    record_labels = {item["label"] for item in records}
+    summary_labels = {item["label"] for item in summaries}
+    return {
+        "prefix": prefix,
+        "objects": objects,
+        "records": records,
+        "summaries": summaries,
+        "labels": sorted(record_labels | summary_labels),
+        "complete_labels": sorted(record_labels & summary_labels),
+    }
 
 
 def _export_detail(
@@ -803,6 +839,7 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
     }
     config: dict[str, Any] = {}
     metrics: dict[str, Any] = {}
+    policy_health_events: list[dict[str, float]] = []
     for line in lines:
         stage_matches = _stage_matches(line)
         if stage_matches:
@@ -811,6 +848,8 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
         _record_config_matches(config, line)
         for metric_match in METRIC_RE.finditer(line):
             _record_metric(metrics, metric_match.group(1), float(metric_match.group(2)))
+        if policy_health_event := _parse_policy_health_event(line):
+            policy_health_events.append(policy_health_event)
         if step_match := STEP_RE.search(line):
             last_step = int(step_match.group(1))
         if loss_match := LOSS_RE.search(line):
@@ -870,6 +909,11 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
     for key, value in list(timings.items()):
         if isinstance(value, list):
             timings[key] = value[-20:]
+    if policy_health_events:
+        for key, value in policy_health_events[-1].items():
+            canonical = TRAINER_POLICY_METRIC_KEYS.get(key)
+            if canonical:
+                metrics[canonical] = int(value) if value.is_integer() else value
     return {
         "stage": "failed" if errors else stage,
         "stage_events": stage_events[-20:],
@@ -884,6 +928,7 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
         "timings": timings,
         "config": config,
         "metrics": metrics,
+        "policy_health_events": policy_health_events[-20:],
         "errors": errors[-20:],
     }
 
@@ -926,6 +971,15 @@ def _record_config_matches(config: dict[str, Any], line: str) -> None:
     for key, pattern in CONFIG_PATTERNS:
         if config_match := pattern.search(line):
             config[key] = _parse_config_value(config_match.group(1))
+
+
+def _parse_policy_health_event(line: str) -> dict[str, float]:
+    event: dict[str, float] = {}
+    for match in TRAINER_POLICY_METRIC_RE.finditer(line):
+        event[match.group(1)] = float(match.group(2))
+    if "policy_entropy" not in event and "grad_norm" not in event and "policy_loss" not in event:
+        return {}
+    return event
 
 
 def _parse_config_value(value: str) -> int | float | bool | str:
@@ -1125,6 +1179,8 @@ def _derive_node_activity(processes: list[dict[str, Any]]) -> str | None:
         return "policy_forward"
     if "vllm::enginecore" in commands:
         return "rollout_inference"
+    if "cpp_eval_main" in commands:
+        return "evaluation"
     if "skyrl_cpp_perf_main" in commands or "skyrl_entrypoint" in commands:
         return "skyrl_startup"
     if "unpigz" in commands:
@@ -1619,7 +1675,12 @@ def _progress_summary(
         "grpo_config": grpo_config,
         "sft_config": sft_config,
         "metrics": metrics,
-        "training_health": _training_health_summary(pipeline=pipeline, metrics=metrics),
+        "training_health": _training_health_summary(
+            pipeline=pipeline,
+            metrics=metrics,
+            policy_health_events=log_signals.get("policy_health_events"),
+            checkpoint_artifacts=artifacts.get("checkpoint") if isinstance(artifacts, dict) else None,
+        ),
         "bottleneck": _bottleneck_summary(metrics=metrics, timings=timings),
         "throughput": throughput,
     }
@@ -1738,7 +1799,13 @@ def _grpo_config_summary(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _training_health_summary(*, pipeline: str, metrics: dict[str, Any]) -> dict[str, Any]:
+def _training_health_summary(
+    *,
+    pipeline: str,
+    metrics: dict[str, Any],
+    policy_health_events: Any = None,
+    checkpoint_artifacts: Any = None,
+) -> dict[str, Any]:
     if pipeline != "cpp-grpo":
         return {"available": False, "reason": "pipeline_has_no_grpo_policy_health"}
     reward_metrics = metrics.get("reward") if isinstance(metrics.get("reward"), dict) else {}
@@ -1790,6 +1857,32 @@ def _training_health_summary(*, pipeline: str, metrics: dict[str, Any]) -> dict[
             "signals": signals,
             "message": "GRPO entropy is very low while rewards are pinned at the floor; inspect samples and gradients.",
         }
+    recent_events = _recent_policy_health_events(policy_health_events)
+    recent_low_gradient = [
+        event
+        for event in recent_events[-5:]
+        if _to_float(event.get("policy_entropy")) is not None
+        and _to_float(event.get("grad_norm")) is not None
+        and float(event["policy_entropy"]) <= 1e-3
+        and abs(float(event["grad_norm"])) <= 1e-4
+    ]
+    checkpoint_resumable = _has_resumable_checkpoint(checkpoint_artifacts)
+    if len(recent_low_gradient) >= 3:
+        signals["recent_low_gradient_events"] = len(recent_low_gradient)
+        signals["recent_policy_health_event_count"] = min(len(recent_events), 5)
+        signals["checkpoint_resumable"] = checkpoint_resumable
+        return {
+            "available": True,
+            "verdict": "deterministic_low_gradient",
+            "severity": "warning",
+            "should_stop": checkpoint_resumable,
+            "reason": "low_entropy_low_gradient_plateau",
+            "signals": signals,
+            "message": (
+                "GRPO policy entropy and gradients are near zero across recent trainer events. "
+                "If a complete checkpoint is available, stop training and evaluate that checkpoint before spending more GPU time."
+            ),
+        }
     return {
         "available": True,
         "verdict": "healthy_or_insufficient_collapse_signal",
@@ -1798,6 +1891,26 @@ def _training_health_summary(*, pipeline: str, metrics: dict[str, Any]) -> dict[
         "reason": "collapse_guard_not_triggered",
         "signals": signals,
     }
+
+
+def _recent_policy_health_events(value: Any) -> list[dict[str, float]]:
+    if not isinstance(value, list):
+        return []
+    events = []
+    for item in value:
+        if isinstance(item, dict):
+            events.append(item)
+    return events
+
+
+def _has_resumable_checkpoint(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for key in ("latest", "highest"):
+        item = value.get(key)
+        if isinstance(item, dict) and item.get("resumable") is True:
+            return True
+    return False
 
 
 def _fsdp_mesh_shape(*, total_gpu_count: int | None, fsdp_size: int | None) -> dict[str, int] | None:

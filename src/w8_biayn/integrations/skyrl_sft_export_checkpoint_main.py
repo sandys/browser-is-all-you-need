@@ -1,4 +1,4 @@
-"""Export a SkyRL SFT FSDP checkpoint to HuggingFace format."""
+"""Export a SkyRL FSDP policy checkpoint to HuggingFace format."""
 
 from __future__ import annotations
 
@@ -38,9 +38,9 @@ def main() -> None:
         or SFTTrainer is None
         or initialize_ray is None
     ):
-        raise ImportError("SkyRL is required to export SFT checkpoints")
+        raise ImportError("SkyRL is required to export policy checkpoints")
 
-    parser = argparse.ArgumentParser(description="Export a SkyRL SFT checkpoint to HF format.")
+    parser = argparse.ArgumentParser(description="Export a SkyRL policy checkpoint to HF format.")
     parser.add_argument("--model", required=True, help="Base HF model path used to initialize the FSDP workers.")
     parser.add_argument("--checkpoint", required=True, help="SkyRL global_step_N checkpoint directory.")
     parser.add_argument("--export-path", required=True, help="Local HF export root.")
@@ -64,8 +64,8 @@ def main() -> None:
     cfg.num_steps = 1
     cfg.num_epochs = None
     cfg.logger = args.logger
-    cfg.project_name = "w8_biayn_cpp_sft_export"
-    cfg.run_name = "cpp-sft-export"
+    cfg.project_name = "w8_biayn_cpp_policy_export"
+    cfg.run_name = "cpp-policy-export"
     cfg.ckpt_path = ""
     cfg.ckpt_interval = 0
     cfg.hf_save_interval = 1

@@ -12,6 +12,8 @@ from .cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE
 from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
+    DEFAULT_CPP_EVAL_TRANSFORMERS_VERSION,
+    DEFAULT_CPP_EVAL_VLLM_VERSION,
     DEFAULT_CPP_MODEL,
     DEFAULT_CPP_SMOKE_ACCELERATORS,
     DEFAULT_CPP_TRAIN_MODEL,
@@ -147,6 +149,12 @@ class RenderOptions:
         if self.pipeline in {"cpp-sft", "cpp-grpo", "cpp-eval"}:
             return 1024
         return 256
+
+    @property
+    def effective_memory(self) -> str:
+        if self.pipeline == "cpp-eval":
+            return "80+"
+        return "128+"
 
     @property
     def eval_gcs_prefix(self) -> str:
@@ -337,9 +345,17 @@ if ! command -v gcloud >/dev/null 2>&1; then
 fi
 resolve_gcs_model_export() {{
   local source="${{1%/}}"
+  has_gcs_policy_weights() {{
+    local candidate="${{1%/}}"
+    gcloud storage ls "$candidate/*.safetensors" >/dev/null 2>&1 || gcloud storage ls "$candidate/pytorch_model*.bin" >/dev/null 2>&1 || gcloud storage ls "$candidate/model*.bin" >/dev/null 2>&1
+  }}
   if [[ "$source" =~ /global_step_[0-9]+/policy$ ]]; then
-    echo "$source"
-    return 0
+    if has_gcs_policy_weights "$source"; then
+      echo "$source"
+      return 0
+    fi
+    echo "no model weight files found under concrete HF policy export $source" >&2
+    return 2
   fi
   local steps=()
   mapfile -t steps < <(gcloud storage ls "$source/" 2>/dev/null | sed -n 's#.*/global_step_\\([0-9][0-9]*\\)/$#\\1#p' | sort -nr)
@@ -350,7 +366,7 @@ resolve_gcs_model_export() {{
   local step
   for step in "${{steps[@]}}"; do
     local candidate="$source/global_step_${{step}}/policy"
-    if gcloud storage ls "$candidate/*.safetensors" >/dev/null 2>&1 || gcloud storage ls "$candidate/pytorch_model*.bin" >/dev/null 2>&1 || gcloud storage ls "$candidate/model*.bin" >/dev/null 2>&1; then
+    if has_gcs_policy_weights "$candidate"; then
       echo "$candidate"
       return 0
     fi
@@ -366,12 +382,51 @@ assert_local_hf_model() {{
     return 2
   fi
 }}
+normalize_local_hf_tokenizer_config() {{
+  local model_dir=$1
+  local tokenizer_config="$model_dir/tokenizer_config.json"
+  if [ ! -f "$tokenizer_config" ]; then
+    return 0
+  fi
+  python3 - "$tokenizer_config" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+extra = data.get("extra_special_tokens")
+if not isinstance(extra, list):
+    raise SystemExit(0)
+additional = data.get("additional_special_tokens", [])
+if not isinstance(additional, list):
+    additional = []
+merged = list(additional)
+for token in extra:
+    if token not in merged:
+        merged.append(token)
+data["additional_special_tokens"] = merged
+data.pop("extra_special_tokens", None)
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\\n")
+print(f"normalized tokenizer_config extra_special_tokens list into additional_special_tokens for {{path.parent}}")
+PY
+}}
 """
-    if options.pipeline == "cpp-sft" and options.sft_export_checkpoint:
-        data_restore = """echo "cpp-sft export-only: skipping dataset restore"
+    if options.sft_export_checkpoint:
+        data_restore = f"""echo "{options.pipeline} export-only: skipping dataset restore"
 """
     else:
-        data_restore = """gcloud storage cp --recursive "$W8_DATA_GCS_PREFIX/*" "$W8_DATA_DIR/"
+        data_restore = """if [ -f "$W8_DATA_DIR/.w8_data_gcs_prefix" ] \\
+  && [ "$(cat "$W8_DATA_DIR/.w8_data_gcs_prefix")" = "$W8_DATA_GCS_PREFIX" ] \\
+  && [ -f "$W8_DATA_DIR/_w8_data_manifest.json" ] \\
+  && [ -d "$W8_DATA_DIR/tasks" ]; then
+  echo "dataset cache already restored for $W8_DATA_GCS_PREFIX"
+else
+  rm -rf "$W8_DATA_DIR"
+  mkdir -p "$W8_DATA_DIR"
+  gcloud storage cp --recursive "$W8_DATA_GCS_PREFIX/*" "$W8_DATA_DIR/"
+  printf '%s\\n' "$W8_DATA_GCS_PREFIX" > "$W8_DATA_DIR/.w8_data_gcs_prefix"
+fi
 test -f "$W8_DATA_DIR/_w8_data_manifest.json"
 test -d "$W8_DATA_DIR/tasks"
 """
@@ -388,6 +443,7 @@ if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
   mkdir -p "$W8_LOCAL_MODEL_DIR"
   gcloud storage cp --recursive "$W8_BIAYN_MODEL_PATH/*" "$W8_LOCAL_MODEL_DIR/"
   assert_local_hf_model "$W8_LOCAL_MODEL_DIR"
+  normalize_local_hf_tokenizer_config "$W8_LOCAL_MODEL_DIR"
   export W8_BIAYN_MODEL_PATH="/artifacts/model"
 fi
 docker pull "$W8_GPU_CONTAINER_IMAGE"
@@ -579,9 +635,8 @@ else
 fi"""
 
 
-def sft_run_script(options: RenderOptions) -> LiteralStr:
-    if options.sft_export_checkpoint:
-        run_body = f"""
+def export_checkpoint_run_body(options: RenderOptions) -> str:
+    return f"""
 test -n "$W8_SFT_EXPORT_CHECKPOINT"
 python -m w8_biayn.integrations.skyrl_sft_export_checkpoint_main \\
   --model "$W8_BIAYN_MODEL_PATH" \\
@@ -594,6 +649,11 @@ python -m w8_biayn.integrations.skyrl_sft_export_checkpoint_main \\
   --max-length 8192 \\
   --logger {options.logger}
 """
+
+
+def sft_run_script(options: RenderOptions) -> LiteralStr:
+    if options.sft_export_checkpoint:
+        run_body = export_checkpoint_run_body(options)
     else:
         run_body = f"""
 test -f /data/sft/train.jsonl
@@ -632,6 +692,14 @@ python -m skyrl.train.main_sft \\
 
 
 def grpo_run_script(options: RenderOptions) -> LiteralStr:
+    if options.sft_export_checkpoint:
+        return LiteralStr(
+            training_prelude(options)
+            + training_container_prefix(options)
+            + export_checkpoint_run_body(options)
+            + "\n'\n"
+            + training_artifact_upload_script()
+        )
     train_command = grpo_multinode_ray_script(options, grpo_training_command(options))
     return LiteralStr(
         training_prelude(options)
@@ -652,19 +720,12 @@ def eval_run_script(options: RenderOptions) -> LiteralStr:
     return LiteralStr(
         training_prelude(options)
         + f"""export W8_EVAL_OUTPUT_DIR="/tmp/w8-cpp-eval-{options.run_id or 'manual'}"
-export W8_EVAL_MODEL="{options.effective_model}"
+export W8_EVAL_MODEL="$W8_BIAYN_MODEL_PATH"
 rm -rf "$W8_EVAL_OUTPUT_DIR"
 mkdir -p "$W8_EVAL_OUTPUT_DIR"
 if [[ "$W8_EVAL_MODEL" == gs://* ]]; then
-  export W8_EVAL_MODEL_SOURCE="$W8_EVAL_MODEL"
-  export W8_EVAL_MODEL="$(resolve_gcs_model_export "$W8_EVAL_MODEL")"
-  echo "resolved GCS eval model export: $W8_EVAL_MODEL_SOURCE -> $W8_EVAL_MODEL"
-  export W8_EVAL_LOCAL_MODEL="$W8_EVAL_OUTPUT_DIR/model"
-  rm -rf "$W8_EVAL_LOCAL_MODEL"
-  mkdir -p "$W8_EVAL_LOCAL_MODEL"
-  gcloud storage cp --recursive "$W8_EVAL_MODEL/*" "$W8_EVAL_LOCAL_MODEL/"
-  assert_local_hf_model "$W8_EVAL_LOCAL_MODEL"
-  export W8_EVAL_MODEL="$W8_EVAL_LOCAL_MODEL"
+  echo "eval GCS model export was not staged by training_prelude: $W8_EVAL_MODEL" >&2
+  exit 2
 fi
 docker run --rm --gpus all --network host --shm-size=32g \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
@@ -672,6 +733,7 @@ docker run --rm --gpus all --network host --shm-size=32g \\
   -v "$PWD":/workspace \\
   -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
   -v "$W8_DATA_DIR":/data \\
+  -v "$W8_ARTIFACT_DIR":/artifacts \\
   -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
   -e CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/w8-gcp-service-account.json \\
@@ -700,10 +762,10 @@ if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 export PATH="$HOME/.local/bin:$PATH"
-uv venv --clear --python 3.12 --seed /tmp/w8-eval
+uv venv --clear --python 3.10 --seed /tmp/w8-eval
 source /tmp/w8-eval/bin/activate
 uv pip install -e /workspace
-uv pip install vllm
+uv pip install "vllm=={DEFAULT_CPP_EVAL_VLLM_VERSION}" "transformers=={DEFAULT_CPP_EVAL_TRANSFORMERS_VERSION}" --extra-index-url https://download.pytorch.org/whl/cu124
 w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
 python -m w8_biayn.integrations.cpp_eval_main \\
   --data-dir /data \\
@@ -726,7 +788,7 @@ def render_sky_yaml(options: RenderOptions) -> str:
         "resources": {
             "infra": "gcp",
             "accelerators": options.accelerators,
-            "memory": "128+",
+            "memory": options.effective_memory,
             "disk_size": options.effective_disk_size,
         },
         "num_nodes": options.num_nodes,

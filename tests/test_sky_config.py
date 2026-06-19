@@ -43,7 +43,9 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
 
     assert sft["resources"]["accelerators"] == "A100:8"
     assert sft["resources"]["disk_size"] == 1024
+    assert sft["resources"]["memory"] == "128+"
     assert grpo["resources"]["disk_size"] == 1024
+    assert grpo["resources"]["memory"] == "128+"
     assert "python -m skyrl.train.main_sft" in sft["run"]
     assert "dataset_name=/data/sft" in sft["run"]
     assert "python -m w8_biayn.integrations.skyrl_io_patch" in sft["run"]
@@ -186,6 +188,30 @@ def test_render_cpp_training_yaml_exposes_full_run_knobs():
     assert 'resume_from="latest"' in sft_rendered
 
 
+def test_render_cpp_grpo_export_checkpoint_skips_training_and_dataset_restore():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            model="gs://bucket/cpp-sft/exports/global_step_1074/policy",
+            sft_export_checkpoint="gs://bucket/cpp-grpo/ckpts/global_step_250",
+            run_id="rexport",
+        )
+    )
+    config = yaml.safe_load(rendered)
+    run = config["run"]
+
+    assert "cpp-grpo export-only: skipping dataset restore" in run
+    assert "python -m w8_biayn.integrations.skyrl_sft_export_checkpoint_main" in run
+    assert "--checkpoint \"$W8_SFT_EXPORT_CHECKPOINT\"" in run
+    assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" not in run
+    assert "test -f /data/grpo/train.parquet" not in run
+    assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/exports\"" in run
+    assert config["envs"]["W8_BIAYN_MODEL"] == "gs://bucket/cpp-sft/exports/global_step_1074/policy"
+    assert config["envs"]["W8_BIAYN_RUN_ID"] == "rexport"
+
+
 def test_render_cpp_training_run_scripts_parse_nested_skyrl_patch():
     for pipeline in ("cpp-sft", "cpp-grpo"):
         rendered = render_sky_yaml(RenderOptions(pipeline=pipeline, project_id="proj", accelerators="A100:8"))
@@ -279,9 +305,15 @@ def test_render_cpp_eval_yaml_uses_eval_entrypoint_and_a100_one():
     config = yaml.safe_load(rendered)
 
     assert config["resources"]["accelerators"] == "A100:1"
+    assert config["resources"]["memory"] == "80+"
     assert config["resources"]["disk_size"] == 1024
     assert config["resources"]["labels"]["pipeline"] == "cpp-eval"
     assert "python -m w8_biayn.integrations.cpp_eval_main" in config["run"]
+    assert "uv venv --clear --python 3.10 --seed /tmp/w8-eval" in config["run"]
+    assert (
+        'uv pip install "vllm==0.6.6.post1" "transformers==4.57.6" '
+        "--extra-index-url https://download.pytorch.org/whl/cu124"
+    ) in config["run"]
     assert "--label \"base\"" in config["run"]
     assert "--max-tasks 8" in config["run"]
     assert "W8_EVAL_MODEL" in config["run"]
@@ -291,6 +323,8 @@ def test_render_cpp_eval_yaml_uses_eval_entrypoint_and_a100_one():
         "gcloud storage cp --recursive"
     )
     assert "gcloud storage cp --recursive" in config["run"]
+    assert "dataset cache already restored for $W8_DATA_GCS_PREFIX" in config["run"]
+    assert 'printf \'%s\\n\' "$W8_DATA_GCS_PREFIX" > "$W8_DATA_DIR/.w8_data_gcs_prefix"' in config["run"]
     assert "runs/cpp-perf/rtest/cpp-eval" in config["run"]
 
 
@@ -312,13 +346,17 @@ def test_render_training_stages_gcs_model_exports():
     assert 'export W8_LOCAL_MODEL_DIR="$W8_ARTIFACT_DIR/model"' in rendered
     assert "gcloud storage cp --recursive \"$W8_BIAYN_MODEL_PATH/*\" \"$W8_LOCAL_MODEL_DIR/\"" in rendered
     assert 'assert_local_hf_model "$W8_LOCAL_MODEL_DIR"' in rendered
+    assert 'normalize_local_hf_tokenizer_config "$W8_LOCAL_MODEL_DIR"' in rendered
+    assert 'data["additional_special_tokens"] = merged' in rendered
     assert 'export W8_BIAYN_MODEL_PATH="/artifacts/model"' in rendered
     assert '-v "$W8_ARTIFACT_DIR":/artifacts' in rendered
     assert 'trainer.policy.model.path="$W8_BIAYN_MODEL_PATH"' in rendered
+    assert "has_gcs_policy_weights()" in rendered
+    assert "no model weight files found under concrete HF policy export $source" in rendered
     assert "global_step_${step}/policy" in rendered
 
 
-def test_render_eval_stages_gcs_model_under_mounted_output_dir():
+def test_render_eval_uses_training_prelude_staged_gcs_model():
     rendered = render_sky_yaml(
         RenderOptions(
             pipeline="cpp-eval",
@@ -332,12 +370,13 @@ def test_render_eval_stages_gcs_model_under_mounted_output_dir():
     run = yaml.safe_load(rendered)["run"]
 
     assert "resolve_gcs_model_export()" in run
-    assert 'export W8_EVAL_MODEL_SOURCE="$W8_EVAL_MODEL"' in run
-    assert 'export W8_EVAL_MODEL="$(resolve_gcs_model_export "$W8_EVAL_MODEL")"' in run
-    assert 'echo "resolved GCS eval model export: $W8_EVAL_MODEL_SOURCE -> $W8_EVAL_MODEL"' in run
-    assert 'export W8_EVAL_LOCAL_MODEL="$W8_EVAL_OUTPUT_DIR/model"' in run
-    assert "gcloud storage cp --recursive \"$W8_EVAL_MODEL/*\" \"$W8_EVAL_LOCAL_MODEL/\"" in run
-    assert 'assert_local_hf_model "$W8_EVAL_LOCAL_MODEL"' in run
-    assert 'export W8_EVAL_MODEL="$W8_EVAL_LOCAL_MODEL"' in run
+    assert 'export W8_BIAYN_MODEL_SOURCE="$W8_BIAYN_MODEL_PATH"' in run
+    assert 'export W8_BIAYN_MODEL_PATH="$(resolve_gcs_model_export "$W8_BIAYN_MODEL_PATH")"' in run
+    assert 'export W8_BIAYN_MODEL_PATH="/artifacts/model"' in run
+    assert 'export W8_EVAL_MODEL="$W8_BIAYN_MODEL_PATH"' in run
+    assert "eval GCS model export was not staged by training_prelude" in run
+    assert 'export W8_EVAL_MODEL_SOURCE="$W8_EVAL_MODEL"' not in run
+    assert "gcloud storage cp --recursive \"$W8_EVAL_MODEL/*\"" not in run
     assert "-v /tmp:/tmp" in run
+    assert '-v "$W8_ARTIFACT_DIR":/artifacts' in run
     assert '--model "$W8_EVAL_MODEL"' in run
