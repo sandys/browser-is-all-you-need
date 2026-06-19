@@ -14,7 +14,13 @@ from w8_biayn.cpp_perf.reward import (
     extract_reward_code,
     valid_model_output,
 )
-from w8_biayn.cpp_perf.sandbox import dry_run_plan, parse_runtime_benchmark_output, run_test_command
+from w8_biayn.cpp_perf.sandbox import (
+    _runtime_benchmark_python,
+    dry_run_plan,
+    parse_runtime_benchmark_output,
+    run_test_command,
+    runtime_benchmark_command,
+)
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult, ReferencePerformance, TestCase, TestCoverage
 
 
@@ -138,6 +144,13 @@ def test_judge_output_comparison_allows_trailing_whitespace_only():
     assert not judge_output_matches("4\n2\n3\n", "4\n2\n5\n")
 
 
+def test_judge_output_comparison_ignores_leading_blank_lines():
+    # A reference oracle that prints a leading blank line (e.g. printf("\n")) must
+    # still match the expected output a contest judge accepts.
+    assert normalize_judge_output("\n\n4\n2\n3\n") == "4\n2\n3"
+    assert judge_output_matches("\n4\n2\n3\n", "4\n2\n3\n")
+
+
 def test_model_output_format_and_extraction():
     assert valid_model_output(valid_output())
     assert extract_code_block(valid_output()).startswith("int main")
@@ -229,6 +242,32 @@ def test_sandbox_dry_run_and_runtime_parser():
     assert parsed == {"ok": True, "runtime_cpu_ns": 12, "runtime_wall_ns": 20}
     assert parse_runtime_benchmark_output("garbage\n") is None
     assert parse_runtime_benchmark_output("") is None
+
+
+def test_runtime_benchmark_skips_output_validation_for_reference_only():
+    # The trusted reference oracle is timed without re-checking its stdout; the
+    # candidate is still validated. This is what keeps a benignly-formatted oracle
+    # (e.g. a leading blank line) from zeroing out the reference runtime.
+    candidate = " ".join(runtime_benchmark_command("/tmp/w8", binary="candidate", test_count=2))
+    reference = " ".join(runtime_benchmark_command("/tmp/w8", binary="reference", test_count=2, validate_output=False))
+    assert "--validate-output 1" in candidate
+    assert "--validate-output 0" in reference
+    # the dry-run plan renders the reference benchmark with validation disabled too
+    assert "--validate-output 0" in dry_run_plan(sample_task(), image="gcc:13", cpu="3")
+
+
+def test_runtime_harness_normalize_ignores_leading_blank_lines():
+    # Execute the inlined benchmark source and check its normalize + run_once leniency,
+    # since that code runs verbatim inside Docker.
+    ns: dict = {}
+    exec(_runtime_benchmark_python(), ns)  # noqa: S102 - trusted in-repo harness source
+    assert ns["normalize"]("\n\n4\n2\n3\n") == "4\n2\n3"
+    # reference path (validate_output=False) accepts a leading-blank-line oracle and times it
+    ok = ns["run_once"]("/bin/echo", "", "x", 5, 0, False)
+    assert ok["ok"] is True and ok["cpu_ns"] >= 1
+    # candidate path still rejects mismatched output
+    bad = ns["run_once"]("/bin/echo", "", "definitely-not-this", 5, 0, True)
+    assert bad["ok"] is False and bad["reason"] == "wrong_output"
 
 
 def test_task_json_round_trip(tmp_path):

@@ -158,7 +158,8 @@ def run_test_command(
     normalize = (
         "normalize(){ awk '{ sub(/[[:space:]]+$/, \"\"); lines[NR]=$0 } "
         "END { n=NR; while (n>0 && lines[n]==\"\") n--; "
-        "for (i=1; i<=n; i++) print lines[i] }' \"$1\"; }; "
+        "s=1; while (s<=n && lines[s]==\"\") s++; "
+        "for (i=s; i<=n; i++) print lines[i] }' \"$1\"; }; "
     )
     script = (
         normalize
@@ -181,6 +182,7 @@ def runtime_benchmark_command(
     test_count: int = 1,
     warmups: int = DEFAULT_RUNTIME_WARMUPS,
     repeats: int = DEFAULT_RUNTIME_REPEATS,
+    validate_output: bool = True,
 ) -> list[str]:
     script = _runtime_benchmark_shell(
         binary=binary,
@@ -189,6 +191,7 @@ def runtime_benchmark_command(
         test_count=test_count,
         warmups=warmups,
         repeats=repeats,
+        validate_output=validate_output,
     )
     return docker_base_args(scratch, image=image) + ["bash", "-lc", script]
 
@@ -261,6 +264,7 @@ def dry_run_plan(
                 test_count=len(tests),
                 warmups=warmups,
                 repeats=repeats,
+                validate_output=False,
             )
         ),
     ]
@@ -425,6 +429,7 @@ def _run_in_directory(task: CppTask, candidate_code: str, scratch: Path, *, imag
         cpu=cpu,
         binary="reference",
         test_count=len(tests),
+        validate_output=False,
     )
     if reference_returncode != 0 or not _runtime_payload_ok(reference_payload):
         logs["runtime_reference"] = reference_logs
@@ -476,8 +481,11 @@ def _run_runtime_benchmark(
     cpu: str,
     binary: str,
     test_count: int,
+    validate_output: bool = True,
 ) -> tuple[dict[str, Any] | None, str, int]:
-    command = runtime_benchmark_command(scratch, image=image, cpu=cpu, binary=binary, test_count=test_count)
+    command = runtime_benchmark_command(
+        scratch, image=image, cpu=cpu, binary=binary, test_count=test_count, validate_output=validate_output
+    )
     proc = _run(command)
     return parse_runtime_benchmark_output(proc.stdout), _combined_logs(proc), proc.returncode
 
@@ -490,6 +498,7 @@ def _runtime_benchmark_shell(
     test_count: int,
     warmups: int,
     repeats: int,
+    validate_output: bool = True,
 ) -> str:
     return (
         "cat > /tmp/w8_runtime_bench.py <<'PY'\n"
@@ -502,7 +511,8 @@ def _runtime_benchmark_shell(
         + f"--test-count {test_count} "
         + f"--timeout-s {timeout_s} "
         + f"--warmups {warmups} "
-        + f"--repeats {repeats}"
+        + f"--repeats {repeats} "
+        + f"--validate-output {1 if validate_output else 0}"
     )
 
 
@@ -522,6 +532,8 @@ def normalize(text):
     lines = [line.rstrip() for line in text.splitlines()]
     while lines and lines[-1] == "":
         lines.pop()
+    while lines and lines[0] == "":
+        lines.pop(0)
     return "\n".join(lines)
 
 
@@ -530,7 +542,7 @@ def child_cpu_ns():
     return int((usage.ru_utime + usage.ru_stime) * 1_000_000_000)
 
 
-def run_once(binary, input_text, expected_text, timeout_s, test_index):
+def run_once(binary, input_text, expected_text, timeout_s, test_index, validate_output=True):
     before_cpu = child_cpu_ns()
     before_wall = time.perf_counter_ns()
     try:
@@ -561,7 +573,11 @@ def run_once(binary, input_text, expected_text, timeout_s, test_index):
             "returncode": proc.returncode,
             "stderr": proc.stderr[-2000:],
         }
-    if normalize(proc.stdout) != normalize(expected_text):
+    # The reference oracle is the pre-validated PIE v1 solution and correctness was
+    # already established by the candidate test phase, so we only time it; re-checking
+    # its stdout would spuriously fail benignly-formatted oracles (e.g. a leading blank
+    # line) and zero out the reference runtime. Candidates are still re-validated.
+    if validate_output and normalize(proc.stdout) != normalize(expected_text):
         return {
             "ok": False,
             "reason": "wrong_output",
@@ -579,7 +595,9 @@ def main():
     parser.add_argument("--timeout-s", type=int, required=True)
     parser.add_argument("--warmups", type=int, required=True)
     parser.add_argument("--repeats", type=int, required=True)
+    parser.add_argument("--validate-output", type=int, default=1)
     args = parser.parse_args()
+    validate_output = bool(args.validate_output)
 
     per_test = []
     total_cpu_ns = 0
@@ -588,14 +606,14 @@ def main():
         input_text = Path(f"tests/{test_index}.in").read_text()
         expected_text = Path(f"tests/{test_index}.out").read_text()
         for _ in range(args.warmups):
-            result = run_once(args.binary, input_text, expected_text, args.timeout_s, test_index)
+            result = run_once(args.binary, input_text, expected_text, args.timeout_s, test_index, validate_output)
             if not result["ok"]:
                 print(json.dumps(result, sort_keys=True))
                 sys.exit(2)
         cpu_samples = []
         wall_samples = []
         for _ in range(args.repeats):
-            result = run_once(args.binary, input_text, expected_text, args.timeout_s, test_index)
+            result = run_once(args.binary, input_text, expected_text, args.timeout_s, test_index, validate_output)
             if not result["ok"]:
                 print(json.dumps(result, sort_keys=True))
                 sys.exit(2)
