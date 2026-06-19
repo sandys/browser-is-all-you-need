@@ -608,7 +608,8 @@ def _artifact_status(
         export_steps = sorted(
             {int(match.group(1)) for line in export_listing.splitlines() if (match := CHECKPOINT_DIR_RE.search(line))}
         )
-        final_export_prefix = f"{export_prefix}/global_step_{expected_final_step}/policy" if expected_final_step else None
+        final_export_step = expected_final_step if expected_final_step is not None else (export_steps[-1] if export_steps else None)
+        final_export_prefix = f"{export_prefix}/global_step_{final_export_step}/policy" if final_export_step else None
         final_export_exists = False
         final_export_detail = None
         if final_export_prefix:
@@ -624,6 +625,7 @@ def _artifact_status(
             "prefix": export_prefix,
             "steps": export_steps,
             "expected_final_step": expected_final_step,
+            "final_export_step": final_export_step,
             "final_export_prefix": final_export_prefix,
             "final_export_exists": final_export_exists,
             "final_export": final_export_detail,
@@ -1343,12 +1345,13 @@ def _derive_pipeline_state(
 ) -> str:
     jobs = queue.get("jobs") if isinstance(queue.get("jobs"), list) else []
     statuses = {str(job.get("status")).upper() for job in jobs if isinstance(job, dict)}
+    latest_status = str(jobs[0].get("status")).upper() if jobs and isinstance(jobs[0], dict) else ""
     instance_statuses = {str(item.get("status")).upper() for item in instances}
     if instance_statuses & PROVISIONING_INSTANCE_STATUSES:
         return "provisioning"
     if statuses & ACTIVE_JOB_STATUSES:
         return "running"
-    if statuses & {"FAILED", "CANCELLED"}:
+    if latest_status in {"FAILED", "CANCELLED"}:
         return "failed"
     if log_signals.get("errors"):
         return "failed"
@@ -1365,7 +1368,7 @@ def _derive_pipeline_state(
         return "cluster_up"
     if latest_marker:
         return "checkpointed"
-    if statuses & {"SUCCEEDED"}:
+    if latest_status == "SUCCEEDED":
         return "succeeded"
     return "not_started"
 

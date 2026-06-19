@@ -630,6 +630,70 @@ def test_artifact_status_reports_in_progress_checkpoint(monkeypatch):
     assert checkpoint["in_progress"]["resumable"] is False
 
 
+def test_artifact_status_uses_highest_export_when_final_step_unknown(monkeypatch):
+    def fake_cat(uri: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        assert uri.endswith("latest_ckpt_global_step.txt")
+        return "1074\n", {"name": f"cat:{uri}", "ok": True}
+
+    def fake_ls(uri: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        if uri.endswith("/ckpts/"):
+            return (
+                "\n".join(
+                    [
+                        "gs://bucket/runs/cpp-perf/run/cpp-sft/ckpts/global_step_1000/",
+                        "gs://bucket/runs/cpp-perf/run/cpp-sft/ckpts/global_step_1074/",
+                    ]
+                ),
+                {"name": f"ls:{uri}", "ok": True},
+            )
+        if uri.endswith("/exports/"):
+            return (
+                "\n".join(
+                    [
+                        "gs://bucket/runs/cpp-perf/run/cpp-sft/exports/global_step_1000/",
+                        "gs://bucket/runs/cpp-perf/run/cpp-sft/exports/global_step_1074/",
+                    ]
+                ),
+                {"name": f"ls:{uri}", "ok": True},
+            )
+        return "", {"name": f"ls:{uri}", "ok": False}
+
+    def fake_checkpoint_detail(checkpoint_prefix: str, **_: Any) -> dict[str, Any]:
+        return {"prefix": checkpoint_prefix, "resumable": True, "checks": []}
+
+    def fake_export_detail(export_prefix: str, **_: Any) -> dict[str, Any]:
+        return {
+            "prefix": export_prefix,
+            "has_config": True,
+            "weight_object_count": 1,
+            "complete": True,
+            "checks": [],
+        }
+
+    monkeypatch.setattr(run_status, "_storage_cat", fake_cat)
+    monkeypatch.setattr(run_status, "_storage_ls", fake_ls)
+    monkeypatch.setattr(run_status, "_checkpoint_detail", fake_checkpoint_detail)
+    monkeypatch.setattr(run_status, "_export_detail", fake_export_detail)
+
+    status = run_status._artifact_status(
+        pipeline="cpp-sft",
+        run_gcs_prefix="gs://bucket/runs/cpp-perf/run/cpp-sft",
+        env={},
+        expected_world_size=8,
+        expected_final_step=None,
+        timeout_s=1,
+        retries=0,
+        dry_run=False,
+    )
+
+    export = status["export"]
+    assert export["expected_final_step"] is None
+    assert export["final_export_step"] == 1074
+    assert export["final_export_prefix"] == "gs://bucket/runs/cpp-perf/run/cpp-sft/exports/global_step_1074/policy"
+    assert export["final_export_exists"] is True
+    assert export["final_export"]["complete"] is True
+
+
 def test_artifact_status_reports_eval_output_files(monkeypatch):
     def fake_ls(uri: str, **_: Any) -> tuple[str, dict[str, Any]]:
         assert uri == "gs://bucket/runs/cpp-perf/run/cpp-eval/**"
@@ -746,6 +810,17 @@ def test_pipeline_state_prefers_active_retry_over_old_failures():
     )
 
     assert state == "running"
+
+
+def test_pipeline_state_ignores_old_failed_jobs_after_successful_retry():
+    state = run_status._derive_pipeline_state(
+        queue={"jobs": [{"status": "SUCCEEDED"}, {"status": "FAILED"}, {"status": "CANCELLED"}]},
+        artifacts={"export": {"final_export_exists": True}},
+        log_signals={"errors": []},
+        instances=[{"status": "RUNNING"}],
+    )
+
+    assert state == "complete"
 
 
 def test_pipeline_status_reads_logs_for_selected_active_retry(monkeypatch):
