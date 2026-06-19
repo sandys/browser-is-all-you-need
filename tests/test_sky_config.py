@@ -49,6 +49,7 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "python -m skyrl.train.main_sft" in sft["run"]
     assert "dataset_name=/data/sft" in sft["run"]
     assert "python -m w8_biayn.integrations.skyrl_io_patch" in sft["run"]
+    assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in sft["run"]
     assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" in grpo["run"]
     assert "uv venv --clear --python 3.12 --seed /tmp/w8-train" in grpo["run"]
     assert grpo["run"].index("uv sync --active --extra fsdp --extra gcp") < grpo["run"].index(
@@ -165,6 +166,7 @@ def test_render_cpp_training_yaml_exposes_full_run_knobs():
     assert "uv run w8-biayn cpp harness preflight --image \"w8-cpp:perf\" --cpu \"7\"" in grpo_rendered
     assert "uv venv --clear --python 3.12 --seed /tmp/w8-train" in grpo_rendered
     assert "python -m w8_biayn.integrations.skyrl_io_patch" in grpo_rendered
+    assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in grpo_rendered
     assert 'export SKYRL_RAY_PG_TIMEOUT_IN_S="${SKYRL_RAY_PG_TIMEOUT_IN_S:-1800}"' in sft_rendered
     assert 'export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-3600}"' in sft_rendered
     assert "trainer.epochs=3" in grpo_rendered
@@ -220,6 +222,7 @@ def test_render_cpp_training_run_scripts_parse_nested_skyrl_patch():
         shell_result = subprocess.run(["bash", "-n"], input=run, text=True, capture_output=True)
         assert shell_result.returncode == 0, shell_result.stderr
         assert "python -m w8_biayn.integrations.skyrl_io_patch" in run
+        assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in run
 
 
 def test_render_cpp_grpo_multinode_uses_total_rollout_engines_and_resume_mode():

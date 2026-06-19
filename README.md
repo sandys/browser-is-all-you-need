@@ -261,7 +261,7 @@ If a GRPO attempt is canceled or fails after a complete checkpoint, restart it w
 Full training and eval default to a 1024 GB boot disk, except resumed multi-node GRPO, which defaults to and requires 2048 GB or larger because FSDP checkpoint restore needs substantial local scratch space.
 Rendered SFT and GRPO containers set longer SkyRL/Ray distributed timeouts (`SKYRL_RAY_PG_TIMEOUT_IN_S=1800`, `SKYRL_WORKER_NCCL_TIMEOUT_IN_S=3600`) so slow FSDP checkpoint restore and HF export barriers do not fail at SkyRL's 10-minute worker default. Override those environment variables only for a deliberate debugging run.
 Rendered training containers also pass `NCCL_IB_DISABLE=1`, `NCCL_SOCKET_IFNAME=^lo,docker,veth`, a concrete default-route `GLOO_SOCKET_IFNAME`, and `NCCL_DEBUG=WARN` into Docker so SkyRL, Ray, and vLLM use the VM network interface instead of loopback or transient container interfaces. Missing this propagation is a known multi-node reproducibility mismatch: the host shell can have valid networking while the training container still fails during Ray/NCCL/vLLM startup. Do not reuse NCCL's `^lo,docker,veth` exclusion syntax for Gloo; PyTorch Gloo expects a real interface name and will fail process-group initialization if given `^lo`.
-The training container also applies an idempotent SkyRL I/O compatibility patch so cloud checkpoint directory downloads are flattened before FSDP rank-shard validation; without it, a GCS resume can stage files under a nested basename directory and falsely report missing `model_world_size_*_rank_*.pt` shards.
+The training container also applies idempotent SkyRL compatibility patches: `skyrl_io_patch.py` flattens cloud checkpoint directory downloads before FSDP rank-shard validation, and `skyrl_vllm_logprob_patch.py` aligns vLLM response token IDs with returned rollout logprobs when vLLM emits an unpaired trailing token at the generation cap. Without these patches, GCS resume can falsely report missing `model_world_size_*_rank_*.pt` shards, or GRPO can abort on SkyRL's response/logprob length assertion.
 
 Operational lessons from the full run:
 
@@ -513,6 +513,8 @@ src/w8_biayn/integrations/skyrl_cpp_perf_main.py
 src/w8_biayn/integrations/skyrl_sft_export_checkpoint_main.py
                                                SkyRL policy checkpoint HF export recovery
 src/w8_biayn/integrations/skyrl_io_patch.py    SkyRL checkpoint download compatibility patch
+src/w8_biayn/integrations/skyrl_vllm_logprob_patch.py
+                                               SkyRL vLLM token/logprob alignment patch
 src/w8_biayn/integrations/cpp_eval_main.py   vLLM eval generation and scoring
 src/w8_biayn/run_status.py                   ops run-status JSON snapshots
 src/w8_biayn/shell.py                        dry-run-aware subprocess wrapper

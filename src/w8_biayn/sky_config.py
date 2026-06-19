@@ -509,6 +509,7 @@ uv pip install -e /workspace
 uv pip install -e /root/.cache/w8-biayn/upstreams/rllm
 cd /root/.cache/w8-biayn/upstreams/SkyRL
 python -m w8_biayn.integrations.skyrl_io_patch
+python -m w8_biayn.integrations.skyrl_vllm_logprob_patch
 uv sync --active --extra fsdp --extra gcp
 cd /workspace
 uv pip install gcsfs
