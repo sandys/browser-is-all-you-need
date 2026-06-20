@@ -57,6 +57,7 @@ from .cpp_perf.sandbox import (
 from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
+from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
 from .run_status import PIPELINES as STATUS_PIPELINES
 from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -275,6 +276,13 @@ def _require_grpo_multinode_resume_disk(options: RenderOptions) -> None:
         f"--disk-size {GRPO_MULTINODE_RESUME_MIN_DISK_GB} or larger; 1024 GB failed during "
         "FSDP checkpoint restore with [Errno 28] No space left on device."
     )
+
+
+def _require_grpo_readiness(rendered_config_path: str | Path) -> None:
+    payload = build_grpo_readiness(rendered_config_path)
+    if readiness_blocks_launch(payload):
+        console.print_json(data=payload)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -1166,6 +1174,8 @@ def launch(
     _require_grpo_multinode_utilization(options)
     _require_grpo_multinode_resume_disk(options)
     output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
+    if options.pipeline == "cpp-grpo" and options.num_nodes > 1 and not options.sft_export_checkpoint:
+        _require_grpo_readiness(output)
     env = _service_account_env(credentials, project_id=options.project_id)
     sky_args = ["sky", "launch", "-c", options.name]
     if yes:
@@ -1490,6 +1500,35 @@ def ops_run_status(
     if out:
         _write_json(out, payload)
     console.print_json(data=payload)
+
+
+@ops_app.command("grpo-readiness")
+def ops_grpo_readiness(
+    rendered_config: str = typer.Option(
+        f"{DEFAULT_RENDER_DIR}/cpp-grpo.sky.yaml",
+        "--rendered-config",
+        help="Rendered cpp-grpo SkyPilot YAML to validate.",
+    ),
+    status_json: Optional[str] = typer.Option(
+        None,
+        "--status-json",
+        help="Optional ops run-status JSON snapshot to validate live multi-node evidence.",
+    ),
+    out: Optional[str] = typer.Option(None, "--out", help="Optional path to also write readiness JSON."),
+) -> None:
+    """Validate rendered GRPO config and optional live status before launch or claims."""
+
+    status_payload = None
+    if status_json:
+        status_payload = json.loads(Path(status_json).read_text(encoding="utf-8"))
+        if not isinstance(status_payload, dict):
+            raise typer.BadParameter("--status-json must contain a JSON object")
+    payload = build_grpo_readiness(rendered_config, status_payload=status_payload)
+    if out:
+        _write_json(out, payload)
+    console.print_json(data=payload)
+    if readiness_blocks_launch(payload):
+        raise typer.Exit(1)
 
 
 @app.command()

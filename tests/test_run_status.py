@@ -366,6 +366,8 @@ def test_progress_summary_flags_grpo_entropy_collapse():
     assert progress["training_health"]["verdict"] == "collapsed"
     assert progress["training_health"]["should_stop"] is True
     assert progress["training_health"]["reason"] == "entropy_collapse_zero_advantage_trap"
+    assert progress["training_health"]["recommended_action"] == "stop_and_relaunch_from_sft"
+    assert progress["training_health"]["action_reason"] == "terminal_invalid_format_zero_advantage_trap"
     assert progress["training_health"]["signals"]["policy_entropy"] == 0.00068
 
 
@@ -404,6 +406,8 @@ def test_progress_summary_flags_deterministic_low_gradient_with_checkpoint():
     assert progress["training_health"]["verdict"] == "deterministic_low_gradient"
     assert progress["training_health"]["severity"] == "warning"
     assert progress["training_health"]["should_stop"] is True
+    assert progress["training_health"]["recommended_action"] == "stop_and_evaluate_checkpoint"
+    assert progress["training_health"]["checkpoint_step"] == 250
     assert progress["training_health"]["reason"] == "low_entropy_low_gradient_plateau"
     assert progress["training_health"]["signals"]["recent_low_gradient_events"] == 3
     assert progress["training_health"]["signals"]["checkpoint_resumable"] is True

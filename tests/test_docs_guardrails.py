@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+DOCS = (
+    Path("README.md"),
+    Path(".agents/REPO_GUIDE.md"),
+    Path(".agents/skills/w8-biayn-framework/SKILL.md"),
+)
+
+REQUIRED_GRPO_GUARDRAILS = (
+    "ops grpo-readiness",
+    "w8-grpo-readiness-v1",
+    "GLOO_SOCKET_IFNAME",
+    "concrete default-route",
+    "skyrl_io_patch.py",
+    "skyrl_vllm_logprob_patch.py",
+    "node_health.sample_scope=all_active",
+    "training_health.should_stop=true",
+)
+
+
+def test_docs_keep_multinode_grpo_guardrails_documented() -> None:
+    for path in DOCS:
+        text = path.read_text(encoding="utf-8")
+        missing = [phrase for phrase in REQUIRED_GRPO_GUARDRAILS if phrase not in text]
+        assert not missing, f"{path} is missing guardrails: {missing}"

@@ -454,6 +454,116 @@ def test_cli_ops_run_status_loads_baseline_status_for_dashboard_json(tmp_path, m
     assert comparison["cost_verdict"] == "cost_inefficient"
 
 
+def test_cli_ops_grpo_readiness_emits_json(tmp_path):
+    credentials = tmp_path / "sa.json"
+    rendered = tmp_path / "cpp-grpo.sky.yaml"
+    out = tmp_path / "readiness.json"
+    write_credentials(credentials)
+
+    render_result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(rendered),
+            "--accelerators",
+            "A100:8",
+            "--num-nodes",
+            "2",
+            "--train-batch-size",
+            "32",
+            "--n-samples-per-prompt",
+            "8",
+            "--max-env-workers",
+            "256",
+            "--max-ckpts-to-keep",
+            "8",
+            "--hf-save-interval",
+            "10000",
+        ],
+    )
+    assert render_result.exit_code == 0, render_result.output
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ops",
+            "grpo-readiness",
+            "--rendered-config",
+            str(rendered),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["schema_version"] == "w8-grpo-readiness-v1"
+    assert payload["overall"] == "pass"
+    assert json.loads(out.read_text(encoding="utf-8")) == payload
+
+
+def test_cli_multinode_grpo_launch_blocks_failed_readiness(tmp_path, monkeypatch):
+    credentials = tmp_path / "sa.json"
+    write_credentials(credentials)
+
+    def fake_readiness(_path):
+        return {
+            "schema_version": "w8-grpo-readiness-v1",
+            "overall": "fail",
+            "checks": [
+                {
+                    "id": "network.gloo_concrete_interface",
+                    "severity": "critical",
+                    "ok": False,
+                    "message": "bad gloo",
+                }
+            ],
+        }
+
+    def fail_run_command(*_args, **_kwargs):
+        raise AssertionError("launch should block before backend command")
+
+    monkeypatch.setattr(cli_module, "build_grpo_readiness", fake_readiness)
+    monkeypatch.setattr(cli_module, "run_command", fail_run_command)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--run-id",
+            "rtest",
+            "--accelerators",
+            "A100:8",
+            "--num-nodes",
+            "2",
+            "--train-batch-size",
+            "32",
+            "--n-samples-per-prompt",
+            "8",
+            "--max-env-workers",
+            "256",
+            "--max-ckpts-to-keep",
+            "8",
+            "--hf-save-interval",
+            "10000",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["overall"] == "fail"
+    assert payload["checks"][0]["id"] == "network.gloo_concrete_interface"
+
+
 def test_cli_measure_coverage_resumes_existing_report(tmp_path, monkeypatch):
     prepared = tmp_path / "pie-full"
     prepared.mkdir()

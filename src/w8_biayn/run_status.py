@@ -1951,6 +1951,7 @@ def _training_health_summary(
     pass_rate = max([value for value in pass_rates if value is not None], default=None)
     grad_norm = _to_float(metrics.get("policy/grad_norm"))
     policy_loss = _to_float(metrics.get("policy/policy_loss"))
+    checkpoint_step = _latest_checkpoint_step(checkpoint_artifacts)
     signals = {
         "policy_entropy": entropy,
         "avg_final_reward": avg_final_reward,
@@ -1959,7 +1960,14 @@ def _training_health_summary(
         "policy_loss": policy_loss,
     }
     if not any(value is not None for value in signals.values()):
-        return {"available": False, "reason": "no_grpo_policy_health_metrics", "signals": signals}
+        return {
+            "available": False,
+            "reason": "no_grpo_policy_health_metrics",
+            "recommended_action": "continue_monitoring",
+            "action_reason": "no_grpo_policy_health_metrics",
+            "checkpoint_step": checkpoint_step,
+            "signals": signals,
+        }
 
     low_entropy = entropy is not None and entropy <= 0.01
     reward_floor = avg_final_reward is not None and avg_final_reward <= -0.99
@@ -1972,6 +1980,9 @@ def _training_health_summary(
             "verdict": "collapsed",
             "severity": "critical",
             "should_stop": True,
+            "recommended_action": "stop_and_relaunch_from_sft",
+            "action_reason": "terminal_invalid_format_zero_advantage_trap",
+            "checkpoint_step": checkpoint_step,
             "reason": "entropy_collapse_zero_advantage_trap",
             "signals": signals,
             "message": (
@@ -1985,6 +1996,9 @@ def _training_health_summary(
             "verdict": "collapse_risk",
             "severity": "warning",
             "should_stop": False,
+            "recommended_action": "investigate_samples",
+            "action_reason": "low_entropy_reward_floor",
+            "checkpoint_step": checkpoint_step,
             "reason": "low_entropy_reward_floor",
             "signals": signals,
             "message": "GRPO entropy is very low while rewards are pinned at the floor; inspect samples and gradients.",
@@ -2008,6 +2022,9 @@ def _training_health_summary(
             "verdict": "deterministic_low_gradient",
             "severity": "warning",
             "should_stop": checkpoint_resumable,
+            "recommended_action": "stop_and_evaluate_checkpoint" if checkpoint_resumable else "continue_monitoring",
+            "action_reason": "low_entropy_low_gradient_plateau",
+            "checkpoint_step": checkpoint_step,
             "reason": "low_entropy_low_gradient_plateau",
             "signals": signals,
             "message": (
@@ -2020,6 +2037,9 @@ def _training_health_summary(
         "verdict": "healthy_or_insufficient_collapse_signal",
         "severity": "ok",
         "should_stop": False,
+        "recommended_action": "continue",
+        "action_reason": "collapse_guard_not_triggered",
+        "checkpoint_step": checkpoint_step,
         "reason": "collapse_guard_not_triggered",
         "signals": signals,
     }
@@ -2043,6 +2063,18 @@ def _has_resumable_checkpoint(value: Any) -> bool:
         if isinstance(item, dict) and item.get("resumable") is True:
             return True
     return False
+
+
+def _latest_checkpoint_step(value: Any) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    for key in ("latest", "highest"):
+        item = value.get(key)
+        if isinstance(item, dict):
+            step = _to_int(item.get("step"))
+            if step is not None:
+                return step
+    return _to_int(value.get("latest_marker"))
 
 
 def _fsdp_mesh_shape(*, total_gpu_count: int | None, fsdp_size: int | None) -> dict[str, int] | None:
