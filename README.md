@@ -27,7 +27,9 @@ Task IDs: `radix-ui__primitives-3548`, `chakra-ui__chakra-ui-8905`. This is an o
 
 `browser-is-all-you-need` provides `w8-biayn`, a command-and-control CLI for BrowserGym reinforcement-learning smoke runs on rLLM, SkyRL, SkyPilot, and Google Cloud.
 
-The current implementation supports MiniWoB smoke runs, WebArena config rendering, DOMDiff reward hosting, and a Harbor DOMDiff browser/SWE R3 smoke that runs task containers on GCP while using the local DOMDiff image through a Cloudflare reward tunnel.
+The current implementation supports MiniWoB smoke runs, WebArena config rendering, DOMDiff reward hosting, a Harbor DOMDiff browser/SWE R3 smoke that runs task containers on GCP while using the local DOMDiff image through a Cloudflare reward tunnel, and a local OSWorld benchmark path through the pinned upstream Docker provider.
+
+The OSWorld transplant in this fork is benchmark-only: setup, validation, smoke runs, per-run result summaries, and domain benchmarks are included. Markov imports, SFT, SkyRL OSWorld training, and packaged train/eval tasksets are intentionally not part of this fork.
 
 ## Bootstrap
 
@@ -39,6 +41,9 @@ cp /secure/path/service-account.json .gcp-service-account.json
 uv run w8-biayn doctor --cloud --domdiff
 uv run w8-biayn launch miniwob --dry-run
 uv run w8-biayn harbor validate
+uv run w8-biayn upstreams clone osworld
+uv run w8-biayn osworld setup
+uv run w8-biayn osworld validate
 ```
 
 Run the real MiniWoB smoke:
@@ -130,14 +135,19 @@ uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --
 uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
 uv run w8-biayn domdiff local smoke --image android-world-domdiff:local
 uv run w8-biayn domdiff smoke --dry-run
+uv run w8-biayn osworld list --domain os --smoke-candidates
+uv run w8-biayn osworld smoke --dry-run
+uv run w8-biayn osworld run --suite tiny --dry-run
+uv run w8-biayn osworld benchmark --dry-run
 ```
 
 Pinned upstreams are cloned into ignored cache paths:
 
 - rLLM: `.cache/upstreams/rllm`
 - SkyRL: `.cache/upstreams/SkyRL`
+- OSWorld: `.cache/upstreams/OSWorld`
 
-Do not vendor either upstream repository into this repo.
+Do not vendor upstream repositories into this repo.
 
 ## WebArena
 
@@ -148,6 +158,43 @@ uv run w8-biayn launch webarena --webarena-archives-gcs gs://<bucket>/webarena
 ```
 
 Without `--webarena-archives-gcs` or external `WA_*` URLs, MiniWoB is the supported smoke path.
+
+## OSWorld
+
+OSWorld runs through the pinned upstream clone in `.cache/upstreams/OSWorld` and keeps the upstream Python environment inside `.cache/upstreams/OSWorld/.venv`.
+
+Start with the local benchmark path:
+
+```bash
+uv run w8-biayn upstreams clone osworld
+uv run w8-biayn osworld setup
+uv run w8-biayn osworld validate
+uv run w8-biayn osworld list --domain os --smoke-candidates
+uv run w8-biayn osworld smoke --dry-run
+uv run w8-biayn osworld run --suite tiny --dry-run
+uv run w8-biayn osworld benchmark --dry-run
+```
+
+Run a real one-task smoke after validation passes:
+
+```bash
+uv run w8-biayn osworld smoke   --task os/e0df059f-28a6-4169-924f-b9623e7184cc
+```
+
+Run the local tiny suite:
+
+```bash
+uv run w8-biayn osworld run --suite tiny
+uv run w8-biayn osworld results
+```
+
+Run a domain benchmark against a local OpenAI-compatible model server:
+
+```bash
+uv run w8-biayn osworld benchmark   --domain os   --model qwen3-vl-8b   --base-url http://127.0.0.1:8000/v1   --api-key EMPTY
+```
+
+This fork does not bundle packaged OSWorld tasksets and does not include Markov, SFT, or OSWorld SkyRL training commands. If you want custom subsets, pass your own grouped JSON path with `--taskset /path/to/tasks.json`.
 
 ## R3 Pipeline
 
@@ -272,6 +319,8 @@ Recommended order:
 - `webvoyager-domdiff-heldout`: primary browser-use DOMDiff benchmark for live no-anti-bot web tasks.
 - `harbor-domdiff-browser-swe`: two packaged Harbor browser/SWE preview tasks with definitive DOMDiff rubrics; task containers run on the GCP trainer VM and publish previews back to the laptop-local reward service.
 - `webarena-browsergym`: reproducible self-hosted web benchmark through BrowserGym.
+- `osworld-smoke`: one low-risk OSWorld desktop task through the pinned upstream Docker provider.
+- `osworld-tiny-local`: curated local OSWorld tiny suite with run records and parsed result summaries.
 - `androidworld-transfer`: mobile transfer check for the claim that browser-use RL generalizes to app UI.
 
 ## Architecture
@@ -288,10 +337,12 @@ flowchart LR
   cli --> domdiff_local[Local DOMDiff lifecycle]
   cli --> domdiff_gcp[GCP DOMDiff lifecycle]
   cli --> gar[Artifact Registry image push]
+  cli --> osworld_cli[OSWorld benchmark commands]
   cli --> upstreams[Ignored upstream clones]
 
   upstreams --> rllm[rLLM pinned source]
   upstreams --> skyrl[SkyRL pinned source]
+  upstreams --> osworld_src[OSWorld pinned source]
 
   sa --> sky[SkyPilot]
   render --> sky
@@ -304,6 +355,9 @@ flowchart LR
   skyrl_harbor --> harbor_env[harbor-domdiff SkyRL-Gym env]
   harbor_env --> task_docker[GCP Harbor task containers]
   task_docker --> preview_tunnels[Task preview quick tunnels]
+  osworld_cli --> osworld_env[OSWorld upstream .venv]
+  osworld_env --> osworld_docker[OSWorld Docker provider]
+  osworld_docker --> osworld_runs[.w8-biayn/osworld run records]
   skyrl_remote --> adapter[w8_biayn BrowserGymEnv]
   adapter --> browsergym
   domdiff_local --> local_image[Local android-world-domdiff image]

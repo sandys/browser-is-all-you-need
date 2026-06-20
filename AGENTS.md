@@ -103,9 +103,9 @@ For Harbor DOMDiff R3, do not use Tinker or Thinking Machines as the training ba
 
 ## Benchmark Rules
 
-Infrastructure changes are not sufficient unless they preserve a runnable benchmark ladder. Keep `w8-biayn benchmarks list`, README benchmark guidance, and rendered benchmark metadata current when changing R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld paths.
+Infrastructure changes are not sufficient unless they preserve a runnable benchmark ladder. Keep `w8-biayn benchmarks list`, README benchmark guidance, and rendered benchmark metadata current when changing R3, DOMDiff, Harbor, BrowserGym, WebArena, OSWorld, or AndroidWorld paths.
 
-The default scorecard is MiniWoB smoke, DOMDiff local live smoke, WebVoyager DOMDiff held-out, Harbor DOMDiff browser/SWE tasks, WebArena, and AndroidWorld transfer.
+The default scorecard is MiniWoB smoke, DOMDiff local live smoke, WebVoyager DOMDiff held-out, Harbor DOMDiff browser/SWE tasks, WebArena, OSWorld smoke, OSWorld tiny local, and AndroidWorld transfer.
 
 ## Tests And Validation
 
@@ -126,6 +126,13 @@ uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
 uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --tag smoke --dry-run
 uv run w8-biayn launch r3 --with-local-domdiff --benchmark webvoyager-domdiff-heldout --dry-run
 uv run w8-biayn launch r3 --with-local-domdiff --benchmark harbor-domdiff-browser-swe --dry-run
+uv run w8-biayn upstreams clone osworld --dry-run
+uv run w8-biayn osworld setup --dry-run
+uv run w8-biayn osworld validate
+uv run w8-biayn osworld list --domain os --smoke-candidates
+uv run w8-biayn osworld smoke --dry-run
+uv run w8-biayn osworld run --suite tiny --dry-run
+uv run w8-biayn osworld benchmark --dry-run
 python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
 

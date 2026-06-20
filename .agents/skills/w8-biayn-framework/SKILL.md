@@ -25,6 +25,7 @@ Main responsibilities:
 - DOMDiff local and GCP lifecycle: `src/w8_biayn/domdiff.py`
 - DOMDiff reward service: `src/w8_biayn/rewards/chromiumrl_service.py`
 - Benchmark scorecard: `src/w8_biayn/benchmarks.py`
+- OSWorld upstream smoke and benchmark path: `src/w8_biayn/osworld.py`
 - Harbor task discovery and SkyRL dataset prep: `src/w8_biayn/harbor/tasks.py`, `src/w8_biayn/harbor/skyrl_dataset.py`
 - Harbor Docker task runner and SkyRL-Gym env: `src/w8_biayn/harbor/docker_runner.py`, `src/w8_biayn/integrations/harbor_env.py`
 - BrowserGym dataset shape: `src/w8_biayn/datasets.py`
@@ -69,7 +70,9 @@ In local DOMDiff mode, the ChromiumRL reward service runs outside the container 
 
 Never render local/private DOMDiff URLs into SkyPilot configs. `localhost`, `127.0.0.1`, `host.docker.internal`, `.local` names, private RFC1918 addresses, link-local addresses, and unspecified addresses are invalid for remote GCP/SkyPilot trainers. Use Cloudflare tunnel URLs.
 
-Keep the benchmark ladder runnable and documented. If R3, DOMDiff, Harbor, BrowserGym, WebArena, or AndroidWorld behavior changes, update `src/w8_biayn/benchmarks.py`, README benchmark guidance, and rendered benchmark metadata.
+Keep the benchmark ladder runnable and documented. If R3, DOMDiff, Harbor, BrowserGym, WebArena, OSWorld, or AndroidWorld behavior changes, update `src/w8_biayn/benchmarks.py`, README benchmark guidance, and rendered benchmark metadata.
+
+For this fork, OSWorld is a benchmark-only transplant. Keep `w8-biayn osworld` limited to upstream clone/setup, validation, smoke runs, local run summaries, and domain benchmarks. Do not reintroduce Markov importers, OSWorld SFT, OSWorld SkyRL training, or bundled train/eval tasksets unless the fork intentionally expands scope and the docs/tests are updated in the same change. Clone the pinned upstream with `uv run w8-biayn upstreams clone osworld`, build the upstream env with `uv run w8-biayn osworld setup`, validate with `uv run w8-biayn osworld validate`, use `uv run w8-biayn osworld smoke --dry-run` before real runs, and use `uv run w8-biayn osworld benchmark --dry-run` before domain sweeps. If a user wants a subset, prefer a custom grouped JSON file passed via `--taskset` rather than adding packaged tasksets to this fork.
 
 For Harbor DOMDiff R3, do not use Tinker or Thinking Machines as the backend. Use self-hosted SkyRL on the SkyPilot/GCP side. The rendered path should install Docker and Cloudflare on the GCP host, start the Google GPU container with `--shm-size=32g` and `/var/run/docker.sock` mounted, reuse an existing Harbor virtualenv when complete and recreate it when incomplete, prepare Harbor parquet data with `w8-biayn harbor prepare-data`, and run `w8_biayn.integrations.skyrl_harbor_main`. That entrypoint must register `harbor-domdiff` inside SkyRL's Ray entrypoint task before constructing `BasePPOExp`; registering only in the local driver does not reach the trainer process. The default R3 smoke model is `moonshotai/Moonlight-16B-A3B-Instruct`; its `DeepseekV3ForCausalLM` architecture is supported by Megatron Bridge, unlike `Qwen2MoeForCausalLM` models. Harbor DOMDiff R3 defaults to `H100:8`, matching SkyRL's Moonlight router replay recipe. A100 40GB overrides can reach Harbor rollout and DOMDiff reward scoring, but need CPU optimizer offload for the Megatron optimizer step; keep the CLI warning and rendered offload before paid A100 40GB Harbor R3 launches. Render the SkyRL GPU count from the requested accelerator string; do not depend on SkyPilot host-only shell variables inside the Google GPU container. R3 routing replay must run `uv sync --active --extra megatron --extra gcp` from the SkyRL checkout so upstream `tool.uv` overrides resolve Megatron dependencies, set `trainer.strategy=megatron`, set Megatron TP/PP/CP/EP values, set vLLM MoE expert parallelism, set `generator.inference_engine.distributed_executor_backend=mp`, disable flash attention for Moonlight's MLA attention, and disable KL loss for the smoke. SkyRL rejects FSDP or Ray for router replay. Do not require `TINKER_API_KEY`, Daytona, GitHub tokens, or copied browser source. Harbor task containers need collision-resistant names because SkyRL may evaluate multiple samples from the same task at the same time. Copy Harbor verifier assets file-by-file into `/tests`; Docker directory-copy behavior differs by Docker version. Harbor task previews must publish Cloudflare quick tunnels so the laptop-local ChromiumRL reward service can score them.
 
@@ -154,4 +157,11 @@ uv run w8-biayn domdiff local up --image android-world-domdiff:local --dry-run
 uv run w8-biayn domdiff push-image --source-image android-world-domdiff:local --tag smoke --dry-run
 uv run w8-biayn launch r3 --with-local-domdiff --benchmark webvoyager-domdiff-heldout --dry-run
 uv run w8-biayn launch r3 --with-local-domdiff --benchmark harbor-domdiff-browser-swe --dry-run
+uv run w8-biayn upstreams clone osworld --dry-run
+uv run w8-biayn osworld setup --dry-run
+uv run w8-biayn osworld validate
+uv run w8-biayn osworld list --domain os --smoke-candidates
+uv run w8-biayn osworld smoke --dry-run
+uv run w8-biayn osworld run --suite tiny --dry-run
+uv run w8-biayn osworld benchmark --dry-run
 ```
