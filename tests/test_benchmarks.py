@@ -9,6 +9,8 @@ def test_benchmark_scorecard_contains_browser_and_mobile_transfer():
     assert "webvoyager-domdiff-heldout" in keys
     assert "harbor-domdiff-browser-swe" in keys
     assert "androidworld-transfer" in keys
+    assert "osworld-smoke" in keys
+    assert "osworld-tiny-local" in keys
 
 
 def test_get_benchmark_rejects_unknown_key():
