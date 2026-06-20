@@ -176,6 +176,14 @@ def _add_static_runtime_checks(checks: list[dict[str, Any]], *, config: dict[str
     )
     _add_check(
         checks,
+        "skyrl.patch.grpo_health",
+        "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in run,
+        "critical",
+        "SkyRL GRPO health logging patch is invoked.",
+        remediation="Invoke skyrl_grpo_health_patch before uv sync in the training container.",
+    )
+    _add_check(
+        checks,
         "network.nccl_env",
         "-e NCCL_IB_DISABLE=1" in run
         and '-e NCCL_SOCKET_IFNAME="^lo,docker,veth"' in run
@@ -379,6 +387,7 @@ def _add_status_checks(checks: list[dict[str, Any]], *, status_payload: dict[str
         return
     _add_status_node_health_check(checks, pipeline=pipeline)
     _add_status_training_health_check(checks, pipeline=pipeline)
+    _add_status_learning_signal_check(checks, pipeline=pipeline)
     _add_status_recovery_check(checks, pipeline=pipeline)
 
 
@@ -453,6 +462,45 @@ def _add_status_training_health_check(checks: list[dict[str, Any]], *, pipeline:
             "checkpoint_step": health.get("checkpoint_step"),
         },
         remediation="If should_stop=true, stop the run and follow training_health.recommended_action.",
+    )
+
+
+def _add_status_learning_signal_check(checks: list[dict[str, Any]], *, pipeline: dict[str, Any]) -> None:
+    progress = pipeline.get("progress") if isinstance(pipeline.get("progress"), dict) else {}
+    learning_signal = progress.get("learning_signal") if isinstance(progress.get("learning_signal"), dict) else {}
+    available = learning_signal.get("available") is True
+    _add_check(
+        checks,
+        "status.learning_signal_available",
+        available,
+        "warning",
+        "Status JSON includes GRPO learning-signal metrics.",
+        evidence={
+            "available": learning_signal.get("available"),
+            "verdict": learning_signal.get("verdict"),
+            "recommended_action": learning_signal.get("recommended_action"),
+        },
+        remediation=(
+            "Poll a run rendered with skyrl_grpo_health_patch and enough log tail to include W8_GRPO_HEALTH lines."
+        ),
+    )
+    if not available:
+        return
+    recommended_action = learning_signal.get("recommended_action")
+    action_required = recommended_action in {"evaluate_checkpoint", "stop_and_evaluate_checkpoint"}
+    _add_check(
+        checks,
+        "status.learning_signal_recommendation",
+        not action_required,
+        "action_required",
+        "GRPO learning signal does not currently recommend checkpoint evaluation.",
+        evidence={
+            "verdict": learning_signal.get("verdict"),
+            "severity": learning_signal.get("severity"),
+            "recommended_action": recommended_action,
+            "reasons": learning_signal.get("reasons"),
+        },
+        remediation="If learning_signal recommends evaluation, export/evaluate the checkpoint before spending more GPU time.",
     )
 
 

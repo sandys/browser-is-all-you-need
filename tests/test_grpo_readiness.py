@@ -45,6 +45,7 @@ def test_grpo_readiness_passes_valid_multinode_render(tmp_path: Path) -> None:
     assert _check(payload, "network.gloo_concrete_interface")["ok"] is True
     assert _check(payload, "skyrl.patch.io")["ok"] is True
     assert _check(payload, "skyrl.patch.vllm_logprob")["ok"] is True
+    assert _check(payload, "skyrl.patch.grpo_health")["ok"] is True
     assert _check(payload, "multinode.hsdp_mesh")["ok"] is True
     assert _check(payload, "multinode.rollout_engines")["ok"] is True
     assert _check(payload, "multinode.utilization_gate")["ok"] is True
@@ -98,6 +99,28 @@ def test_grpo_readiness_fails_missing_vllm_patch(tmp_path: Path) -> None:
 
     assert payload["overall"] == "fail"
     assert _check(payload, "skyrl.patch.vllm_logprob")["ok"] is False
+
+
+def test_grpo_readiness_fails_missing_grpo_health_patch(tmp_path: Path) -> None:
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            num_nodes=2,
+            train_batch_size=32,
+            n_samples_per_prompt=8,
+            max_env_workers=256,
+            max_ckpts_to_keep=8,
+            hf_save_interval=10000,
+        )
+    ).replace("python -m w8_biayn.integrations.skyrl_grpo_health_patch\n", "")
+    path = _write_rendered(tmp_path, text=rendered)
+
+    payload = build_grpo_readiness(path)
+
+    assert payload["overall"] == "fail"
+    assert _check(payload, "skyrl.patch.grpo_health")["ok"] is False
 
 
 def test_grpo_readiness_fails_wrong_hsdp_mesh(tmp_path: Path) -> None:
@@ -228,6 +251,57 @@ def test_grpo_readiness_status_flags_should_stop_training_health(tmp_path: Path)
     check = _check(payload, "status.training_health_should_continue")
     assert check["ok"] is False
     assert check["evidence"]["recommended_action"] == "stop_and_evaluate_checkpoint"
+
+
+def test_grpo_readiness_status_flags_learning_signal_eval_recommendation(tmp_path: Path) -> None:
+    path = _write_rendered(tmp_path)
+    status = {
+        "schema_version": "w8-run-status-v1",
+        "run_id": "rtest",
+        "pipelines": [
+            {
+                "pipeline": "cpp-grpo",
+                "state": "running",
+                "active_job": {"job_id": 2, "status": "RUNNING"},
+                "progress": {
+                    "grpo_config": {"policy_num_nodes": 2, "total_gpu_count": 16},
+                    "training_health": {"should_stop": False, "recommended_action": "evaluate_checkpoint"},
+                    "learning_signal": {
+                        "available": True,
+                        "verdict": "deterministic_convergence_risk",
+                        "severity": "warning",
+                        "recommended_action": "evaluate_checkpoint",
+                        "reasons": ["policy_entropy_near_zero"],
+                    },
+                },
+                "resources": {
+                    "total_instance_count": 2,
+                    "active_instance_count": 2,
+                    "gpu_count": 16,
+                    "sampled_node_count": 2,
+                    "sampled_gpu_count": 16,
+                    "failed_node_count": 0,
+                },
+                "node_health": {
+                    "sample_scope": "all_active",
+                    "expected_node_count": 2,
+                    "sampled_node_count": 2,
+                    "failed_node_count": 0,
+                    "gpus": [{} for _ in range(16)],
+                },
+                "commands": {},
+                "recovery": {"available": False},
+            }
+        ],
+    }
+
+    payload = build_grpo_readiness(path, status_payload=status)
+
+    assert payload["overall"] == "action_required"
+    assert _check(payload, "status.learning_signal_available")["ok"] is True
+    check = _check(payload, "status.learning_signal_recommendation")
+    assert check["ok"] is False
+    assert check["evidence"]["recommended_action"] == "evaluate_checkpoint"
 
 
 def test_grpo_readiness_json_is_serializable(tmp_path: Path) -> None:

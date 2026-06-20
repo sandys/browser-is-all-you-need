@@ -430,6 +430,47 @@ def test_progress_summary_does_not_flag_single_low_gradient_event():
     assert progress["training_health"]["should_stop"] is False
 
 
+def test_progress_summary_uses_w8_grpo_health_learning_signal():
+    signals = _extract_log_signals(
+        [
+            'W8_GRPO_HEALTH {"schema_version": "w8-grpo-health-v1", "step": 200, "metrics": {'
+            '"loss/avg_final_rewards": 0.795, "reward/avg_pass_at_8": 0.875, '
+            '"policy/policy_entropy": 0.000248, "policy/grad_norm": 0.011, '
+            '"policy/policy_loss": -0.000035, "policy/policy_kl": 0.042, '
+            '"loss/avg_raw_advantages_abs": 0.015, '
+            '"w8/reward_group_variance_mean": 0.0001, '
+            '"w8/zero_variance_group_fraction": 0.82, '
+            '"w8/zero_advantage_token_fraction": 0.79, '
+            '"timing/step": 265.5, "timing/generate": 124.1, "timing/policy_train": 137.0}}',
+            'W8_GRPO_HEALTH {"schema_version": "w8-grpo-health-v1", "step": 207, "metrics": {'
+            '"loss/avg_final_rewards": 0.8295, "reward/avg_pass_at_8": 0.9375, '
+            '"policy/policy_entropy": 0.000251, "policy/grad_norm": 0.009, '
+            '"policy/policy_loss": -0.000031, "policy/policy_kl": 0.045, '
+            '"loss/avg_raw_advantages_abs": 0.014, '
+            '"w8/reward_group_variance_mean": 0.00008, '
+            '"w8/zero_variance_group_fraction": 0.86, '
+            '"w8/zero_advantage_token_fraction": 0.81, '
+            '"timing/step": 260.0, "timing/generate": 120.0, "timing/policy_train": 134.0}}',
+        ]
+    )
+    artifacts = {"checkpoint": {"latest": {"step": 200, "resumable": True}}}
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=signals, artifacts=artifacts)
+
+    assert signals["grpo_health_events"][-1]["step"] == 207
+    assert progress["metrics"]["policy/policy_kl"] == 0.045
+    assert progress["learning_signal"]["available"] is True
+    assert progress["learning_signal"]["verdict"] == "deterministic_convergence_risk"
+    assert progress["learning_signal"]["recommended_action"] == "evaluate_checkpoint"
+    assert progress["learning_signal"]["kl"]["policy_kl"] == 0.045
+    assert progress["learning_signal"]["variance"]["zero_variance_group_fraction"] == 0.86
+    assert progress["learning_signal"]["trends"]["avg_final_reward"]["delta"] == 0.0345
+    assert progress["training_health"]["verdict"] == "deterministic_convergence_risk"
+    assert progress["training_health"]["should_stop"] is False
+    assert progress["training_health"]["recommended_action"] == "evaluate_checkpoint"
+    assert progress["phase_timing"]["groups"][0]["group"] in {"policy_update", "rollout"}
+
+
 def test_sft_progress_summary_uses_last_step_metrics_and_expected_final_step():
     signals = _extract_log_signals(
         [

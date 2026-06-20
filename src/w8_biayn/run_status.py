@@ -174,6 +174,7 @@ TRAINER_POLICY_METRIC_RE = re.compile(
     r"['\"](policy_entropy|grad_norm|policy_loss|response_length)['\"]\s*:\s*"
     r"([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
 )
+W8_GRPO_HEALTH_RE = re.compile(r"W8_GRPO_HEALTH\s+({.*})")
 TRAINER_POLICY_METRIC_KEYS = {
     "policy_entropy": "policy/policy_entropy",
     "grad_norm": "policy/grad_norm",
@@ -846,12 +847,23 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
     config: dict[str, Any] = {}
     metrics: dict[str, Any] = {}
     policy_health_events: list[dict[str, float]] = []
+    grpo_health_events: list[dict[str, Any]] = []
     for line in lines:
         stage_matches = _stage_matches(line)
         if stage_matches:
             stage = _select_stage(stage_matches)
             stage_events.append({"stage": stage, "line": line, "matched_stages": stage_matches})
         _record_config_matches(config, line)
+        if grpo_health_event := _parse_grpo_health_event(line):
+            grpo_health_events.append(grpo_health_event)
+            event_metrics = grpo_health_event.get("metrics")
+            if isinstance(event_metrics, dict):
+                for metric_name, metric_value in event_metrics.items():
+                    numeric = _to_float(metric_value)
+                    if numeric is not None:
+                        _record_metric(metrics, str(metric_name), numeric)
+                if policy_event := _policy_event_from_canonical_metrics(event_metrics):
+                    policy_health_events.append(policy_event)
         for metric_match in METRIC_RE.finditer(line):
             _record_metric(metrics, metric_match.group(1), float(metric_match.group(2)))
         if policy_health_event := _parse_policy_health_event(line):
@@ -935,8 +947,49 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
         "config": config,
         "metrics": metrics,
         "policy_health_events": policy_health_events[-20:],
+        "grpo_health_events": grpo_health_events[-20:],
         "errors": errors[-20:],
     }
+
+
+def _parse_grpo_health_event(line: str) -> dict[str, Any] | None:
+    match = W8_GRPO_HEALTH_RE.search(line)
+    if match is None:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or payload.get("schema_version") != "w8-grpo-health-v1":
+        return None
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        metrics = {}
+    clean_metrics: dict[str, int | float] = {}
+    for key, value in metrics.items():
+        numeric = _to_float(value)
+        if numeric is not None:
+            clean_metrics[str(key)] = int(numeric) if numeric.is_integer() else numeric
+    return {
+        "schema_version": "w8-grpo-health-v1",
+        "step": _to_int(payload.get("step")),
+        "metrics": clean_metrics,
+    }
+
+
+def _policy_event_from_canonical_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+    mapping = {
+        "policy_entropy": "policy/policy_entropy",
+        "grad_norm": "policy/grad_norm",
+        "policy_loss": "policy/policy_loss",
+        "response_length": "policy/response_length",
+    }
+    event: dict[str, float] = {}
+    for event_key, metric_key in mapping.items():
+        numeric = _to_float(metrics.get(metric_key))
+        if numeric is not None:
+            event[event_key] = numeric
+    return event
 
 
 def _with_rendered_config_fallback(*, pipeline: str, log_signals: dict[str, Any]) -> dict[str, Any]:
@@ -1540,8 +1593,11 @@ def _run_summary(
             "trajectory": progress.get("trajectory"),
             "throughput": progress.get("throughput"),
             "training_health": progress.get("training_health"),
+            "learning_signal": progress.get("learning_signal"),
+            "phase_timing": progress.get("phase_timing"),
         },
         "training_health": progress.get("training_health"),
+        "learning_signal": progress.get("learning_signal"),
         "speed_comparison": current.get("speed_comparison"),
         "recovery": current.get("recovery"),
         "resources": current_resources or _resource_summary(instances=instances, node_health=None),
@@ -1813,6 +1869,14 @@ def _progress_summary(
             policy_health_events=log_signals.get("policy_health_events"),
             checkpoint_artifacts=artifacts.get("checkpoint") if isinstance(artifacts, dict) else None,
         ),
+        "learning_signal": _learning_signal_summary(
+            pipeline=pipeline,
+            metrics=metrics,
+            grpo_config=grpo_config,
+            grpo_health_events=log_signals.get("grpo_health_events"),
+            checkpoint_artifacts=artifacts.get("checkpoint") if isinstance(artifacts, dict) else None,
+        ),
+        "phase_timing": _phase_timing_summary(metrics=metrics, timings=timings),
         "bottleneck": _bottleneck_summary(metrics=metrics, timings=timings),
         "throughput": throughput,
     }
@@ -1931,6 +1995,263 @@ def _grpo_config_summary(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _learning_signal_summary(
+    *,
+    pipeline: str,
+    metrics: dict[str, Any],
+    grpo_config: dict[str, Any],
+    grpo_health_events: Any = None,
+    checkpoint_artifacts: Any = None,
+) -> dict[str, Any]:
+    if pipeline != "cpp-grpo":
+        return {"available": False, "reason": "pipeline_has_no_grpo_learning_signal"}
+
+    reward_metrics = metrics.get("reward") if isinstance(metrics.get("reward"), dict) else {}
+    events = _recent_grpo_health_events(grpo_health_events)
+    avg_final_reward = _to_float(metrics.get("loss/avg_final_rewards"))
+    pass_rate = _max_pass_rate(reward_metrics)
+    train = {
+        "avg_final_reward": avg_final_reward,
+        "avg_raw_reward": _to_float(metrics.get("reward/avg_raw_reward")) or _to_float(reward_metrics.get("avg_raw_reward")),
+        "max_pass_rate": pass_rate,
+        "avg_response_length": _to_float(metrics.get("policy/response_length"))
+        or _to_float(metrics.get("generate/avg_num_tokens")),
+    }
+    policy = {
+        "entropy": _to_float(metrics.get("policy/policy_entropy")),
+        "grad_norm": _to_float(metrics.get("policy/grad_norm")),
+        "policy_loss": _to_float(metrics.get("policy/policy_loss")),
+        "mean_abs_advantage": _to_float(metrics.get("loss/avg_raw_advantages_abs")),
+        "zero_advantage_token_fraction": _to_float(metrics.get("w8/zero_advantage_token_fraction")),
+    }
+    kl_value = _to_float(metrics.get("policy/policy_kl"))
+    entropy_value = policy["entropy"]
+    kl_coef = _to_float(grpo_config.get("kl_loss_coef"))
+    entropy_coef = _to_float(grpo_config.get("entropy_loss_coef"))
+    kl = {
+        "available": kl_value is not None,
+        "policy_kl": kl_value,
+        "loss_term_estimate": round(kl_value * kl_coef, 9) if kl_value is not None and kl_coef is not None else None,
+        "loss_term_source": "metric_times_config" if kl_value is not None and kl_coef is not None else None,
+    }
+    entropy = {
+        "available": entropy_value is not None,
+        "policy_entropy": entropy_value,
+        "loss_term_estimate": round(entropy_value * entropy_coef, 9)
+        if entropy_value is not None and entropy_coef is not None
+        else None,
+        "loss_term_source": "metric_times_config" if entropy_value is not None and entropy_coef is not None else None,
+    }
+    variance = {
+        "available": _to_float(metrics.get("w8/reward_group_variance_mean")) is not None,
+        "reward_group_variance_mean": _to_float(metrics.get("w8/reward_group_variance_mean")),
+        "reward_group_variance_max": _to_float(metrics.get("w8/reward_group_variance_max")),
+        "zero_variance_group_fraction": _to_float(metrics.get("w8/zero_variance_group_fraction")),
+        "reward_group_count": _to_int(metrics.get("w8/reward_group_count")),
+    }
+    validation = _validation_signal(metrics)
+    trends = {
+        "avg_final_reward": _event_trend(events, "loss/avg_final_rewards"),
+        "max_pass_rate": _event_trend(events, _best_event_pass_key(events)),
+        "policy_entropy": _event_trend(events, "policy/policy_entropy"),
+        "grad_norm": _event_trend(events, "policy/grad_norm"),
+        "mean_abs_advantage": _event_trend(events, "loss/avg_raw_advantages_abs"),
+    }
+    history = _learning_history(events)
+    verdict, recommended_action, severity, reasons = _learning_signal_verdict(
+        train=train,
+        policy=policy,
+        variance=variance,
+        validation=validation,
+        checkpoint_resumable=_has_resumable_checkpoint(checkpoint_artifacts),
+    )
+    available = any(
+        value is not None
+        for group in (train, policy)
+        for value in group.values()
+    ) or bool(events)
+    return {
+        "available": available,
+        "reason": None if available else "no_grpo_learning_metrics",
+        "verdict": verdict,
+        "severity": severity,
+        "recommended_action": recommended_action,
+        "reasons": reasons,
+        "train": train,
+        "policy": policy,
+        "kl": kl,
+        "entropy": entropy,
+        "variance": variance,
+        "validation": validation,
+        "trends": trends,
+        "history": history,
+    }
+
+
+def _learning_signal_verdict(
+    *,
+    train: dict[str, Any],
+    policy: dict[str, Any],
+    variance: dict[str, Any],
+    validation: dict[str, Any],
+    checkpoint_resumable: bool,
+) -> tuple[str, str, str, list[str]]:
+    reasons: list[str] = []
+    entropy = _to_float(policy.get("entropy"))
+    grad_norm = _to_float(policy.get("grad_norm"))
+    mean_abs_advantage = _to_float(policy.get("mean_abs_advantage"))
+    avg_reward = _to_float(train.get("avg_final_reward"))
+    pass_rate = _to_float(train.get("max_pass_rate"))
+    zero_variance_fraction = _to_float(variance.get("zero_variance_group_fraction"))
+    low_entropy = entropy is not None and entropy <= 1e-3
+    tiny_gradient = grad_norm is not None and grad_norm <= 0.02
+    tiny_advantage = mean_abs_advantage is not None and mean_abs_advantage <= 0.02
+    high_train_reward = (avg_reward is not None and avg_reward >= 0.5) or (pass_rate is not None and pass_rate >= 0.5)
+    if low_entropy:
+        reasons.append("policy_entropy_near_zero")
+    if tiny_gradient:
+        reasons.append("grad_norm_tiny")
+    if tiny_advantage:
+        reasons.append("mean_abs_advantage_tiny")
+    if zero_variance_fraction is not None and zero_variance_fraction >= 0.75:
+        reasons.append("most_prompt_groups_have_zero_reward_variance")
+    if validation.get("available") is not True:
+        reasons.append("held_out_validation_metrics_missing")
+    elif _validation_lags_train(train=train, validation=validation):
+        reasons.append("held_out_validation_lags_training_reward")
+        return "possible_overfit", "evaluate_checkpoint", "warning", reasons
+    if low_entropy and high_train_reward and (tiny_gradient or tiny_advantage or zero_variance_fraction == 1.0):
+        reasons.append("high_train_reward_but_learning_signal_is_weak")
+        return (
+            "deterministic_convergence_risk",
+            "evaluate_checkpoint" if checkpoint_resumable else "continue_until_checkpoint",
+            "warning",
+            reasons,
+        )
+    if validation.get("available") is True and high_train_reward and not reasons:
+        return "learning_signal_ok", "continue", "ok", reasons
+    if high_train_reward and validation.get("available") is not True:
+        return "needs_validation", "evaluate_checkpoint" if checkpoint_resumable else "continue_until_eval", "warning", reasons
+    if not reasons:
+        return "insufficient_signal", "continue_monitoring", "ok", reasons
+    return "watch", "continue_monitoring", "warning", reasons
+
+
+def _validation_lags_train(*, train: dict[str, Any], validation: dict[str, Any]) -> bool:
+    pass_rate = _to_float(train.get("max_pass_rate"))
+    validation_pass = _to_float(validation.get("max_pass_rate"))
+    if pass_rate is not None and validation_pass is not None and pass_rate - validation_pass >= 0.25:
+        return True
+    train_reward = _to_float(train.get("avg_final_reward")) or _to_float(train.get("avg_raw_reward"))
+    validation_score = _to_float(validation.get("max_avg_score"))
+    return train_reward is not None and validation_score is not None and train_reward - validation_score >= 0.25
+
+
+def _validation_signal(metrics: dict[str, Any]) -> dict[str, Any]:
+    datasets: dict[str, dict[str, float]] = {}
+    for key, value in metrics.items():
+        if not isinstance(key, str) or not key.startswith("eval/"):
+            continue
+        parts = key.split("/", 2)
+        if len(parts) != 3:
+            continue
+        numeric = _to_float(value)
+        if numeric is None:
+            continue
+        datasets.setdefault(parts[1], {})[parts[2]] = numeric
+    pass_rates = [
+        value
+        for dataset in datasets.values()
+        for key, value in dataset.items()
+        if key.startswith("pass_at_")
+    ]
+    avg_scores = [dataset["avg_score"] for dataset in datasets.values() if "avg_score" in dataset]
+    return {
+        "available": bool(datasets),
+        "datasets": datasets,
+        "max_pass_rate": max(pass_rates) if pass_rates else None,
+        "max_avg_score": max(avg_scores) if avg_scores else None,
+    }
+
+
+def _recent_grpo_health_events(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    events = []
+    for item in value:
+        if isinstance(item, dict) and isinstance(item.get("metrics"), dict):
+            events.append(item)
+    return events
+
+
+def _event_trend(events: list[dict[str, Any]], metric_key: str | None) -> dict[str, Any]:
+    if not metric_key:
+        return {"available": False, "reason": "metric_key_unavailable"}
+    series = []
+    for event in events:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        value = _to_float(metrics.get(metric_key))
+        step = _to_int(event.get("step"))
+        if value is not None:
+            series.append({"step": step, "value": value})
+    if len(series) < 2:
+        return {"available": False, "reason": "fewer_than_two_points", "points": series[-5:]}
+    first = series[0]
+    last = series[-1]
+    step_delta = (
+        int(last["step"]) - int(first["step"])
+        if first.get("step") is not None and last.get("step") is not None
+        else len(series) - 1
+    )
+    value_delta = float(last["value"]) - float(first["value"])
+    return {
+        "available": True,
+        "first": first,
+        "last": last,
+        "delta": round(value_delta, 9),
+        "per_step": round(value_delta / step_delta, 9) if step_delta else None,
+        "points": series[-20:],
+    }
+
+
+def _best_event_pass_key(events: list[dict[str, Any]]) -> str | None:
+    pass_keys: set[str] = set()
+    for event in events:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        pass_keys.update(key for key in metrics if isinstance(key, str) and key.startswith("reward/avg_pass_at_"))
+    if not pass_keys:
+        return None
+    return sorted(pass_keys, key=lambda key: _to_int(key.rsplit("_", 1)[-1]) or 0)[-1]
+
+
+def _learning_history(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    history = []
+    pass_key = _best_event_pass_key(events)
+    for event in events[-20:]:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        history.append(
+            {
+                "step": _to_int(event.get("step")),
+                "avg_final_reward": _to_float(metrics.get("loss/avg_final_rewards")),
+                "max_pass_rate": _to_float(metrics.get(pass_key)) if pass_key else None,
+                "policy_entropy": _to_float(metrics.get("policy/policy_entropy")),
+                "grad_norm": _to_float(metrics.get("policy/grad_norm")),
+                "mean_abs_advantage": _to_float(metrics.get("loss/avg_raw_advantages_abs")),
+                "reward_group_variance_mean": _to_float(metrics.get("w8/reward_group_variance_mean")),
+            }
+        )
+    return history
+
+
+def _max_pass_rate(reward_metrics: dict[str, Any]) -> float | None:
+    pass_rates = [
+        _to_float(value)
+        for key, value in reward_metrics.items()
+        if isinstance(key, str) and key.startswith("avg_pass_at_")
+    ]
+    return max([value for value in pass_rates if value is not None], default=None)
+
+
 def _training_health_summary(
     *,
     pipeline: str,
@@ -2032,6 +2353,35 @@ def _training_health_summary(
                 "If a complete checkpoint is available, stop training and evaluate that checkpoint before spending more GPU time."
             ),
         }
+    avg_advantage_abs = _to_float(metrics.get("loss/avg_raw_advantages_abs"))
+    zero_variance_group_fraction = _to_float(metrics.get("w8/zero_variance_group_fraction"))
+    high_train_reward = (avg_final_reward is not None and avg_final_reward >= 0.5) or (
+        pass_rate is not None and pass_rate >= 0.5
+    )
+    weak_learning_signal = (
+        (grad_norm is not None and grad_norm <= 0.02)
+        or (avg_advantage_abs is not None and avg_advantage_abs <= 0.02)
+        or (zero_variance_group_fraction is not None and zero_variance_group_fraction >= 0.75)
+    )
+    if low_entropy and high_train_reward and weak_learning_signal:
+        signals["checkpoint_resumable"] = checkpoint_resumable
+        signals["avg_raw_advantages_abs"] = avg_advantage_abs
+        signals["zero_variance_group_fraction"] = zero_variance_group_fraction
+        return {
+            "available": True,
+            "verdict": "deterministic_convergence_risk",
+            "severity": "warning",
+            "should_stop": False,
+            "recommended_action": "evaluate_checkpoint" if checkpoint_resumable else "continue_until_checkpoint",
+            "action_reason": "low_entropy_high_reward_weak_learning_signal",
+            "checkpoint_step": checkpoint_step,
+            "reason": "low_entropy_high_reward_weak_learning_signal",
+            "signals": signals,
+            "message": (
+                "GRPO reward is high, but entropy is near zero and gradient/advantage variance is weak. "
+                "Evaluate the latest checkpoint before assuming more GPU time will improve held-out uplift."
+            ),
+        }
     return {
         "available": True,
         "verdict": "healthy_or_insufficient_collapse_signal",
@@ -2042,6 +2392,34 @@ def _training_health_summary(
         "checkpoint_step": checkpoint_step,
         "reason": "collapse_guard_not_triggered",
         "signals": signals,
+    }
+
+
+def _phase_timing_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
+    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+    stages = _timing_stage_breakdown(metrics=metrics, timings=timings, step_s=step_s)
+    stage_groups: dict[str, float] = {}
+    for item in stages:
+        group = _timing_stage_group(str(item["stage"]))
+        stage_groups[group] = stage_groups.get(group, 0.0) + float(item["seconds"])
+    groups = [
+        {
+            "group": group,
+            "seconds": round(seconds, 6),
+            "step_percent": round(100.0 * seconds / step_s, 3) if step_s else None,
+        }
+        for group, seconds in sorted(stage_groups.items(), key=lambda item: item[1], reverse=True)
+    ]
+    return {
+        "available": bool(stages),
+        "step_seconds": round(step_s, 6) if step_s is not None else None,
+        "stages": stages,
+        "groups": groups,
+        "message": (
+            "Use phase timing with node_health.activity; instantaneous GPU samples are phase-dependent."
+            if stages
+            else "No phase timing breakdown is available in the scanned logs."
+        ),
     }
 
 
@@ -2111,8 +2489,7 @@ def _hsdp_active(
     )
 
 
-def _bottleneck_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
-    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+def _timing_stage_breakdown(*, metrics: dict[str, Any], timings: dict[str, Any], step_s: float | None) -> list[dict[str, Any]]:
     stages: dict[str, float] = {}
     for key, value in metrics.items():
         if not isinstance(key, str) or not key.startswith("timing/") or key == "timing/step":
@@ -2135,6 +2512,30 @@ def _bottleneck_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> 
         }
         for stage, seconds in sorted(stages.items(), key=lambda item: item[1], reverse=True)
     ]
+    return breakdown
+
+
+def _timing_stage_group(stage: str) -> str:
+    if stage == "generate":
+        return "rollout"
+    if stage == "postprocess_generator_output":
+        return "reward"
+    if stage in {"train_critic_and_policy", "policy_train", "critic_train", "compute_advantages_and_returns"}:
+        return "policy_update"
+    if stage in {"fwd_logprobs_values_reward", "apply_reward_kl_penalty", "convert_to_training_input"}:
+        return "forward_or_assembly"
+    if stage in {"sync_weights", "update_ref_with_policy"}:
+        return "synchronization"
+    if stage == "save_checkpoints":
+        return "checkpoint"
+    if stage == "save_hf_model":
+        return "export"
+    return "other"
+
+
+def _bottleneck_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
+    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+    breakdown = _timing_stage_breakdown(metrics=metrics, timings=timings, step_s=step_s)
     dominant = breakdown[0] if breakdown else None
     if dominant is None:
         verdict = "unknown"
@@ -2258,6 +2659,8 @@ def _resource_summary(
     gpu_utils = [gpu.get("utilization_gpu_percent") for gpu in gpus if gpu.get("utilization_gpu_percent") is not None]
     gpu_mem_used = [gpu.get("memory_used_mib") for gpu in gpus if gpu.get("memory_used_mib") is not None]
     gpu_mem_total = [gpu.get("memory_total_mib") for gpu in gpus if gpu.get("memory_total_mib") is not None]
+    avg_gpu_utilization = round(sum(gpu_utils) / len(gpu_utils), 3) if gpu_utils else None
+    node_activity = node_health.get("activity") if isinstance(node_health, dict) else None
     return {
         "total_instance_count": len(instances),
         "active_instance_count": sum(1 for item in instances if item.get("status") in ACTIVE_INSTANCE_STATUSES),
@@ -2276,12 +2679,51 @@ def _resource_summary(
         "failed_node_count": node_health.get("failed_node_count")
         if isinstance(node_health, dict) and node_health.get("failed_node_count") is not None
         else None,
-        "node_health_activity": node_health.get("activity") if isinstance(node_health, dict) else None,
+        "node_health_activity": node_activity,
         "sampled_gpu_count": len(gpus),
-        "avg_gpu_utilization_percent": round(sum(gpu_utils) / len(gpu_utils), 3) if gpu_utils else None,
+        "avg_gpu_utilization_percent": avg_gpu_utilization,
         "max_gpu_utilization_percent": max(gpu_utils) if gpu_utils else None,
         "avg_gpu_memory_used_mib": round(sum(gpu_mem_used) / len(gpu_mem_used), 3) if gpu_mem_used else None,
         "avg_gpu_memory_total_mib": round(sum(gpu_mem_total) / len(gpu_mem_total), 3) if gpu_mem_total else None,
+        "gpu_sample_interpretation": _gpu_sample_interpretation(
+            activity=node_activity,
+            avg_gpu_utilization_percent=avg_gpu_utilization,
+            sample_scope=node_health.get("sample_scope") if isinstance(node_health, dict) else None,
+        ),
+    }
+
+
+def _gpu_sample_interpretation(
+    *,
+    activity: Any,
+    avg_gpu_utilization_percent: float | None,
+    sample_scope: Any,
+) -> dict[str, Any]:
+    if avg_gpu_utilization_percent is None:
+        return {
+            "available": False,
+            "message": "No GPU utilization sample is available.",
+        }
+    group = STAGE_GROUPS.get(str(activity), "unknown") if activity else "unknown"
+    if group in {"reward", "setup", "checkpoint", "export", "artifact"}:
+        message = (
+            "GPU utilization may be low in this phase; use phase timing to decide whether reward, checkpoint, "
+            "or export work is the bottleneck."
+        )
+    elif group in {"training", "rollout"}:
+        message = (
+            "GPU utilization is expected to be phase-dependent here; this sample supports current activity "
+            "but does not prove end-to-end throughput or learning quality."
+        )
+    else:
+        message = "Interpret this instantaneous GPU sample with phase_timing and node_health.activity."
+    return {
+        "available": True,
+        "sample_scope": sample_scope,
+        "activity": activity,
+        "activity_group": group,
+        "avg_gpu_utilization_percent": avg_gpu_utilization_percent,
+        "message": message,
     }
 
 

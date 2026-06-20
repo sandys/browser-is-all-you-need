@@ -16,6 +16,10 @@ REQUIRED_GRPO_GUARDRAILS = (
     "concrete default-route",
     "skyrl_io_patch.py",
     "skyrl_vllm_logprob_patch.py",
+    "skyrl_grpo_health_patch.py",
+    "W8_GRPO_HEALTH",
+    "learning_signal",
+    "phase_timing",
     "node_health.sample_scope=all_active",
     "training_health.should_stop=true",
 )
