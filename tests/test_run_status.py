@@ -1110,16 +1110,20 @@ def test_parse_node_health_structures_gpu_disk_and_processes():
     assert payload["activity"] == "checkpoint_load"
 
 
-def test_node_health_reports_head_sample_scope(monkeypatch):
+def test_node_health_reports_all_active_pipeline_nodes(monkeypatch):
+    calls = []
+
     def fake_run(args: list[str], **_: Any) -> run_status.CommandResult:
-        assert args[:4] == ["ssh", "-o", "BatchMode=yes", "-o"]
+        calls.append(args)
+        name = args[3]
+        gpu_line = "0, 99, 8192, 40960" if "head" in name else "0, 100, 32768, 40960"
         return run_status.CommandResult(
             command=args,
             returncode=0,
             stdout="\n".join(
                 [
                     "__W8_GPU__",
-                    "0, 99, 8192, 40960",
+                    gpu_line,
                     "__W8_DF__",
                     "Filesystem 1024-blocks Used Available Capacity Mounted on",
                     "/dev/root 1041235968 463470592 577765376 45% /",
@@ -1135,6 +1139,21 @@ def test_node_health_reports_head_sample_scope(monkeypatch):
 
     payload = run_status._node_health(
         "w8-biayn-cpp-grpo-run",
+        project_id="project",
+        instances=[
+            {
+                "name": "w8-biayn-cpp-grpo-run-worker-1",
+                "zone": "asia-northeast3-b",
+                "status": "RUNNING",
+                "labels": {"ray-node-type": "worker"},
+            },
+            {
+                "name": "w8-biayn-cpp-grpo-run-head",
+                "zone": "asia-northeast3-b",
+                "status": "RUNNING",
+                "labels": {"ray-node-type": "head"},
+            },
+        ],
         env={},
         timeout_s=1,
         retries=0,
@@ -1142,10 +1161,96 @@ def test_node_health_reports_head_sample_scope(monkeypatch):
         enabled=True,
     )
 
-    assert payload["sample_scope"] == "head"
+    assert [call[:4] for call in calls] == [
+        ["gcloud", "compute", "ssh", "w8-biayn-cpp-grpo-run-head"],
+        ["gcloud", "compute", "ssh", "w8-biayn-cpp-grpo-run-worker-1"],
+    ]
+    assert payload["sample_scope"] == "all_active"
+    assert payload["sampled_node_count"] == 2
+    assert payload["failed_node_count"] == 0
+    assert len(payload["gpus"]) == 2
+    assert payload["gpus"][0]["node_name"] == "w8-biayn-cpp-grpo-run-head"
+    assert payload["gpus"][1]["role"] == "worker"
+    assert payload["gpus"][1]["global_index"] == 1
     assert payload["nodes"][0]["role"] == "head"
     assert payload["nodes"][0]["gpus"][0]["utilization_gpu_percent"] == 99
+    assert payload["nodes"][1]["role"] == "worker"
+    assert payload["nodes"][1]["gpus"][0]["utilization_gpu_percent"] == 100
     assert payload["activity"] == "policy_forward"
+    resources = run_status._resource_summary(
+        instances=[
+            {"status": "RUNNING", "accelerators": [{"type": "nvidia-tesla-a100", "count": 1}]},
+            {"status": "RUNNING", "accelerators": [{"type": "nvidia-tesla-a100", "count": 1}]},
+        ],
+        node_health=payload,
+    )
+    assert resources["sampled_node_count"] == 2
+    assert resources["failed_node_count"] == 0
+    assert resources["sampled_gpu_count"] == 2
+    assert resources["avg_gpu_utilization_percent"] == 99.5
+
+
+def test_node_health_reports_partial_worker_probe_failure(monkeypatch):
+    def fake_run(args: list[str], **_: Any) -> run_status.CommandResult:
+        name = args[3]
+        if "worker" in name:
+            return run_status.CommandResult(
+                command=args,
+                returncode=255,
+                stdout="",
+                stderr="ssh: connect failed",
+            )
+        return run_status.CommandResult(
+            command=args,
+            returncode=0,
+            stdout="\n".join(
+                [
+                    "__W8_GPU__",
+                    "0, 77, 12000, 40960",
+                    "__W8_DF__",
+                    "Filesystem 1024-blocks Used Available Capacity Mounted on",
+                    "/dev/root 1041235968 463470592 577765376 45% /",
+                    "__W8_PS__",
+                    "PID ELAPSED %CPU %MEM CMD",
+                    "25443 712 37.7 1.4 ray::FSDPPolicyWorkerBase.forward_backward",
+                ]
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(run_status, "_run", fake_run)
+
+    payload = run_status._node_health(
+        "w8-biayn-cpp-grpo-run",
+        project_id="project",
+        instances=[
+            {
+                "name": "w8-biayn-cpp-grpo-run-head",
+                "zone": "asia-northeast3-b",
+                "status": "RUNNING",
+                "labels": {"ray-node-type": "head"},
+            },
+            {
+                "name": "w8-biayn-cpp-grpo-run-worker-1",
+                "zone": "asia-northeast3-b",
+                "status": "RUNNING",
+                "labels": {"ray-node-type": "worker"},
+            },
+        ],
+        env={},
+        timeout_s=1,
+        retries=0,
+        dry_run=False,
+        enabled=True,
+    )
+
+    assert payload["sample_scope"] == "partial"
+    assert payload["sampled_node_count"] == 1
+    assert payload["failed_node_count"] == 1
+    assert payload["nodes"][1]["sampled"] is False
+    assert payload["nodes"][1]["error"] == "ssh: connect failed"
+    assert payload["error"].startswith("w8-biayn-cpp-grpo-run-worker-1:")
+    assert payload["activity"] == "policy_update"
 
 
 def test_parse_node_health_marks_container_pull_activity():

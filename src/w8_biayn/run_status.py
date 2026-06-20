@@ -272,6 +272,7 @@ def build_run_status(
             _pipeline_status(
                 pipeline=pipeline,
                 run_id=run_id,
+                project_id=project_id,
                 artifact_bucket=artifact_bucket,
                 env=env,
                 instances=[item for item in instances if item.get("labels", {}).get("pipeline") == pipeline],
@@ -363,6 +364,7 @@ def _pipeline_status(
     *,
     pipeline: str,
     run_id: str,
+    project_id: str | None = None,
     artifact_bucket: str,
     env: dict[str, str],
     instances: list[dict[str, Any]],
@@ -453,6 +455,8 @@ def _pipeline_status(
     if include_node_health:
         node_health = _node_health(
             cluster,
+            project_id=project_id,
+            instances=instances,
             env=env,
             timeout_s=timeout_s,
             retries=retries,
@@ -1010,6 +1014,8 @@ def _select_stage(matches: list[str]) -> str:
 def _node_health(
     cluster: str,
     *,
+    project_id: str | None = None,
+    instances: list[dict[str, Any]] | None = None,
     env: dict[str, str],
     timeout_s: int,
     retries: int,
@@ -1031,6 +1037,103 @@ def _node_health(
             "sample_scope": "none",
             "nodes": [],
             "checks": [check],
+        }
+    active_instances = [
+        instance
+        for instance in instances or []
+        if instance.get("status") in ACTIVE_INSTANCE_STATUSES and instance.get("name") and instance.get("zone")
+    ]
+    if active_instances and project_id:
+        nodes: list[dict[str, Any]] = []
+        checks: list[dict[str, Any]] = []
+        aggregate_gpus: list[dict[str, Any]] = []
+        aggregate_filesystems: list[dict[str, Any]] = []
+        aggregate_processes: list[dict[str, Any]] = []
+        errors: list[str] = []
+        global_gpu_index = 0
+        for instance in sorted(active_instances, key=lambda item: (_instance_role(item) != "head", str(item.get("name")))):
+            name = str(instance["name"])
+            role = _instance_role(instance)
+            result = _run(
+                [
+                    "gcloud",
+                    "compute",
+                    "ssh",
+                    name,
+                    "--project",
+                    project_id,
+                    "--zone",
+                    str(instance["zone"]),
+                    "--command",
+                    NODE_HEALTH_CMD,
+                ],
+                env=env,
+                timeout_s=timeout_s,
+                retries=retries,
+                dry_run=dry_run,
+            )
+            checks.append(result.check(f"node_health:{name}", include_stdout=False))
+            health = _parse_node_health(result.stdout) if result.ok is True else {
+                "gpus": [],
+                "filesystems": [],
+                "processes": [],
+                "activity": None,
+            }
+            for gpu in health.get("gpus", []):
+                enriched_gpu = {
+                    **gpu,
+                    "global_index": global_gpu_index,
+                    "node_name": name,
+                    "role": role,
+                }
+                aggregate_gpus.append(enriched_gpu)
+                global_gpu_index += 1
+            for filesystem in health.get("filesystems", []):
+                aggregate_filesystems.append({**filesystem, "node_name": name, "role": role})
+            for process in health.get("processes", []):
+                aggregate_processes.append({**process, "node_name": name, "role": role})
+            if result.ok is not True and not result.skipped:
+                errors.append(f"{name}: {_tail(result.stderr or result.stdout, 1000)}")
+            nodes.append(
+                {
+                    "name": name,
+                    "zone": instance.get("zone"),
+                    "role": role,
+                    "sampled": result.ok is True,
+                    "skipped": result.skipped,
+                    "error": None if result.ok is True else _tail(result.stderr or result.stdout, 2000),
+                    "activity": health.get("activity"),
+                    "gpus": health.get("gpus", []),
+                    "filesystems": health.get("filesystems", []),
+                    "processes": health.get("processes", []),
+                }
+            )
+        sampled_count = sum(1 for node in nodes if node.get("sampled"))
+        sample_scope = (
+            "none"
+            if sampled_count == 0
+            else "all_active"
+            if sampled_count == len(active_instances)
+            else "partial"
+        )
+        return {
+            "available": sampled_count > 0,
+            "skipped": all(node.get("skipped") for node in nodes) if nodes else True,
+            "error": "\n".join(errors) if errors else None,
+            "sample_scope": sample_scope,
+            "sample_note": (
+                "Health is sampled from every active pipeline VM found by labels; "
+                "failed probes remain visible in nodes[] and checks[]."
+            ),
+            "expected_node_count": len(active_instances),
+            "sampled_node_count": sampled_count,
+            "failed_node_count": len(active_instances) - sampled_count,
+            "gpus": aggregate_gpus,
+            "filesystems": aggregate_filesystems,
+            "processes": aggregate_processes,
+            "activity": _select_node_activity([node.get("activity") for node in nodes]),
+            "nodes": nodes,
+            "checks": checks,
         }
     result = _run(
         [
@@ -1069,6 +1172,31 @@ def _node_health(
         }
     ]
     return health
+
+
+def _instance_role(instance: dict[str, Any]) -> str:
+    labels = instance.get("labels") if isinstance(instance.get("labels"), dict) else {}
+    ray_role = str(labels.get("ray-node-type") or "").lower()
+    if ray_role in {"head", "worker"}:
+        return ray_role
+    skypilot_head = str(labels.get("skypilot-head-node") or "").lower()
+    if skypilot_head == "1":
+        return "head"
+    if skypilot_head == "0":
+        return "worker"
+    name = str(instance.get("name") or "").lower()
+    if "head" in name:
+        return "head"
+    if "worker" in name:
+        return "worker"
+    return "node"
+
+
+def _select_node_activity(activities: list[Any]) -> str | None:
+    stages = [str(activity) for activity in activities if activity]
+    if not stages:
+        return None
+    return max(stages, key=lambda stage_name: STAGE_PRIORITY.get(stage_name, 0))
 
 
 def _parse_node_health(text: str) -> dict[str, Any]:
@@ -1399,6 +1527,7 @@ def _run_summary(
     else:
         state = "mixed"
     progress = current.get("progress") if isinstance(current.get("progress"), dict) else {}
+    current_resources = current.get("resources") if isinstance(current.get("resources"), dict) else None
     return {
         "state": state,
         "dataset_state": dataset.get("state"),
@@ -1415,7 +1544,7 @@ def _run_summary(
         "training_health": progress.get("training_health"),
         "speed_comparison": current.get("speed_comparison"),
         "recovery": current.get("recovery"),
-        "resources": _resource_summary(instances=instances, node_health=None),
+        "resources": current_resources or _resource_summary(instances=instances, node_health=None),
         "cleanup_safe": cleanup.get("safe_to_cleanup"),
     }
 
@@ -2105,9 +2234,16 @@ def _resource_summary(
         "accelerators": accelerator_counts,
         "gpu_count": sum(accelerator_counts.values()),
         "node_health_sample_scope": node_health.get("sample_scope") if isinstance(node_health, dict) else None,
-        "sampled_node_count": len(node_health.get("nodes", []))
-        if isinstance(node_health, dict) and isinstance(node_health.get("nodes"), list)
-        else 0,
+        "sampled_node_count": node_health.get("sampled_node_count")
+        if isinstance(node_health, dict) and node_health.get("sampled_node_count") is not None
+        else (
+            sum(1 for node in node_health.get("nodes", []) if node.get("sampled"))
+            if isinstance(node_health, dict) and isinstance(node_health.get("nodes"), list)
+            else 0
+        ),
+        "failed_node_count": node_health.get("failed_node_count")
+        if isinstance(node_health, dict) and node_health.get("failed_node_count") is not None
+        else None,
         "node_health_activity": node_health.get("activity") if isinstance(node_health, dict) else None,
         "sampled_gpu_count": len(gpus),
         "avg_gpu_utilization_percent": round(sum(gpu_utils) / len(gpu_utils), 3) if gpu_utils else None,
