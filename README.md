@@ -29,7 +29,7 @@ Task IDs: `radix-ui__primitives-3548`, `chakra-ui__chakra-ui-8905`. This is an o
 
 The current implementation supports MiniWoB smoke runs, WebArena config rendering, DOMDiff reward hosting, a Harbor DOMDiff browser/SWE R3 smoke that runs task containers on GCP while using the local DOMDiff image through a Cloudflare reward tunnel, and a local OSWorld benchmark path through the pinned upstream Docker provider.
 
-The OSWorld transplant in this fork is benchmark-only: setup, validation, smoke runs, per-run result summaries, and domain benchmarks are included. Markov imports, SFT, SkyRL OSWorld training, and packaged train/eval tasksets are intentionally not part of this fork.
+OSWorld benchmarking is supported through upstream clone/setup, validation, smoke runs, per-run result summaries, and domain benchmarks.
 
 ## Bootstrap
 
@@ -194,7 +194,21 @@ Run a domain benchmark against a local OpenAI-compatible model server:
 uv run w8-biayn osworld benchmark   --domain os   --model qwen3-vl-8b   --base-url http://127.0.0.1:8000/v1   --api-key EMPTY
 ```
 
-This fork does not bundle packaged OSWorld tasksets and does not include Markov, SFT, or OSWorld SkyRL training commands. If you want custom subsets, pass your own grouped JSON path with `--taskset /path/to/tasks.json`.
+If you want custom subsets, pass your own grouped JSON path with `--taskset /path/to/tasks.json`. Use a JSON object where each top-level key is an OSWorld domain and each value is a list of task IDs from that domain. For example:
+
+```json
+{
+  "os": [
+    "e0df059f-28a6-4169-924f-b9623e7184cc",
+    "28cc3b7e-b194-4bc9-8353-d04c0f4d56d2"
+  ],
+  "chrome": [
+    "06fe7178-4491-4589-810f-2e2bc9502122"
+  ]
+}
+```
+
+List available tasks first with commands such as `uv run w8-biayn osworld list --domain os` and `uv run w8-biayn osworld list --domain chrome`, then dry-run the custom subset with `uv run w8-biayn osworld benchmark --taskset /path/to/tasks.json --dry-run`, and finally run it with `uv run w8-biayn osworld benchmark --taskset /path/to/tasks.json --model qwen3-vl-8b --base-url http://127.0.0.1:8000/v1 --api-key EMPTY`.
 
 ## R3 Pipeline
 
