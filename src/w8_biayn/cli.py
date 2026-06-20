@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import benchmarks, datasets, domdiff, upstreams
+from . import benchmarks, datasets, domdiff, osworld, upstreams
 from .constants import (
     DEFAULT_CREDENTIALS_PATH,
     DEFAULT_ACCELERATORS,
@@ -46,6 +46,7 @@ domdiff_app = typer.Typer(help="Manage DOMDiff reward images and hosts.")
 domdiff_local_app = typer.Typer(help="Run a local DOMDiff container and expose it with quick tunnels.")
 benchmarks_app = typer.Typer(help="Inspect benchmark targets for the R3 pipeline.")
 harbor_app = typer.Typer(help="Inspect and smoke packaged Harbor DOMDiff tasks.")
+osworld_app = typer.Typer(help="Validate and smoke OSWorld desktop tasks from the upstream clone.")
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
@@ -53,6 +54,7 @@ app.add_typer(domdiff_app, name="domdiff")
 domdiff_app.add_typer(domdiff_local_app, name="local")
 app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(harbor_app, name="harbor")
+app.add_typer(osworld_app, name="osworld")
 console = Console()
 
 SKYPILOT_GCP_LAUNCH_PERMISSIONS = (
@@ -1046,6 +1048,458 @@ def domdiff_smoke(
             host = domdiff.create_host_from_state(config, domdiff.run_dir_for(state.run_id))
             host.cleanup()
 
+
+@osworld_app.command("list")
+def osworld_list(
+    domain: Optional[str] = typer.Option(None, help="Only list tasks from one OSWorld domain."),
+    smoke_candidates: bool = typer.Option(
+        False,
+        "--smoke-candidates",
+        help="Only show low-risk tasks with proxy=false and fixed_ip=false.",
+    ),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of tasks to print."),
+) -> None:
+    """List OSWorld tasks discovered from the pinned upstream clone."""
+    tasks = osworld.list_tasks(domain=domain, smoke_candidates=smoke_candidates)
+    if limit is not None:
+        tasks = tasks[:limit]
+    table = Table(title="OSWorld tasks")
+    for column in ("task", "proxy", "fixed_ip", "env_change", "instruction"):
+        table.add_column(column)
+    for task_info in tasks:
+        instruction = task_info.instruction.replace("\n", " ")
+        if len(instruction) > 100:
+            instruction = instruction[:97] + "..."
+        table.add_row(
+            task_info.task,
+            "" if task_info.proxy is None else str(task_info.proxy).lower(),
+            "" if task_info.fixed_ip is None else str(task_info.fixed_ip).lower(),
+            task_info.env_change,
+            instruction,
+        )
+    console.print(table)
+    console.print(f"tasks: {len(tasks)}")
+
+@osworld_app.command("setup")
+def osworld_setup(
+    dry_run: bool = typer.Option(False, help="Print the upstream uv sync command without running it."),
+) -> None:
+    """Create/update the OSWorld-specific upstream Python environment."""
+    try:
+        osworld.setup(dry_run=dry_run)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print("OSWorld environment command completed." if not dry_run else "OSWorld setup dry run rendered.")
+
+@osworld_app.command("validate")
+def osworld_validate(
+    task: str = typer.Option(
+        osworld.DEFAULT_OSWORLD_TASK, help="Task formatted as <domain>/<task-id>."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Also validate the OSWorld proxy config file.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+    parse_error_policy: str = typer.Option(
+        "fail",
+        help="SkyRL env policy for unparseable model actions: fail or retry.",
+    ),
+    fail_on_env_error: bool = typer.Option(
+        True,
+        "--fail-on-env-error/--retry-on-env-error",
+        help="Terminate a trajectory when OSWorld reset/action execution raises an env error.",
+    ),
+) -> None:
+    """Validate local OSWorld upstream, env, Docker, KVM, and task metadata."""
+    rows = osworld.validate(
+        task=task,
+        enable_proxy=enable_proxy,
+        proxy_config_file=proxy_config_file,
+    )
+    table = Table(title="OSWorld validation")
+    for column in ("check", "status", "detail"):
+        table.add_column(column)
+    for row in rows:
+        table.add_row(row.check, row.status, row.detail)
+    console.print(table)
+    if osworld.has_errors(rows):
+        raise typer.Exit(1)
+
+@osworld_app.command("run")
+def osworld_run(
+    tasks: list[str] = typer.Option(
+        [], "--task", help="Task formatted as <domain>/<task-id>. Can be repeated."
+    ),
+    suite: Optional[str] = typer.Option(None, help="Named OSWorld suite to run, such as 'tiny'."),
+    domain: Optional[str] = typer.Option(None, help="Run tasks from one OSWorld domain."),
+    taskset: Optional[str] = typer.Option(
+        None, help="Named OSWorld taskset or JSON path, such as arpo-subset32."
+    ),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of selected tasks."),
+    provider: str = typer.Option(
+        osworld.DEFAULT_PROVIDER, help="OSWorld provider name. Docker is the current local default."
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type."
+    ),
+    model: str = typer.Option(
+        osworld.DEFAULT_MODEL, help="OSWorld model argument passed through to upstream run.py."
+    ),
+    base_url: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible base URL for local Qwen/Kimi-style OSWorld runs."
+    ),
+    api_key: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible API key. Use EMPTY for local vLLM servers that ignore it."
+    ),
+    max_steps: int = typer.Option(osworld.DEFAULT_MAX_STEPS, help="Max OSWorld agent steps."),
+    max_tokens: int = typer.Option(osworld.DEFAULT_MAX_TOKENS, help="Max model output tokens per OSWorld action request."),
+    max_trajectory_length: int = typer.Option(
+        1, help="Number of previous OSWorld observations to keep in the upstream prompt history."
+    ),
+    a11y_tree_max_items: int = typer.Option(
+        osworld.DEFAULT_A11Y_TREE_MAX_ITEMS,
+        help="Maximum deduped accessibility-tree rows kept before token trimming.",
+    ),
+    a11y_iou_threshold: float = typer.Option(
+        osworld.DEFAULT_A11Y_IOU_THRESHOLD,
+        help="IoU threshold for removing duplicate accessibility-tree rows with the same text.",
+    ),
+    headless: bool = typer.Option(
+        True, "--headless/--headed", help="Run OSWorld in headless mode."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Enable OSWorld proxy setup for tasks with proxy=true.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+    client_password: str = typer.Option(
+        osworld.DEFAULT_CLIENT_PASSWORD,
+        help="Ubuntu VM password used by OSWorld proxy setup for sudo operations.",
+    ),
+    dry_run: bool = typer.Option(
+        False, help="Print the upstream OSWorld command without running it."
+    ),
+) -> None:
+    """Run or render local OSWorld tasks through upstream run.py."""
+    try:
+        metadata, task_keys, run_id = osworld.run(
+            tasks=tuple(tasks),
+            suite=suite,
+            domain=domain,
+            taskset=taskset,
+            limit=limit,
+            provider=provider,
+            observation_type=observation_type,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            max_steps=max_steps,
+            max_tokens=max_tokens,
+            max_trajectory_length=max_trajectory_length,
+            a11y_tree_max_items=a11y_tree_max_items,
+            a11y_iou_threshold=a11y_iou_threshold,
+            headless=headless,
+            enable_proxy=enable_proxy,
+            proxy_config_file=proxy_config_file,
+            client_password=client_password,
+            dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if not dry_run:
+        record = osworld.read_run_record(run_id) if run_id is not None else {}
+        result_dir = record.get("results")
+        table = Table(title="OSWorld run result")
+        for column in ("task", "status", "score", "result"):
+            table.add_column(column)
+        for task_key in task_keys:
+            result = osworld.read_task_result(
+                task_key, observation_type=observation_type, model=model, result_dir=result_dir
+            )
+            table.add_row(
+                result.task,
+                result.status,
+                "" if result.score is None else str(result.score),
+                str(result.result_file),
+            )
+        console.print(table)
+        if run_id is not None:
+            console.print(f"run_id: {run_id}")
+        console.print(f"metadata: {metadata}")
+        console.print(f"results: {result_dir or osworld.results_path()}")
+
+@osworld_app.command("benchmark")
+def osworld_benchmark(
+    domains: list[str] = typer.Option(
+        [], "--domain", help="OSWorld domain to include. Can be repeated. Defaults to all domains."
+    ),
+    taskset: Optional[str] = typer.Option(
+        None, help="Named OSWorld taskset or JSON path, such as arpo-subset32."
+    ),
+    limit_per_domain: Optional[int] = typer.Option(
+        None, help="Maximum number of tasks to run per domain."
+    ),
+    smoke_candidates: bool = typer.Option(
+        False,
+        "--smoke-candidates",
+        help="Only run low-risk proxy=false/fixed_ip=false/env_change=low tasks.",
+    ),
+    provider: str = typer.Option(
+        osworld.DEFAULT_PROVIDER, help="OSWorld provider name. Docker is the current local default."
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type."
+    ),
+    model: str = typer.Option(
+        osworld.DEFAULT_MODEL, help="OSWorld model argument passed through to upstream run.py."
+    ),
+    base_url: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible base URL for local Qwen/Kimi-style OSWorld runs."
+    ),
+    api_key: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible API key. Use EMPTY for local vLLM servers that ignore it."
+    ),
+    max_steps: int = typer.Option(osworld.DEFAULT_MAX_STEPS, help="Max OSWorld agent steps."),
+    max_tokens: int = typer.Option(osworld.DEFAULT_MAX_TOKENS, help="Max model output tokens per OSWorld action request."),
+    max_trajectory_length: int = typer.Option(
+        1, help="Number of previous OSWorld observations to keep in the upstream prompt history."
+    ),
+    a11y_tree_max_items: int = typer.Option(
+        osworld.DEFAULT_A11Y_TREE_MAX_ITEMS,
+        help="Maximum deduped accessibility-tree rows kept before token trimming.",
+    ),
+    a11y_iou_threshold: float = typer.Option(
+        osworld.DEFAULT_A11Y_IOU_THRESHOLD,
+        help="IoU threshold for removing duplicate accessibility-tree rows with the same text.",
+    ),
+    headless: bool = typer.Option(
+        True, "--headless/--headed", help="Run OSWorld in headless mode."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Enable OSWorld proxy setup for tasks with proxy=true.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+    client_password: str = typer.Option(
+        osworld.DEFAULT_CLIENT_PASSWORD,
+        help="Ubuntu VM password used by OSWorld proxy setup for sudo operations.",
+    ),
+    dry_run: bool = typer.Option(
+        False, help="Print the benchmark plan without running domains."
+    ),
+) -> None:
+    """Run all or selected OSWorld domains as a benchmark sequence."""
+    try:
+        result = osworld.benchmark(
+            domains=tuple(domains),
+            taskset=taskset,
+            limit_per_domain=limit_per_domain,
+            smoke_candidates=smoke_candidates,
+            provider=provider,
+            observation_type=observation_type,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            max_steps=max_steps,
+            max_tokens=max_tokens,
+            max_trajectory_length=max_trajectory_length,
+            a11y_tree_max_items=a11y_tree_max_items,
+            a11y_iou_threshold=a11y_iou_threshold,
+            headless=headless,
+            enable_proxy=enable_proxy,
+            proxy_config_file=proxy_config_file,
+            client_password=client_password,
+            dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if dry_run or result is None:
+        return
+
+    table = Table(title="OSWorld benchmark result")
+    for column in ("domain", "run_id", "tasks", "completed", "successes", "failures", "average", "results"):
+        table.add_column(column)
+    for domain in result.domains:
+        average = "" if domain.average_score is None else f"{domain.average_score:.3f}"
+        table.add_row(
+            domain.domain,
+            domain.run_id,
+            str(len(domain.tasks)),
+            str(domain.completed),
+            str(domain.successes),
+            str(domain.failures),
+            average,
+            str(domain.results),
+        )
+    console.print(table)
+    average = "" if result.average_score is None else f"{result.average_score:.3f}"
+    console.print(
+        f"domains: {len(result.domains)} tasks: {result.total_tasks} "
+        f"completed: {result.completed} successes: {result.successes} "
+        f"failures: {result.failures} average_score: {average}"
+    )
+
+@osworld_app.command("results")
+def osworld_results(
+    run_id: Optional[str] = typer.Option(
+        None, help="Run id to summarize. Defaults to the latest OSWorld run."
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type used by the run."
+    ),
+    model: str = typer.Option(osworld.DEFAULT_MODEL, help="OSWorld model used by the run."),
+) -> None:
+    """Summarize OSWorld result files for a recorded run."""
+    try:
+        record = osworld.read_run_record(run_id)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    task_keys = tuple(record.get("tasks", []))
+    result_dir = record.get("results")
+    observation_type = record.get("observation_type") or observation_type
+    model = record.get("model") or model
+    summary = osworld.summarize_task_results(
+        task_keys, observation_type=observation_type, model=model, result_dir=result_dir
+    )
+    table = Table(title=f"OSWorld results {record.get('run_id', '')}")
+    for column in ("task", "status", "score", "result"):
+        table.add_column(column)
+    for result in summary.tasks:
+        table.add_row(
+            result.task,
+            result.status,
+            "" if result.score is None else str(result.score),
+            str(result.result_file),
+        )
+    console.print(table)
+    average = "" if summary.average_score is None else f"{summary.average_score:.3f}"
+    console.print(
+        f"completed: {summary.completed}/{len(summary.tasks)} "
+        f"successes: {summary.successes} failures: {summary.failures} average_score: {average}"
+    )
+    if result_dir:
+        console.print(f"results: {result_dir}")
+
+@osworld_app.command("status")
+def osworld_status() -> None:
+    """List recorded OSWorld runs."""
+    records = osworld.list_run_records()
+    table = Table(title="OSWorld runs")
+    for column in ("run_id", "status", "command", "tasks", "created_at"):
+        table.add_column(column)
+    for record in records:
+        table.add_row(
+            str(record.get("run_id", "")),
+            str(record.get("status", "")),
+            str(record.get("command", "")),
+            str(len(record.get("tasks", []))),
+            str(record.get("created_at", "")),
+        )
+    console.print(table)
+
+@osworld_app.command("smoke")
+def osworld_smoke(
+    task: str = typer.Option(
+        osworld.DEFAULT_OSWORLD_TASK, help="Task formatted as <domain>/<task-id>."
+    ),
+    suite: Optional[str] = typer.Option(
+        None, help="Named OSWorld smoke suite to run, such as 'tiny'."
+    ),
+    provider: str = typer.Option(
+        osworld.DEFAULT_PROVIDER,
+        help="OSWorld provider name. Docker is the current local smoke default.",
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type."
+    ),
+    model: str = typer.Option(
+        osworld.DEFAULT_MODEL, help="OSWorld model argument passed through to upstream run.py."
+    ),
+    max_steps: int = typer.Option(osworld.DEFAULT_MAX_STEPS, help="Max OSWorld agent steps."),
+    max_tokens: int = typer.Option(osworld.DEFAULT_MAX_TOKENS, help="Max model output tokens per OSWorld action request."),
+    max_trajectory_length: int = typer.Option(
+        1, help="Number of previous OSWorld observations to keep in the upstream prompt history."
+    ),
+    a11y_tree_max_items: int = typer.Option(
+        osworld.DEFAULT_A11Y_TREE_MAX_ITEMS,
+        help="Maximum deduped accessibility-tree rows kept before token trimming.",
+    ),
+    a11y_iou_threshold: float = typer.Option(
+        osworld.DEFAULT_A11Y_IOU_THRESHOLD,
+        help="IoU threshold for removing duplicate accessibility-tree rows with the same text.",
+    ),
+    headless: bool = typer.Option(
+        True, "--headless/--headed", help="Run OSWorld in headless mode."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Enable OSWorld proxy setup for tasks with proxy=true.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+    client_password: str = typer.Option(
+        osworld.DEFAULT_CLIENT_PASSWORD,
+        help="Ubuntu VM password used by OSWorld proxy setup for sudo operations.",
+    ),
+    dry_run: bool = typer.Option(
+        False, help="Print the upstream OSWorld command without running it."
+    ),
+) -> None:
+    """Run or render a one-task OSWorld smoke through upstream run.py."""
+    try:
+        metadata = osworld.smoke(
+            task=task,
+            suite=suite,
+            provider=provider,
+            observation_type=observation_type,
+            model=model,
+            max_steps=max_steps,
+            max_tokens=max_tokens,
+            max_trajectory_length=max_trajectory_length,
+            a11y_tree_max_items=a11y_tree_max_items,
+            a11y_iou_threshold=a11y_iou_threshold,
+            headless=headless,
+            enable_proxy=enable_proxy,
+            proxy_config_file=proxy_config_file,
+            client_password=client_password,
+            dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if not dry_run:
+        task_keys = osworld.tasks_for_suite(suite) if suite else (task,)
+        table = Table(title="OSWorld smoke result")
+        for column in ("task", "status", "score", "result"):
+            table.add_column(column)
+        for task_key in task_keys:
+            result = osworld.read_task_result(
+                task_key, observation_type=observation_type, model=model
+            )
+            table.add_row(
+                result.task,
+                result.status,
+                "" if result.score is None else str(result.score),
+                str(result.result_file),
+            )
+        console.print(table)
+        console.print(f"metadata: {metadata}")
+        console.print(f"results: {osworld.results_path()}")
 
 @benchmarks_app.command("list")
 def benchmarks_list() -> None:

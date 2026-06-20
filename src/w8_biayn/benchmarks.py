@@ -76,6 +76,33 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         reason="Reproducible self-hosted web benchmark that is less live-site brittle than WebVoyager.",
     ),
     BenchmarkSpec(
+        key="osworld-smoke",
+        tier="smoke",
+        harness="OSWorld desktop Docker provider",
+        command=(
+            "uv run w8-biayn osworld smoke "
+            "--task os/e0df059f-28a6-4169-924f-b9623e7184cc"
+        ),
+        metric="single desktop task success / verifier score",
+        reason="Small OS desktop GUI sanity check before adding full OSWorld or cloud execution.",
+        notes=(
+            "Uses the ignored .cache/upstreams/OSWorld clone and an OSWorld-specific upstream env; "
+            "starts with one low-risk os-domain task through the Docker provider."
+        ),
+    ),
+    BenchmarkSpec(
+        key="osworld-tiny-local",
+        tier="smoke",
+        harness="OSWorld desktop Docker provider",
+        command="uv run w8-biayn osworld run --suite tiny",
+        metric="tiny-suite desktop task success / verifier score",
+        reason="Runs the curated low-risk OSWorld suite locally after one-task smoke passes.",
+        notes=(
+            "Writes grouped metadata, run records, and parsed result summaries under .w8-biayn/osworld/. "
+            "Use `uv run w8-biayn osworld results` after the run."
+        ),
+    ),
+    BenchmarkSpec(
         key="androidworld-transfer",
         tier="transfer",
         harness="AndroidWorld",
