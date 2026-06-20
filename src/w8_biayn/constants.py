@@ -6,9 +6,11 @@ from dataclasses import dataclass
 
 RLLM_REPO = "https://github.com/rllm-org/rllm.git"
 SKYRL_REPO = "https://github.com/NovaSky-AI/SkyRL.git"
+OSWORLD_REPO = "https://github.com/xlang-ai/OSWorld.git"
 
 RLLM_PIN = "9b9e3582b0d73708cea5d1782571c3cc184d248c"
 SKYRL_PIN = "bfa4dc338b0db629f6222364bd1d8645f43baaa2"
+OSWORLD_PIN = "705623ca18e0055dd995fd5a350d6588cff2caf5"
 
 DEFAULT_CREDENTIALS_PATH = ".gcp-service-account.json"
 DEFAULT_RENDER_DIR = ".w8-biayn/rendered"
@@ -38,4 +40,5 @@ class Upstream:
 UPSTREAMS = {
     "rllm": Upstream("rllm", RLLM_REPO, RLLM_PIN),
     "skyrl": Upstream("SkyRL", SKYRL_REPO, SKYRL_PIN),
+    "osworld": Upstream("OSWorld", OSWORLD_REPO, OSWORLD_PIN),
 }

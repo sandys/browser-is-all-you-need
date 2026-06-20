@@ -1,4 +1,4 @@
-"""Manage local ignored clones of rLLM and SkyRL."""
+"""Manage local ignored clones of pinned upstream repositories."""
 
 from __future__ import annotations
 
@@ -28,6 +28,8 @@ def clone_or_update(name: str, repo_root: str | Path = ".", dry_run: bool = Fals
         run_command(["git", "-C", str(destination), "fetch", "--all", "--tags"], dry_run=dry_run)
 
     run_command(["git", "-C", str(destination), "checkout", upstream.pin], dry_run=dry_run)
+    if (destination / ".gitmodules").exists():
+        run_command(["git", "-C", str(destination), "submodule", "update", "--init", "--recursive"], dry_run=dry_run)
     return destination
 
 
