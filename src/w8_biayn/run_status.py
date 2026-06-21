@@ -60,7 +60,7 @@ ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 BENIGN_ERROR_RE = re.compile(
-    r"(warning: Failed to hardlink files|Downloading nvidia-nccl|Downloaded nvidia-nccl|[+-]\s+nvidia-nccl|weight_sync_backend:\s*nccl|SKYRL_WORKER_NCCL_TIMEOUT_IN_S|Unclosed client session|Unclosed connector|FutureWarning: Tip:.*error message|job will not be killed|echo\s+['\"].*\bfailed\b.*['\"]|Failed to establish connection to the (event\+metrics exporter|metrics exporter) agent|Failed to connect to GCS at address .* within \d+ seconds|Failed to get cluster ID from GCS server: TimedOut|Running out of retries to initialize the metrics agent|cleanup_old_checkpoints.*Failed to remove old checkpoint.*(404|notFound|specified key does not exist))",
+    r"(warning: Failed to hardlink files|Downloading nvidia-nccl|Downloaded nvidia-nccl|[+-]\s+nvidia-nccl|weight_sync_backend:\s*nccl|SKYRL_WORKER_NCCL_TIMEOUT_IN_S|Unclosed client session|Unclosed connector|FutureWarning: Tip:.*error message|job will not be killed|echo\s+['\"].*\bfailed\b.*['\"]|(?:^|\)\s*)\s*except\s+Exception:\s*$|Failed to establish connection to the (event\+metrics exporter|metrics exporter) agent|Failed to connect to GCS at address .* within \d+ seconds|Failed to get cluster ID from GCS server: TimedOut|Running out of retries to initialize the metrics agent|cleanup_old_checkpoints.*Failed to remove old checkpoint.*(404|notFound|specified key does not exist))",
     re.IGNORECASE,
 )
 DISTRIBUTED_STATE_FAILURE_RE = re.compile(

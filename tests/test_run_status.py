@@ -94,6 +94,18 @@ def test_extract_log_signals_ignores_multinode_ray_startup_noise():
     assert signals["errors"] == []
 
 
+def test_extract_log_signals_ignores_printed_exception_handler_source():
+    signals = _extract_log_signals(
+        [
+            "(head, rank=0, pid=7594)     except Exception:",
+            "(head, rank=0, pid=7594) uv pip install \"mlflow>=2.12,<3\"",
+        ]
+    )
+
+    assert signals["stage"] == "dependency_setup"
+    assert signals["errors"] == []
+
+
 def test_extract_log_signals_does_not_treat_error_metric_names_as_failures():
     signals = _extract_log_signals(
         [
