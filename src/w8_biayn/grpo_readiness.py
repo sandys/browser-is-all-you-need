@@ -184,6 +184,14 @@ def _add_static_runtime_checks(checks: list[dict[str, Any]], *, config: dict[str
     )
     _add_check(
         checks,
+        "skyrl.patch.startup",
+        "python -m w8_biayn.integrations.skyrl_startup_patch" in run,
+        "critical",
+        "SkyRL startup stage logging patch is invoked.",
+        remediation="Invoke skyrl_startup_patch before uv sync in the training container.",
+    )
+    _add_check(
+        checks,
         "tracking.console_logger",
         "trainer.logger=[console,mlflow]" in run or "trainer.logger=console" in run,
         "critical",

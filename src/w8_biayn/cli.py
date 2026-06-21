@@ -1491,7 +1491,7 @@ def ops_run_status(
         0,
         "--check-retries",
         min=0,
-        help="Retries for timed-out read-only backend/GCS/SSH checks.",
+        help="Retries for timed-out or transiently failed read-only backend/GCS/SSH checks.",
     ),
     node_health: bool = typer.Option(
         False,

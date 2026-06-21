@@ -91,6 +91,9 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert 'export MLFLOW_TRACKING_URI="http://${W8_MLFLOW_HEAD_IP}:${W8_MLFLOW_PORT:-5000}"' in grpo["run"]
     assert "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db" in grpo["run"]
     assert "sync_mlflow_tracking_once" in grpo["run"]
+    assert "W8_SETUP_STAGE" in grpo["run"]
+    assert "w8_stage dependency_setup start" in grpo["run"]
+    assert "python -m w8_biayn.integrations.skyrl_startup_patch" in grpo["run"]
     assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/tracking\"" in grpo["run"]
     assert "trainer.ckpt_interval=-1" in grpo["run"]
     assert "trainer.hf_save_interval=-1" in grpo["run"]
@@ -294,6 +297,9 @@ def test_render_cpp_grpo_multinode_uses_total_rollout_engines_and_resume_mode():
     assert "if [ \"${SKYPILOT_NODE_RANK:-0}\" = \"0\" ]" in run
     assert "ray start --head --disable-usage-stats --port 6479 --num-gpus 8" in run
     assert 'start_ray_worker "$W8_RAY_HEAD_IP:6479"' in run
+    assert "w8_stage ray_cluster start" in run
+    assert "w8_stage ray_worker_join start" in run
+    assert "w8_stage skyrl_entrypoint start" in run
     assert "export RAY_ADDRESS=127.0.0.1:6479" in run
     assert "worker rank ${SKYPILOT_NODE_RANK:-unknown} joined Ray" in run
     assert "skipping artifact upload on worker rank" in run

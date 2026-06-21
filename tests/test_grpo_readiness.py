@@ -46,6 +46,7 @@ def test_grpo_readiness_passes_valid_multinode_render(tmp_path: Path) -> None:
     assert _check(payload, "skyrl.patch.io")["ok"] is True
     assert _check(payload, "skyrl.patch.vllm_logprob")["ok"] is True
     assert _check(payload, "skyrl.patch.grpo_health")["ok"] is True
+    assert _check(payload, "skyrl.patch.startup")["ok"] is True
     assert _check(payload, "tracking.console_logger")["ok"] is True
     assert _check(payload, "tracking.mlflow_server")["ok"] is True
     assert _check(payload, "tracking.mlflow_persistence")["ok"] is True
@@ -124,6 +125,28 @@ def test_grpo_readiness_fails_missing_grpo_health_patch(tmp_path: Path) -> None:
 
     assert payload["overall"] == "fail"
     assert _check(payload, "skyrl.patch.grpo_health")["ok"] is False
+
+
+def test_grpo_readiness_fails_missing_startup_patch(tmp_path: Path) -> None:
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            num_nodes=2,
+            train_batch_size=32,
+            n_samples_per_prompt=8,
+            max_env_workers=256,
+            max_ckpts_to_keep=8,
+            hf_save_interval=10000,
+        )
+    ).replace("python -m w8_biayn.integrations.skyrl_startup_patch\n", "")
+    path = _write_rendered(tmp_path, text=rendered)
+
+    payload = build_grpo_readiness(path)
+
+    assert payload["overall"] == "fail"
+    assert _check(payload, "skyrl.patch.startup")["ok"] is False
 
 
 def test_grpo_readiness_fails_wrong_hsdp_mesh(tmp_path: Path) -> None:

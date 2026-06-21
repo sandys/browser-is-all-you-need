@@ -345,9 +345,14 @@ PY
 def training_prelude(options: RenderOptions) -> str:
     runtime_prelude = ""
     if options.pipeline in {"cpp-grpo", "cpp-eval"}:
-        runtime_prelude = f"""uv run w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+        runtime_prelude = f"""w8_stage host_preflight start
+uv run w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+w8_stage host_preflight end
 """
     prelude = f"""set -euxo pipefail
+w8_stage() {{
+  printf 'W8_SETUP_STAGE {{"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}}\\n' "$1" "$2" "$(date -u +%FT%TZ)"
+}}
 {gcp_env_exports(options)}
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_BIAYN_PIPELINE="{options.pipeline}"
@@ -492,10 +497,12 @@ PY
 }}
 """
     if options.sft_export_checkpoint:
-        data_restore = f"""echo "{options.pipeline} export-only: skipping dataset restore"
+        data_restore = f"""w8_stage data_restore skipped
+echo "{options.pipeline} export-only: skipping dataset restore"
 """
     else:
-        data_restore = """if [ -f "$W8_DATA_DIR/.w8_data_gcs_prefix" ] \\
+        data_restore = """w8_stage data_restore start
+if [ -f "$W8_DATA_DIR/.w8_data_gcs_prefix" ] \\
   && [ "$(cat "$W8_DATA_DIR/.w8_data_gcs_prefix")" = "$W8_DATA_GCS_PREFIX" ] \\
   && [ -f "$W8_DATA_DIR/_w8_data_manifest.json" ] \\
   && [ -d "$W8_DATA_DIR/tasks" ]; then
@@ -508,12 +515,14 @@ else
 fi
 test -f "$W8_DATA_DIR/_w8_data_manifest.json"
 test -d "$W8_DATA_DIR/tasks"
+w8_stage data_restore end
 """
     return (
         prelude
         + data_restore
         + f"""
 if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
+  w8_stage model_stage start
   export W8_BIAYN_MODEL_SOURCE="$W8_BIAYN_MODEL_PATH"
   export W8_BIAYN_MODEL_PATH="$(resolve_gcs_model_export "$W8_BIAYN_MODEL_PATH")"
   echo "resolved GCS model export: $W8_BIAYN_MODEL_SOURCE -> $W8_BIAYN_MODEL_PATH"
@@ -524,11 +533,14 @@ if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
   assert_local_hf_model "$W8_LOCAL_MODEL_DIR"
   normalize_local_hf_tokenizer_config "$W8_LOCAL_MODEL_DIR"
   export W8_BIAYN_MODEL_PATH="/artifacts/model"
+  w8_stage model_stage end
 fi
+w8_stage container_pull start
 docker pull "$W8_GPU_CONTAINER_IMAGE"
 if [ "{options.sandbox_image}" != "{DEFAULT_DOCKER_IMAGE}" ]; then
   docker pull "{options.sandbox_image}"
 fi
+w8_stage container_pull end
 """
     )
 
@@ -540,6 +552,7 @@ def training_container_prefix(options: RenderOptions) -> str:
   if [ "${W8_ENABLE_MLFLOW_TRACKING:-0}" != "1" ]; then
     return 0
   fi
+  w8_stage mlflow_setup start
   read -r W8_MLFLOW_HEAD_IP _ <<< "${SKYPILOT_NODE_IPS:-127.0.0.1}"
   if [ -z "$W8_MLFLOW_HEAD_IP" ]; then
     W8_MLFLOW_HEAD_IP=127.0.0.1
@@ -573,6 +586,7 @@ for _ in range(120):
 print(f"MLflow tracking server did not become ready at {uri}", file=sys.stderr)
 raise SystemExit(2)
 PY
+  w8_stage mlflow_setup end
 }
 cleanup_mlflow_tracking_server() {
   if [ -n "${W8_MLFLOW_SERVER_PID:-}" ]; then
@@ -587,6 +601,7 @@ setup_mlflow_tracking_server
         else ""
     )
     return """start_mlflow_tracking_sync
+w8_stage container_start start
 docker run --rm --gpus all --network host --shm-size=32g \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -v /tmp:/tmp \\
@@ -625,6 +640,9 @@ docker run --rm --gpus all --network host --shm-size=32g \\
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
 set -euxo pipefail
+w8_stage() {
+  printf '"'"'W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}\n'"'"' "$1" "$2" "$(date -u +%FT%TZ)"
+}
 if ! command -v docker >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
@@ -635,6 +653,7 @@ if ! command -v docker >/dev/null 2>&1; then
   fi
 fi
 docker version
+w8_stage dependency_setup start
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
@@ -647,10 +666,12 @@ cd /root/.cache/w8-biayn/upstreams/SkyRL
 python -m w8_biayn.integrations.skyrl_io_patch
 python -m w8_biayn.integrations.skyrl_vllm_logprob_patch
 python -m w8_biayn.integrations.skyrl_grpo_health_patch
+python -m w8_biayn.integrations.skyrl_startup_patch
 uv sync --active --extra fsdp --extra gcp
 cd /workspace
 """ + mlflow_install + """uv pip install gcsfs
 uv pip install --no-deps -e /workspace
+w8_stage dependency_setup end
 """ + mlflow_start
 
 
@@ -765,17 +786,22 @@ start_ray_worker() {{
 read -r W8_RAY_HEAD_IP _ <<< "${{SKYPILOT_NODE_IPS:-127.0.0.1}}"
 export RAY_RUNTIME_ENV_HOOK=ray._private.runtime_env.uv_runtime_env_hook.hook
 if [ "${{SKYPILOT_NODE_RANK:-0}}" = "0" ]; then
+  w8_stage ray_cluster start
   if ! ray status --address 127.0.0.1:6479 >/dev/null 2>&1; then
     ray start --head --disable-usage-stats --port 6479 --num-gpus {options.gpu_count}
   fi
   wait_for_ray 127.0.0.1:6479
+  w8_stage ray_cluster end
   export RAY_ADDRESS=127.0.0.1:6479
   cleanup_ray() {{ ray stop --force || true; }}
   trap cleanup_ray EXIT
+  w8_stage skyrl_entrypoint start
 {indented_train}
 else
+  w8_stage ray_worker_join start
   start_ray_worker "$W8_RAY_HEAD_IP:6479"
   wait_for_ray "$W8_RAY_HEAD_IP:6479"
+  w8_stage ray_worker_join end
   echo "worker rank ${{SKYPILOT_NODE_RANK:-unknown}} joined Ray at $W8_RAY_HEAD_IP:6479"
   while ray status --address "$W8_RAY_HEAD_IP:6479" >/dev/null 2>&1; do
     sleep 30

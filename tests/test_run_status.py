@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 from w8_biayn import run_status
@@ -67,6 +68,22 @@ def test_extract_log_signals_ignores_benign_setup_warnings():
 
     assert signals["stage"] is None
     assert signals["errors"] == []
+
+
+def test_extract_log_signals_keeps_nccl_timeout_and_ignores_cleanup_idle_kills():
+    signals = _extract_log_signals(
+        [
+            "[2026-06-21 E] Process group watchdog thread terminated with exception: "
+            "Watchdog caught collective operation timeout: WorkNCCL(OpType=BROADCAST)",
+            "(worker1) 2026-06-21 VINFO scripts.py:1254 -- Killed `ray::IDLE \"\" \"\"` (via SIGKILL)",
+        ]
+    )
+
+    assert signals["stage"] == "failed"
+    assert signals["errors"] == [
+        "[2026-06-21 E] Process group watchdog thread terminated with exception: "
+        "Watchdog caught collective operation timeout: WorkNCCL(OpType=BROADCAST)"
+    ]
 
 
 def test_extract_log_signals_ignores_nccl_timeout_env_knob():
@@ -153,6 +170,20 @@ def test_extract_log_signals_reports_worker_init_stage():
     )
 
     assert signals["stage"] == "worker_init"
+
+
+def test_extract_log_signals_reports_w8_setup_stage_json():
+    signals = run_status._extract_log_signals(
+        [
+            'W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"ref_model_init","event":"start","rank":0}',
+        ]
+    )
+
+    assert signals["stage"] == "ref_model_init"
+    assert signals["setup_events"] == [
+        {"schema_version": "w8-setup-stage-v1", "stage": "ref_model_init", "event": "start", "rank": 0}
+    ]
+    assert signals["stage_events"][0]["stage"] == "ref_model_init"
 
 
 def test_extract_log_signals_uses_priority_for_combined_stage_lines():
@@ -924,6 +955,120 @@ def test_pipeline_state_ignores_old_failed_jobs_after_successful_retry():
     assert state == "complete"
 
 
+def test_pipeline_state_marks_pre_metric_tracking_without_live_backend_failed():
+    state = run_status._derive_pipeline_state(
+        queue={"jobs": []},
+        artifacts={"checkpoint": {"latest_marker": None}, "export": {"final_export_exists": False}},
+        log_signals={"errors": []},
+        instances=[],
+        tracking={
+            "mlflow": {
+                "tracking_state": "run_active_no_metrics",
+                "metric_count": 0,
+                "metric_row_count": 0,
+            }
+        },
+    )
+
+    assert state == "failed"
+
+
+def test_pipeline_state_keeps_live_pre_metric_tracking_running():
+    state = run_status._derive_pipeline_state(
+        queue={"jobs": [{"status": "RUNNING"}]},
+        artifacts={"checkpoint": {"latest_marker": None}, "export": {"final_export_exists": False}},
+        log_signals={"errors": []},
+        instances=[{"status": "RUNNING"}],
+        tracking={
+            "mlflow": {
+                "tracking_state": "run_active_no_metrics",
+                "metric_count": 0,
+                "metric_row_count": 0,
+            }
+        },
+    )
+
+    assert state == "running"
+
+
+def test_run_retries_nonzero_read_only_checks(monkeypatch):
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(args=args[0], returncode=255, stdout="", stderr="ssh failed")
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(run_status.subprocess, "run", fake_run)
+
+    result = run_status._run(["sky", "logs"], env={}, timeout_s=10, retries=1, dry_run=False)
+
+    assert result.ok is True
+    assert result.stdout == "ok"
+    assert result.attempt_count == 2
+    assert len(calls) == 2
+
+
+def test_run_summary_prefers_failed_pipeline_when_no_active_job():
+    summary = run_status._run_summary(
+        pipelines=[
+            {
+                "pipeline": "cpp-sft",
+                "cluster": "sft",
+                "state": "not_started",
+                "progress": {"primary": None},
+            },
+            {
+                "pipeline": "cpp-grpo",
+                "cluster": "grpo",
+                "state": "failed",
+                "active_job": {"status": "FAILED"},
+                "phase": {"current": "failed"},
+                "progress": {"primary": {"completed": 0}},
+            },
+        ],
+        dataset={"state": "available"},
+        instances=[],
+        cleanup={"safe_to_cleanup": True},
+    )
+
+    assert summary["state"] == "failed"
+    assert summary["current_pipeline"] == "cpp-grpo"
+    assert summary["current_phase"] == {"current": "failed"}
+
+
+def test_phase_summary_marks_terminal_queue_failure_without_logs():
+    phase = run_status._phase_summary(
+        log_signals={"stage": None, "errors": []},
+        node_health=None,
+        artifacts={},
+        active_job={"status": "FAILED"},
+    )
+
+    assert phase["current"] == "failed"
+    assert phase["source"] == "queue"
+    assert phase["failed"] is True
+
+
+def test_phase_summary_marks_pre_metric_tracking_failure_without_logs():
+    phase = run_status._phase_summary(
+        log_signals={"stage": None, "errors": []},
+        node_health=None,
+        artifacts={},
+        active_job=None,
+        pipeline_state="failed",
+        startup={"recommended_action": "inspect_failed_startup_or_relaunch"},
+    )
+
+    assert phase["current"] == "failed"
+    assert phase["source"] == "tracking"
+    assert phase["failed"] is True
+    assert phase["message"] == (
+        "MLflow registered the run but no scalar training metrics were recorded before backend resources disappeared."
+    )
+
+
 def test_pipeline_status_reads_logs_for_selected_active_retry(monkeypatch):
     observed: dict[str, str | None] = {}
 
@@ -1458,6 +1603,102 @@ def test_parse_node_health_marks_mounted_model_stage_activity():
     )
 
     assert payload["activity"] == "model_stage"
+
+
+def test_parse_node_health_reports_ref_model_init_startup():
+    payload = run_status._parse_node_health(
+        "\n".join(
+            [
+                "__W8_GPU__",
+                "0, 100, 8850, 40960",
+                "__W8_DF__",
+                "Filesystem 1024-blocks Used Available Capacity Mounted on",
+                "/dev/root 1041235968 463470592 577765376 45% /",
+                "__W8_PS__",
+                "PID ELAPSED %CPU %MEM CMD",
+                "15010 3330 199.0 2.3 ray::FSDPRefWorkerBase.init_model",
+                "14193 3349 1.1 0.1 ray::FSDPPolicyWorkerBase",
+            ]
+        )
+    )
+
+    assert payload["activity"] == "model_init"
+    assert payload["startup"]["available"] is True
+    assert payload["startup"]["active_stage"] == "ref_model_init"
+    assert payload["startup"]["long_running"] is True
+    ref_group = payload["startup"]["groups"][0]
+    assert ref_group["stage"] == "ref_model_init"
+    assert ref_group["process_count"] == 1
+    assert ref_group["max_elapsed_s"] == 3330
+
+
+def test_startup_progress_warns_when_mlflow_has_no_scalars():
+    node_health = {
+        "startup": {
+            "available": True,
+            "active_stage": "ref_model_init",
+            "long_running": True,
+            "max_elapsed_s": 3330,
+            "groups": [],
+        }
+    }
+    tracking = {
+        "mlflow": {
+            "tracking_state": "run_active_no_metrics",
+            "metric_count": 0,
+            "metric_row_count": 0,
+        }
+    }
+
+    progress = run_status._startup_progress_summary(node_health=node_health, tracking=tracking, pipeline_state="running")
+
+    assert progress["active_stage"] == "ref_model_init"
+    assert progress["scalar_metrics_available"] is False
+    assert progress["severity"] == "warning"
+    assert progress["recommended_action"] == "inspect_startup_stage"
+
+
+def test_startup_progress_marks_pre_metric_after_teardown_as_failed_startup():
+    tracking = {
+        "mlflow": {
+            "tracking_state": "run_active_no_metrics",
+            "metric_count": 0,
+            "metric_row_count": 0,
+        }
+    }
+
+    progress = run_status._startup_progress_summary(
+        node_health=None,
+        tracking=tracking,
+        pipeline_state="failed",
+        active_job=None,
+        instances=[],
+    )
+
+    assert progress["scalar_metrics_available"] is False
+    assert progress["severity"] == "error"
+    assert progress["recommended_action"] == "inspect_failed_startup_or_relaunch"
+
+
+def test_startup_progress_keeps_live_pre_metric_action_as_node_health_poll():
+    tracking = {
+        "mlflow": {
+            "tracking_state": "run_active_no_metrics",
+            "metric_count": 0,
+            "metric_row_count": 0,
+        }
+    }
+
+    progress = run_status._startup_progress_summary(
+        node_health=None,
+        tracking=tracking,
+        pipeline_state="running",
+        active_job={"status": "RUNNING"},
+        instances=[{"status": "RUNNING"}],
+    )
+
+    assert progress["severity"] == "warning"
+    assert progress["recommended_action"] == "poll_with_node_health"
 
 
 def test_parse_node_health_marks_reward_compile_activity():
