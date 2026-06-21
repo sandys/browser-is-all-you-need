@@ -723,13 +723,22 @@ def _with_tracking_metrics(*, log_signals: dict[str, Any], tracking: dict[str, A
     if mlflow.get("available") is not True:
         return log_signals
     payload = dict(log_signals)
+    params = mlflow.get("params") if isinstance(mlflow.get("params"), dict) else {}
+    compact_params = {
+        "count": params.get("count"),
+        "selected": params.get("selected") if isinstance(params.get("selected"), dict) else {},
+    }
     payload["tracking"] = {
         "backend": tracking.get("backend"),
         "available": True,
         "mlflow": {
             "available": True,
+            "tracking_state": mlflow.get("tracking_state"),
             "latest_step": mlflow.get("latest_step"),
+            "run": mlflow.get("run"),
+            "params": compact_params,
             "metric_count": mlflow.get("metric_count"),
+            "metric_row_count": mlflow.get("metric_row_count"),
             "selected_keys": mlflow.get("selected_keys"),
             "source": mlflow.get("source"),
         },
