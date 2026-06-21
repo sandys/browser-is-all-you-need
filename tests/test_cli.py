@@ -541,9 +541,12 @@ def test_cli_ops_metrics_dry_run_emits_mlflow_schema(tmp_path):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["schema_version"] == "w8-mlflow-metrics-v1"
+    assert payload["source"] == "auto"
     assert payload["mlflow_db_uri"].endswith("/runs/cpp-perf/rtest/cpp-grpo/tracking/mlflow/mlflow.db")
     assert payload["metrics"]["reason"] == "dry_run"
-    assert payload["checks"][0]["command"][0:3] == ["gcloud", "storage", "cp"]
+    assert payload["checks"][0]["name"] == "ssh_tunnel:mlflow_api"
+    assert payload["checks"][0]["command"][0:3] == ["ssh", "-N", "-L"]
+    assert payload["checks"][1]["command"][0:3] == ["gcloud", "storage", "cp"]
 
 
 def test_cli_ops_grpo_readiness_emits_json(tmp_path):

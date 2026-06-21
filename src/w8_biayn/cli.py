@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import socket
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -58,7 +59,7 @@ from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
-from .mlflow_metrics import DEFAULT_METRIC_KEYS, read_mlflow_metrics
+from .mlflow_metrics import DEFAULT_METRIC_KEYS, read_mlflow_api, read_mlflow_metrics
 from .run_status import PIPELINES as STATUS_PIPELINES
 from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -1550,6 +1551,18 @@ def ops_metrics(
     pipeline: str = typer.Option("cpp-grpo", "--pipeline", help="Pipeline to inspect, usually cpp-sft or cpp-grpo."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI. Defaults from the credentials project."),
+    source: str = typer.Option(
+        "auto",
+        "--source",
+        help="Metric source: auto prefers live MLflow API through SSH tunnel, api requires it, sqlite reads GCS snapshot.",
+    ),
+    cluster: Optional[str] = typer.Option(
+        None,
+        "--cluster",
+        help="Optional SkyPilot cluster name for live MLflow API tunneling. Defaults to w8-biayn-<pipeline>-<run-id>.",
+    ),
+    mlflow_port: int = typer.Option(5000, "--mlflow-port", min=1, max=65535, help="Remote MLflow server port."),
+    api_timeout: int = typer.Option(20, "--api-timeout", min=1, help="Seconds to wait for live API/tunnel."),
     metric: Optional[list[str]] = typer.Option(
         None,
         "--metric",
@@ -1559,31 +1572,44 @@ def ops_metrics(
     out: Optional[str] = typer.Option(None, "--out", help="Optional path to also write the JSON payload."),
     dry_run: bool = typer.Option(False, help="Print the planned GCS download without reading cloud state."),
 ) -> None:
-    """Fetch the synced MLflow tracking DB and emit headless metric JSON."""
+    """Fetch MLflow metrics through live API or synced SQLite and emit headless metric JSON."""
 
     if pipeline not in STATUS_PIPELINES:
         raise typer.BadParameter(f"unknown pipeline: {pipeline}")
+    if source not in {"auto", "api", "sqlite"}:
+        raise typer.BadParameter("source must be one of: auto, api, sqlite")
     project_id = _project_id(credentials)
     artifact_bucket = (bucket or default_bucket_for_project(project_id)).rstrip("/")
     db_uri = f"{artifact_bucket}/runs/cpp-perf/{run_id}/{pipeline}/tracking/mlflow/mlflow.db"
     local_db = Path(".w8-biayn/runs") / run_id / pipeline / "mlflow.db"
     local_db.parent.mkdir(parents=True, exist_ok=True)
-    command = ["gcloud", "storage", "cp", db_uri, str(local_db)]
-    check: dict[str, object]
+    cluster_name = cluster or f"w8-biayn-{pipeline}-{run_id}"
+    checks: list[dict[str, object]] = []
+    metrics_payload: dict[str, object] | None = None
+    resolved_source = source
     if dry_run:
-        check = {
-            "name": "gcloud_storage_cp:mlflow_db",
-            "command": command,
-            "ok": None,
-            "returncode": None,
-            "skipped": True,
-            "timed_out": False,
-            "attempt_count": 1,
-        }
+        if source in {"auto", "api"}:
+            checks.append(
+                {
+                    "name": "ssh_tunnel:mlflow_api",
+                    "command": _mlflow_tunnel_command(
+                        cluster=cluster_name,
+                        local_port="<auto>",
+                        remote_port=mlflow_port,
+                    ),
+                    "ok": None,
+                    "returncode": None,
+                    "skipped": True,
+                    "timed_out": False,
+                    "attempt_count": 1,
+                }
+            )
+        if source in {"auto", "sqlite"}:
+            checks.append(_gcloud_mlflow_db_check(["gcloud", "storage", "cp", db_uri, str(local_db)], dry_run=True))
         metrics_payload = {
             "available": False,
             "reason": "dry_run",
-            "backend": "mlflow",
+            "backend": "mlflow_api" if source == "api" else "mlflow",
             "tracking_state": "dry_run",
             "source": {"path": str(local_db), "size_bytes": None},
             "experiments": {"count": 0, "items": []},
@@ -1600,39 +1626,219 @@ def ops_metrics(
             "series": {},
         }
     else:
-        proc = subprocess.run(
-            command,
-            env=_service_account_env(credentials, project_id=project_id),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        check = {
-            "name": "gcloud_storage_cp:mlflow_db",
-            "command": command,
-            "ok": proc.returncode == 0,
-            "returncode": proc.returncode,
-            "skipped": False,
-            "timed_out": False,
-            "attempt_count": 1,
-        }
-        if proc.stderr:
-            check["stderr_tail"] = proc.stderr[-2000:]
-        metrics_payload = read_mlflow_metrics(local_db, metric_keys=metric, last=last)
+        if source in {"auto", "api"}:
+            api_payload, api_checks = _read_mlflow_metrics_via_tunnel(
+                cluster=cluster_name,
+                remote_port=mlflow_port,
+                env=_service_account_env(credentials, project_id=project_id),
+                metric_keys=metric,
+                last=last,
+                timeout_s=api_timeout,
+            )
+            checks.extend(api_checks)
+            if api_payload.get("available") is True or source == "api":
+                metrics_payload = api_payload
+                resolved_source = "api"
+        if metrics_payload is None:
+            sqlite_payload, sqlite_check = _read_mlflow_metrics_from_gcs(
+                db_uri=db_uri,
+                local_db=local_db,
+                credentials=credentials,
+                project_id=project_id,
+                metric_keys=metric,
+                last=last,
+            )
+            checks.append(sqlite_check)
+            metrics_payload = sqlite_payload
+            resolved_source = "sqlite"
     payload = {
         "schema_version": "w8-mlflow-metrics-v1",
         "run_id": run_id,
         "pipeline": pipeline,
+        "source": resolved_source,
+        "cluster": cluster_name,
+        "mlflow_api": {
+            "remote_port": mlflow_port,
+            "tunnel": "ssh",
+            "available": metrics_payload.get("backend") == "mlflow_api" and metrics_payload.get("available") is True,
+        },
         "artifact_bucket": artifact_bucket,
         "mlflow_db_uri": db_uri,
         "local_db_path": str(local_db),
         "metrics": metrics_payload,
-        "checks": [check],
+        "checks": checks,
     }
     if out:
         _write_json(out, payload)
     console.print_json(data=payload)
+
+
+def _read_mlflow_metrics_from_gcs(
+    *,
+    db_uri: str,
+    local_db: Path,
+    credentials: str,
+    project_id: str,
+    metric_keys: list[str] | None,
+    last: int,
+) -> tuple[dict[str, object], dict[str, object]]:
+    command = ["gcloud", "storage", "cp", db_uri, str(local_db)]
+    proc = subprocess.run(
+        command,
+        env=_service_account_env(credentials, project_id=project_id),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    check = _gcloud_mlflow_db_check(command, proc=proc)
+    if proc.returncode != 0:
+        return (
+            {
+                "available": False,
+                "reason": "mlflow_db_unavailable",
+                "backend": "mlflow",
+                "tracking_state": "mlflow_db_unavailable",
+                "source": {"path": str(local_db), "size_bytes": None},
+                "experiments": {"count": 0, "items": []},
+                "runs": {"count": 0, "items": []},
+                "run": {"available": False},
+                "params": {"count": 0, "available_keys": [], "selected": {}},
+                "tags": {"count": 0, "items": {}},
+                "latest_step": None,
+                "metric_row_count": 0,
+                "metric_count": 0,
+                "available_keys": [],
+                "selected_keys": list(metric_keys or DEFAULT_METRIC_KEYS),
+                "latest": {},
+                "series": {},
+            },
+            check,
+        )
+    return read_mlflow_metrics(local_db, metric_keys=metric_keys, last=last), check
+
+
+def _gcloud_mlflow_db_check(
+    command: list[str],
+    *,
+    proc: subprocess.CompletedProcess[str] | None = None,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    check: dict[str, object] = {
+        "name": "gcloud_storage_cp:mlflow_db",
+        "command": command,
+        "ok": None if dry_run else proc is not None and proc.returncode == 0,
+        "returncode": None if dry_run or proc is None else proc.returncode,
+        "skipped": dry_run,
+        "timed_out": False,
+        "attempt_count": 1,
+    }
+    if proc is not None and proc.stderr:
+        check["stderr_tail"] = proc.stderr[-2000:]
+    return check
+
+
+def _read_mlflow_metrics_via_tunnel(
+    *,
+    cluster: str,
+    remote_port: int,
+    env: dict[str, str],
+    metric_keys: list[str] | None,
+    last: int,
+    timeout_s: int,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    local_port = _free_local_port()
+    command = _mlflow_tunnel_command(cluster=cluster, local_port=local_port, remote_port=remote_port)
+    check: dict[str, object] = {
+        "name": "ssh_tunnel:mlflow_api",
+        "command": command,
+        "ok": False,
+        "returncode": None,
+        "skipped": False,
+        "timed_out": False,
+        "attempt_count": 1,
+    }
+    proc = subprocess.Popen(
+        command,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    base_url = f"http://127.0.0.1:{local_port}"
+    payload: dict[str, object] = {
+        "available": False,
+        "reason": "mlflow_api_unavailable",
+        "backend": "mlflow_api",
+        "tracking_state": "mlflow_api_unavailable",
+        "source": {"base_url": base_url},
+        "experiments": {"count": 0, "items": []},
+        "runs": {"count": 0, "items": []},
+        "run": {"available": False},
+        "params": {"count": 0, "available_keys": [], "selected": {}},
+        "tags": {"count": 0, "items": {}},
+        "latest_step": None,
+        "metric_row_count": 0,
+        "metric_count": 0,
+        "available_keys": [],
+        "selected_keys": list(metric_keys or DEFAULT_METRIC_KEYS),
+        "latest": {},
+        "series": {},
+    }
+    deadline = time.monotonic() + timeout_s
+    try:
+        while time.monotonic() < deadline:
+            returncode = proc.poll()
+            if returncode is not None:
+                check["returncode"] = returncode
+                _, stderr = proc.communicate(timeout=1)
+                if stderr:
+                    check["stderr_tail"] = stderr[-2000:]
+                payload["reason"] = f"ssh_tunnel_failed:{returncode}"
+                payload["tracking_state"] = payload["reason"]
+                return payload, [check]
+            payload = read_mlflow_api(base_url, metric_keys=metric_keys, last=last, timeout_s=3.0)
+            if payload.get("available") is True:
+                check["ok"] = True
+                return payload, [check]
+            time.sleep(0.5)
+        check["timed_out"] = True
+        payload["reason"] = "mlflow_api_tunnel_timeout"
+        payload["tracking_state"] = "mlflow_api_tunnel_timeout"
+        return payload, [check]
+    finally:
+        _stop_process(proc)
+
+
+def _mlflow_tunnel_command(*, cluster: str, local_port: int | str, remote_port: int) -> list[str]:
+    return [
+        "ssh",
+        "-N",
+        "-L",
+        f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=30",
+        cluster,
+    ]
+
+
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _stop_process(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
 
 
 @ops_app.command("grpo-readiness")

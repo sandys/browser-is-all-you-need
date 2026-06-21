@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 
-from w8_biayn.mlflow_metrics import read_mlflow_metrics
+from w8_biayn import mlflow_metrics
+from w8_biayn.mlflow_metrics import read_mlflow_api, read_mlflow_metrics
 
 
 def test_read_mlflow_metrics_latest_and_series(tmp_path):
@@ -97,3 +98,92 @@ def test_read_mlflow_metrics_reports_active_run_before_first_scalar(tmp_path):
         "trainer/placement/policy_num_nodes": "2",
     }
     assert payload["tags"]["items"] == {"mlflow.runName": "test_run"}
+
+
+def test_read_mlflow_api_latest_and_series(monkeypatch):
+    def fake_post_json(base_url, path, payload, timeout_s):
+        assert base_url == "http://127.0.0.1:5000"
+        assert timeout_s == 5
+        if path == "/api/2.0/mlflow/experiments/search":
+            return {
+                "experiments": [
+                    {
+                        "experiment_id": "1",
+                        "name": "skyrl",
+                        "lifecycle_stage": "active",
+                        "artifact_location": "/artifacts/1",
+                        "creation_time": 10,
+                        "last_update_time": 11,
+                    }
+                ]
+            }
+        if path == "/api/2.0/mlflow/runs/search":
+            assert payload["experiment_ids"] == ["1"]
+            return {
+                "runs": [
+                    {
+                        "info": {
+                            "run_id": "run-api",
+                            "run_name": "test_run",
+                            "status": "RUNNING",
+                            "start_time": 100,
+                            "experiment_id": "1",
+                            "artifact_uri": "/artifacts/1/run-api/artifacts",
+                            "lifecycle_stage": "active",
+                        },
+                        "data": {
+                            "metrics": [
+                                {"key": "policy/policy_entropy", "value": 0.25, "timestamp": 20, "step": 2},
+                                {"key": "loss/avg_final_rewards", "value": 0.8, "timestamp": 21, "step": 2},
+                                {"key": "unused/key", "value": 42, "timestamp": 22, "step": 2},
+                            ],
+                            "params": [
+                                {"key": "trainer/algorithm/use_kl_loss", "value": "True"},
+                                {"key": "trainer/placement/policy_num_nodes", "value": "2"},
+                            ],
+                            "tags": [{"key": "mlflow.runName", "value": "test_run"}],
+                        },
+                    }
+                ]
+            }
+        raise AssertionError(path)
+
+    def fake_get_json(base_url, path, query, timeout_s):
+        assert path == "/api/2.0/mlflow/metrics/get-history"
+        histories = {
+            "policy/policy_entropy": [
+                {"key": "policy/policy_entropy", "value": 0.5, "timestamp": 10, "step": 1},
+                {"key": "policy/policy_entropy", "value": 0.25, "timestamp": 20, "step": 2},
+            ],
+            "loss/avg_final_rewards": [
+                {"key": "loss/avg_final_rewards", "value": -0.2, "timestamp": 11, "step": 1},
+                {"key": "loss/avg_final_rewards", "value": 0.8, "timestamp": 21, "step": 2},
+            ],
+        }
+        return {"metrics": histories[query["metric_key"]]}
+
+    monkeypatch.setattr(mlflow_metrics, "_api_post_json", fake_post_json)
+    monkeypatch.setattr(mlflow_metrics, "_api_get_json", fake_get_json)
+
+    payload = read_mlflow_api(
+        "http://127.0.0.1:5000",
+        metric_keys=["policy/policy_entropy", "loss/avg_final_rewards"],
+        last=2,
+        timeout_s=5,
+    )
+
+    assert payload["available"] is True
+    assert payload["backend"] == "mlflow_api"
+    assert payload["tracking_state"] == "metrics_available"
+    assert payload["run"]["run_uuid"] == "run-api"
+    assert payload["params"]["selected"] == {
+        "trainer/algorithm/use_kl_loss": "True",
+        "trainer/placement/policy_num_nodes": "2",
+    }
+    assert payload["latest"]["policy/policy_entropy"]["value"] == 0.25
+    assert payload["series"]["loss/avg_final_rewards"] == [
+        {"step": 1, "value": -0.2, "timestamp_ms": 11},
+        {"step": 2, "value": 0.8, "timestamp_ms": 21},
+    ]
+    assert "unused/key" in payload["available_keys"]
+    assert "unused/key" not in payload["selected_keys"]

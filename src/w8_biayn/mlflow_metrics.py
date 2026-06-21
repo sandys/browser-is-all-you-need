@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 DEFAULT_METRIC_KEYS = (
     "eval/all/avg_score",
@@ -167,6 +171,91 @@ def read_mlflow_metrics(
     }
 
 
+def read_mlflow_api(
+    base_url: str,
+    *,
+    metric_keys: list[str] | tuple[str, ...] | None = None,
+    last: int = 100,
+    timeout_s: float = 10.0,
+) -> dict[str, Any]:
+    """Return latest values and short series from an MLflow Tracking Server API."""
+
+    normalized_url = base_url.rstrip("/")
+    keys = tuple(dict.fromkeys(metric_keys or DEFAULT_METRIC_KEYS))
+    try:
+        experiments = _api_experiments(normalized_url, timeout_s=timeout_s)
+        experiment_ids = [str(item["experiment_id"]) for item in experiments if item.get("experiment_id") is not None]
+        runs = _api_runs(normalized_url, experiment_ids=experiment_ids, timeout_s=timeout_s)
+        active_run_raw = _active_run(runs)
+        run_id = active_run_raw.get("run_uuid") if active_run_raw else None
+        params = active_run_raw.get("_params", {}) if active_run_raw else {}
+        tags = active_run_raw.get("_tags", {}) if active_run_raw else {}
+        latest_from_run = active_run_raw.get("_latest", {}) if active_run_raw else {}
+        public_runs = [_public_run_payload(run) for run in runs]
+        active_run = _public_run_payload(active_run_raw) if active_run_raw else None
+        available_keys = sorted(latest_from_run)
+        selected_keys = [key for key in keys if key in latest_from_run] if keys else available_keys
+        series = _api_metric_series(
+            normalized_url,
+            run_id=str(run_id) if run_id else None,
+            keys=selected_keys,
+            last=last,
+            timeout_s=timeout_s,
+        )
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+        return _unavailable_api(normalized_url, f"api_error:{exc}")
+
+    latest = {
+        key: series[key][-1] if series.get(key) else latest_from_run[key]
+        for key in selected_keys
+        if key in latest_from_run or series.get(key)
+    }
+    latest_step = max((item["step"] for item in latest.values() if item.get("step") is not None), default=None)
+    tracking_state = _tracking_state(
+        run=active_run,
+        experiments=experiments,
+        available_keys=available_keys,
+        metric_table_available=True,
+    )
+    return {
+        "available": True,
+        "reason": None,
+        "backend": "mlflow_api",
+        "tracking_state": tracking_state,
+        "source": {
+            "base_url": normalized_url,
+        },
+        "experiments": {
+            "count": len(experiments),
+            "items": experiments,
+        },
+        "runs": {
+            "count": len(public_runs),
+            "items": public_runs,
+        },
+        "run": {
+            "available": active_run is not None,
+            **(active_run or {}),
+        },
+        "params": {
+            "count": len(params),
+            "available_keys": list(params),
+            "selected": {key: params[key] for key in IMPORTANT_PARAM_KEYS if key in params},
+        },
+        "tags": {
+            "count": len(tags),
+            "items": tags,
+        },
+        "latest_step": latest_step,
+        "metric_row_count": sum(len(points) for points in series.values()),
+        "metric_count": len(available_keys),
+        "available_keys": available_keys,
+        "selected_keys": selected_keys,
+        "latest": latest,
+        "series": series,
+    }
+
+
 def _unavailable(path: Path, reason: str) -> dict[str, Any]:
     return {
         "available": False,
@@ -177,6 +266,28 @@ def _unavailable(path: Path, reason: str) -> dict[str, Any]:
             "path": str(path),
             "size_bytes": path.stat().st_size if path.exists() else None,
         },
+        "experiments": {"count": 0, "items": []},
+        "runs": {"count": 0, "items": []},
+        "run": {"available": False},
+        "params": {"count": 0, "available_keys": [], "selected": {}},
+        "tags": {"count": 0, "items": {}},
+        "latest_step": None,
+        "metric_row_count": 0,
+        "metric_count": 0,
+        "available_keys": [],
+        "selected_keys": [],
+        "latest": {},
+        "series": {},
+    }
+
+
+def _unavailable_api(base_url: str, reason: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "reason": reason,
+        "backend": "mlflow_api",
+        "tracking_state": reason,
+        "source": {"base_url": base_url.rstrip("/")},
         "experiments": {"count": 0, "items": []},
         "runs": {"count": 0, "items": []},
         "run": {"available": False},
@@ -396,3 +507,169 @@ def _coerce_value(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
+
+
+def _api_experiments(base_url: str, *, timeout_s: float) -> list[dict[str, Any]]:
+    try:
+        payload = _api_post_json(base_url, "/api/2.0/mlflow/experiments/search", {"max_results": 1000}, timeout_s)
+        experiments = payload.get("experiments") if isinstance(payload.get("experiments"), list) else []
+    except HTTPError as exc:
+        if exc.code != 404:
+            raise
+        payload = _api_get_json(base_url, "/api/2.0/mlflow/experiments/list", {}, timeout_s)
+        experiments = payload.get("experiments") if isinstance(payload.get("experiments"), list) else []
+    return [_api_experiment_payload(item) for item in experiments if isinstance(item, dict)]
+
+
+def _api_runs(base_url: str, *, experiment_ids: list[str], timeout_s: float) -> list[dict[str, Any]]:
+    if not experiment_ids:
+        return []
+    payload = _api_post_json(
+        base_url,
+        "/api/2.0/mlflow/runs/search",
+        {
+            "experiment_ids": experiment_ids,
+            "max_results": 1000,
+            "order_by": ["attributes.start_time DESC"],
+        },
+        timeout_s,
+    )
+    runs = payload.get("runs") if isinstance(payload.get("runs"), list) else []
+    return [_api_run_payload(item) for item in runs if isinstance(item, dict)]
+
+
+def _api_metric_series(
+    base_url: str,
+    *,
+    run_id: str | None,
+    keys: list[str],
+    last: int,
+    timeout_s: float,
+) -> dict[str, list[dict[str, Any]]]:
+    if not run_id or last <= 0:
+        return {}
+    series: dict[str, list[dict[str, Any]]] = {}
+    for key in keys:
+        payload = _api_get_json(
+            base_url,
+            "/api/2.0/mlflow/metrics/get-history",
+            {"run_id": run_id, "metric_key": key},
+            timeout_s,
+        )
+        points = payload.get("metrics") if isinstance(payload.get("metrics"), list) else []
+        normalized = [_api_metric_payload(item) for item in points if isinstance(item, dict)]
+        normalized.sort(key=lambda item: (item.get("step") or -1, item.get("timestamp_ms") or -1))
+        if normalized:
+            series[key] = normalized[-last:]
+    return series
+
+
+def _api_experiment_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "experiment_id": _coerce_value(item.get("experiment_id")),
+        "name": item.get("name"),
+        "lifecycle_stage": item.get("lifecycle_stage"),
+        "artifact_location": item.get("artifact_location"),
+        "creation_time": _to_int_or_none(item.get("creation_time")),
+        "last_update_time": _to_int_or_none(item.get("last_update_time")),
+    }
+
+
+def _api_run_payload(item: dict[str, Any]) -> dict[str, Any]:
+    info = item.get("info") if isinstance(item.get("info"), dict) else {}
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+    run_id = info.get("run_id") or info.get("run_uuid")
+    metrics = _api_keyed_metrics(data.get("metrics") if isinstance(data.get("metrics"), list) else [])
+    payload = {
+        "run_uuid": run_id,
+        "name": info.get("run_name") or _api_tag_value(data, "mlflow.runName"),
+        "status": info.get("status"),
+        "start_time": _to_int_or_none(info.get("start_time")),
+        "end_time": _to_int_or_none(info.get("end_time")),
+        "experiment_id": _coerce_value(info.get("experiment_id")),
+        "lifecycle_stage": info.get("lifecycle_stage"),
+        "artifact_uri": info.get("artifact_uri"),
+        "_params": _api_key_values(data.get("params") if isinstance(data.get("params"), list) else []),
+        "_tags": _api_key_values(data.get("tags") if isinstance(data.get("tags"), list) else []),
+        "_latest": metrics,
+    }
+    return payload
+
+
+def _public_run_payload(item: dict[str, Any] | None) -> dict[str, Any]:
+    if item is None:
+        return {}
+    return {key: value for key, value in item.items() if not str(key).startswith("_")}
+
+
+def _api_key_values(items: list[Any]) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    for item in items:
+        if isinstance(item, dict) and item.get("key") is not None:
+            payload[str(item["key"])] = str(item.get("value"))
+    return payload
+
+
+def _api_keyed_metrics(items: list[Any]) -> dict[str, dict[str, Any]]:
+    payload: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if isinstance(item, dict) and item.get("key") is not None:
+            metric = _api_metric_payload(item)
+            key = str(item["key"])
+            existing = payload.get(key)
+            if existing is None or (
+                (metric.get("step") or -1, metric.get("timestamp_ms") or -1)
+                >= (existing.get("step") or -1, existing.get("timestamp_ms") or -1)
+            ):
+                payload[key] = metric
+    return payload
+
+
+def _api_metric_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "step": _to_int_or_none(item.get("step")),
+        "value": float(item.get("value")),
+        "timestamp_ms": _to_int_or_none(item.get("timestamp")),
+    }
+
+
+def _api_tag_value(data: dict[str, Any], key: str) -> str | None:
+    tags = data.get("tags") if isinstance(data.get("tags"), list) else []
+    for item in tags:
+        if isinstance(item, dict) and item.get("key") == key:
+            return str(item.get("value"))
+    return None
+
+
+def _api_post_json(base_url: str, path: str, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
+    body = json.dumps(payload).encode("utf-8")
+    request = Request(
+        base_url.rstrip("/") + path,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    return _read_json_response(request, timeout_s)
+
+
+def _api_get_json(base_url: str, path: str, query: dict[str, str], timeout_s: float) -> dict[str, Any]:
+    suffix = "?" + urlencode(query) if query else ""
+    request = Request(base_url.rstrip("/") + path + suffix, method="GET")
+    return _read_json_response(request, timeout_s)
+
+
+def _read_json_response(request: Request, timeout_s: float) -> dict[str, Any]:
+    with urlopen(request, timeout=timeout_s) as response:
+        raw = response.read()
+    if not raw:
+        return {}
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("MLflow API returned a non-object JSON response")
+    return payload
+
+
+def _to_int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
