@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .mlflow_metrics import read_mlflow_metrics
 
 PIPELINES = ("cpp-sft", "cpp-grpo", "cpp-eval")
 CHECKPOINT_PIPELINES = {"cpp-sft", "cpp-grpo"}
@@ -406,6 +408,15 @@ def _pipeline_status(
         retries=retries,
         dry_run=dry_run,
     )
+    tracking = _tracking_status(
+        pipeline=pipeline,
+        run_gcs_prefix=run_gcs_prefix,
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    log_signals = _with_tracking_metrics(log_signals=log_signals, tracking=tracking)
     node_health = None
     progress = _progress_summary(
         pipeline=pipeline,
@@ -431,6 +442,7 @@ def _pipeline_status(
             "queue": queue,
         },
         "artifacts": artifacts,
+        "tracking": tracking,
         "logs": log_signals,
         "phase": _phase_summary(log_signals=log_signals, node_health=None, artifacts=artifacts, active_job=active_job),
         "progress": progress,
@@ -451,7 +463,7 @@ def _pipeline_status(
             log_signals=log_signals,
             commands=commands,
         ),
-        "checks": [queue_check, log_check],
+        "checks": [queue_check, log_check] + list(tracking.get("checks", [])),
     }
     if include_node_health:
         node_health = _node_health(
@@ -650,6 +662,128 @@ def _artifact_status(
         payload["eval_outputs"] = _eval_output_detail(run_gcs_prefix, eval_listing)
         payload["checks"].append(eval_check)
     return payload
+
+
+def _tracking_status(
+    *,
+    pipeline: str,
+    run_gcs_prefix: str,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    if pipeline not in CHECKPOINT_PIPELINES:
+        return {
+            "available": False,
+            "reason": "pipeline_has_no_training_tracking",
+            "backend": "mlflow_tracking_server",
+            "mlflow": {"available": False, "reason": "pipeline_has_no_training_tracking"},
+            "checks": [],
+        }
+    db_uri = f"{run_gcs_prefix}/tracking/mlflow/mlflow.db"
+    with tempfile.TemporaryDirectory(prefix="w8-mlflow-") as tempdir:
+        local_db = Path(tempdir) / "mlflow.db"
+        result = _run(
+            ["gcloud", "storage", "cp", db_uri, str(local_db)],
+            env=env,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+        )
+        if result.ok is True:
+            mlflow = read_mlflow_metrics(local_db, last=100)
+        else:
+            mlflow = {
+                "available": False,
+                "reason": "mlflow_db_unavailable" if not dry_run else "dry_run",
+                "backend": "mlflow",
+                "source": {"path": str(local_db), "size_bytes": None, "gcs_uri": db_uri},
+                "latest_step": None,
+                "metric_count": 0,
+                "available_keys": [],
+                "selected_keys": [],
+                "latest": {},
+                "series": {},
+            }
+        source = mlflow.get("source") if isinstance(mlflow.get("source"), dict) else {}
+        source["gcs_uri"] = db_uri
+        mlflow["source"] = source
+    return {
+        "available": mlflow.get("available") is True,
+        "reason": mlflow.get("reason"),
+        "backend": "mlflow_tracking_server",
+        "mlflow": mlflow,
+        "checks": [result.check(f"gcloud_storage_cp:{db_uri}", include_stdout=False)],
+    }
+
+
+def _with_tracking_metrics(*, log_signals: dict[str, Any], tracking: dict[str, Any]) -> dict[str, Any]:
+    mlflow = tracking.get("mlflow") if isinstance(tracking.get("mlflow"), dict) else {}
+    if mlflow.get("available") is not True:
+        return log_signals
+    payload = dict(log_signals)
+    payload["tracking"] = {
+        "backend": tracking.get("backend"),
+        "available": True,
+        "mlflow": {
+            "available": True,
+            "latest_step": mlflow.get("latest_step"),
+            "metric_count": mlflow.get("metric_count"),
+            "selected_keys": mlflow.get("selected_keys"),
+            "source": mlflow.get("source"),
+        },
+    }
+    metrics = dict(payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {})
+    latest = mlflow.get("latest") if isinstance(mlflow.get("latest"), dict) else {}
+    for key, item in latest.items():
+        if not isinstance(item, dict):
+            continue
+        value = _to_float(item.get("value"))
+        if value is not None:
+            _record_metric(metrics, str(key), value)
+    payload["metrics"] = metrics
+    payload["metrics_source"] = "logs+mlflow" if log_signals.get("metrics") else "mlflow"
+
+    series = mlflow.get("series") if isinstance(mlflow.get("series"), dict) else {}
+    tracking_events = _grpo_health_events_from_mlflow_series(series)
+    if tracking_events:
+        existing = payload.get("grpo_health_events") if isinstance(payload.get("grpo_health_events"), list) else []
+        payload["grpo_health_events"] = (existing + tracking_events)[-100:]
+        existing_policy = (
+            payload.get("policy_health_events") if isinstance(payload.get("policy_health_events"), list) else []
+        )
+        policy_events = [
+            policy_event
+            for event in tracking_events
+            if (policy_event := _policy_event_from_canonical_metrics(event.get("metrics", {})))
+        ]
+        payload["policy_health_events"] = (existing_policy + policy_events)[-100:]
+    return payload
+
+
+def _grpo_health_events_from_mlflow_series(series: dict[str, Any]) -> list[dict[str, Any]]:
+    by_step: dict[int, dict[str, float]] = {}
+    for key, points in series.items():
+        if not isinstance(points, list):
+            continue
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            step = _to_int(point.get("step"))
+            value = _to_float(point.get("value"))
+            if step is None or value is None:
+                continue
+            by_step.setdefault(step, {})[str(key)] = value
+    return [
+        {
+            "schema_version": "w8-grpo-health-v1",
+            "step": step,
+            "metrics": metrics,
+            "source": "mlflow",
+        }
+        for step, metrics in sorted(by_step.items())
+    ]
 
 
 def _eval_output_detail(prefix: str, listing: str) -> dict[str, Any]:
@@ -1500,6 +1634,14 @@ def _run(
                 attempt_count=attempt,
             )
             continue
+        except OSError as exc:
+            return CommandResult(
+                command=args,
+                returncode=-1,
+                stdout="",
+                stderr=str(exc),
+                attempt_count=attempt,
+            )
         return CommandResult(
             command=args,
             returncode=proc.returncode,
@@ -1595,6 +1737,7 @@ def _run_summary(
             "training_health": progress.get("training_health"),
             "learning_signal": progress.get("learning_signal"),
             "phase_timing": progress.get("phase_timing"),
+            "tracking": progress.get("tracking"),
         },
         "training_health": progress.get("training_health"),
         "learning_signal": progress.get("learning_signal"),
@@ -1863,6 +2006,7 @@ def _progress_summary(
         "grpo_config": grpo_config,
         "sft_config": sft_config,
         "metrics": metrics,
+        "tracking": log_signals.get("tracking"),
         "training_health": _training_health_summary(
             pipeline=pipeline,
             metrics=metrics,

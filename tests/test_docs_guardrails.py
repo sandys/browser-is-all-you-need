@@ -20,6 +20,10 @@ REQUIRED_GRPO_GUARDRAILS = (
     "W8_GRPO_HEALTH",
     "learning_signal",
     "phase_timing",
+    "MLflow Tracking Server",
+    "MLFLOW_TRACKING_URI",
+    "w8-mlflow-metrics-v1",
+    "ops metrics",
     "node_health.sample_scope=all_active",
     "training_health.should_stop=true",
 )

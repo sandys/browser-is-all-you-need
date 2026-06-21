@@ -285,6 +285,8 @@ Rendered SFT and GRPO containers set longer SkyRL/Ray distributed timeouts (`SKY
 Rendered training containers also pass `NCCL_IB_DISABLE=1`, `NCCL_SOCKET_IFNAME=^lo,docker,veth`, a concrete default-route `GLOO_SOCKET_IFNAME`, and `NCCL_DEBUG=WARN` into Docker so SkyRL, Ray, and vLLM use the VM network interface instead of loopback or transient container interfaces. Missing this propagation is a known multi-node reproducibility mismatch: the host shell can have valid networking while the training container still fails during Ray/NCCL/vLLM startup. Do not reuse NCCL's `^lo,docker,veth` exclusion syntax for Gloo; PyTorch Gloo expects a real interface name and will fail process-group initialization if given `^lo`.
 The training container also applies idempotent SkyRL compatibility patches: `skyrl_io_patch.py` flattens cloud checkpoint directory downloads before FSDP rank-shard validation, `skyrl_vllm_logprob_patch.py` aligns vLLM response token IDs with returned rollout logprobs when vLLM emits an unpaired trailing token at the generation cap, and `skyrl_grpo_health_patch.py` emits `W8_GRPO_HEALTH` JSON lines with train/eval reward, KL, entropy, advantage, reward-variance, and phase-timing metrics for `ops run-status`. Without these patches, GCS resume can falsely report missing `model_world_size_*_rank_*.pt` shards, GRPO can abort on SkyRL's response/logprob length assertion, or dashboards can miss deterministic-convergence and overfit signals.
 
+Full SFT and GRPO renders default to SkyRL `console` plus `mlflow` logging. The rank-0 training container starts a local MLflow Tracking Server (`mlflow server`) backed by SQLite at `/artifacts/tracking/mlflow/mlflow.db`, exports `MLFLOW_TRACKING_URI` for SkyRL/Ray, and keeps console logs as a fallback for log-tail status. The SkyPilot host snapshots that SQLite backend with SQLite's backup API and syncs it to `${RUN_GCS}/<pipeline>/tracking/mlflow/mlflow.db`, so metrics survive ephemeral cluster teardown and can be queried without opening a UI. Use `--tracking-backend console` only for deliberate cheap/debug renders that do not need durable curves.
+
 Operational lessons from the full run:
 
 - If a job is canceled or fails during distributed checkpoint restore or HF export, treat the warm cluster as suspect even when the GCS checkpoint is valid. `ops run-status` surfaces this as `recovery.recommended_action=fresh_cluster_resume`; down the cluster, relaunch with `--resume-from latest`, the same `--ckpt-path`, and at least 1024 GB on single-node GRPO or 2048 GB on multi-node GRPO.
@@ -350,7 +352,7 @@ When `--model` points at a `gs://` export for GRPO or eval, the launcher stages 
 
 GRPO does not require PMU access or Linux perf counters. The required host capability is Docker-outside-Docker plus enough CPU stability for the runtime harness to compare candidate and oracle binaries consistently.
 
-The default `launch` includes SkyPilot `--down`; `--no-down-after` keeps a cluster for inspection. On a shared account, run cleanup when an attempt fails or finishes:
+The default `launch` includes SkyPilot `--down`; `--no-down-after` keeps a cluster for inspection. Long full-training jobs can use `--detach-run` so the command returns after backend submission and operators poll with `ops run-status` / `ops metrics` instead of keeping a local log stream attached. On a shared account, run cleanup when an attempt fails or finishes:
 
 ```bash
 uv run w8-biayn gcp cleanup --run-id "${RUN_ID}" --credentials .gcp-service-account.json --dry-run
@@ -370,6 +372,12 @@ uv run w8-biayn ops run-status \
   --check-retries 1 \
   --node-health \
   --out ".w8-biayn/runs/${RUN_ID}/status.json"
+uv run w8-biayn ops metrics \
+  --run-id "${RUN_ID}" \
+  --pipeline cpp-grpo \
+  --credentials .gcp-service-account.json \
+  --last 100 \
+  --out ".w8-biayn/runs/${RUN_ID}/cpp-grpo-mlflow-metrics.json"
 uv run w8-biayn ops grpo-readiness \
   --rendered-config .w8-biayn/rendered/cpp-grpo.sky.yaml \
   --status-json ".w8-biayn/runs/${RUN_ID}/status.json" \
@@ -384,7 +392,9 @@ uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regi
 
 For a rerun or cluster-size experiment, pass one or more prior snapshots with `--baseline-status ".w8-biayn/runs/<baseline-run-id>/status.json"` so the JSON includes `speed_comparison` for training-step and rollout throughput. Interpret speedup factors directly: greater than `1.0` is faster than the baseline, less than `1.0` is slower, and `gpu_speedup_efficiency` is the speedup divided by the GPU scale factor. A `cost_verdict` of `cost_inefficient` means the current run used more GPUs without increasing the primary comparable throughput.
 
-`ops run-status` emits `w8-run-status-v1` JSON for dashboards and polling loops. It includes dataset manifest state, per-pipeline cluster/job state, labeled GCP instances, checkpoint marker and shard completeness for the promoted `latest` checkpoint, highest checkpoint directory, active `in_progress` checkpoint upload, export readiness including final export object counts/bytes and model weight presence, recent log-derived stage/step/checkpoint/export/error signals, normalized phase/progress/resource/command fields, SFT config/last-step progress including micro train batch and SkyRL timeout settings, GRPO config (`effective_samples_per_step`, total GPUs, samples/GPU/step, micro train batch, KL/entropy settings, vLLM GPU memory utilization, checkpoint retention, reward workers, FSDP sizes, HSDP mesh/activity, SkyRL timeout settings), cpp-eval generation/scoring progress, trajectory/evaluation/training throughput, GPU-normalized throughput, ETA/timing metrics, reward metrics, GRPO `training_health`, `learning_signal`, and `phase_timing` verdicts, bottleneck verdicts from SkyRL timing, optional `speed_comparison` against prior `--baseline-status` snapshots, and cleanup safety. Config fields are merged from logs and the local rendered YAML, with `logs.config_sources` and `logs.rendered_config_path`, so long-running dashboards keep stable batch/checkpoint/FSDP settings even after the launch command scrolls out of the log tail. Pass `--node-health` for opt-in read-only SSH health with GPU utilization/memory, disk free space, top processes, a derived node activity, and an explicit `sample_scope`. For multi-node clusters, `--node-health` probes every active labeled VM for the pipeline, so dashboards can verify worker-node participation instead of inferring it from head-node activity. Instantaneous GPU utilization is phase-dependent: `resources.gpu_sample_interpretation` and `progress.phase_timing` must be read together before concluding a run is GPU-bound, reward-bound, idle, or healthy. Logs include `tail_lines_requested`, `tail_lines_scanned`, and `tail_may_be_truncated`; treat a truncated tail as a hint to increase `--log-tail` before drawing conclusions from stage parsing. Each backend/GCS/health check is listed with its command, return code, `timed_out`, and `attempt_count`; tune per-check timeout with `--check-timeout` and retry timed-out read-only checks with `--check-retries`.
+`ops metrics` emits `w8-mlflow-metrics-v1` JSON by downloading the synced MLflow SQLite backend from `${RUN_GCS}/<pipeline>/tracking/mlflow/mlflow.db`. It returns the latest values, available metric keys, and short series for standard post-training metrics such as held-out eval score/pass@k, train reward, KL, entropy, response length, gradient norm, advantage magnitude, clip ratio, rollout/train logprob divergence, and timing buckets. `ops run-status` also downloads the same MLflow snapshot when present and merges the latest/series metrics into `training_health`, `learning_signal`, `phase_timing`, and `progress.tracking`, while falling back to console-log parsing if the DB has not synced yet.
+
+`ops run-status` emits `w8-run-status-v1` JSON for dashboards and polling loops. It includes dataset manifest state, per-pipeline cluster/job state, labeled GCP instances, checkpoint marker and shard completeness for the promoted `latest` checkpoint, highest checkpoint directory, active `in_progress` checkpoint upload, export readiness including final export object counts/bytes and model weight presence, MLflow tracking-server snapshot state, recent log-derived stage/step/checkpoint/export/error signals, normalized phase/progress/resource/command fields, SFT config/last-step progress including micro train batch and SkyRL timeout settings, GRPO config (`effective_samples_per_step`, total GPUs, samples/GPU/step, micro train batch, KL/entropy settings, vLLM GPU memory utilization, checkpoint retention, reward workers, FSDP sizes, HSDP mesh/activity, SkyRL timeout settings), cpp-eval generation/scoring progress, trajectory/evaluation/training throughput, GPU-normalized throughput, ETA/timing metrics, reward metrics, GRPO `training_health`, `learning_signal`, and `phase_timing` verdicts, bottleneck verdicts from SkyRL timing, optional `speed_comparison` against prior `--baseline-status` snapshots, and cleanup safety. Config fields are merged from logs and the local rendered YAML, with `logs.config_sources` and `logs.rendered_config_path`, so long-running dashboards keep stable batch/checkpoint/FSDP settings even after the launch command scrolls out of the log tail. Pass `--node-health` for opt-in read-only SSH health with GPU utilization/memory, disk free space, top processes, a derived node activity, and an explicit `sample_scope`. For multi-node clusters, `--node-health` probes every active labeled VM for the pipeline, so dashboards can verify worker-node participation instead of inferring it from head-node activity. Instantaneous GPU utilization is phase-dependent: `resources.gpu_sample_interpretation` and `progress.phase_timing` must be read together before concluding a run is GPU-bound, reward-bound, idle, or healthy. Logs include `tail_lines_requested`, `tail_lines_scanned`, and `tail_may_be_truncated`; treat a truncated tail as a hint to increase `--log-tail` before drawing conclusions from stage parsing. Each backend/GCS/health/tracking check is listed with its command, return code, `timed_out`, and `attempt_count`; tune per-check timeout with `--check-timeout` and retry timed-out read-only checks with `--check-retries`.
 
 ### Run Status JSON Structure
 
@@ -397,7 +407,7 @@ root
   summary
     state, dataset_state, current_pipeline, current_cluster
     current_phase: {current, group, source, log_stage, node_activity, artifact_activity, failed, message}
-    current_progress: {primary, training, trajectory, throughput, training_health, learning_signal, phase_timing}
+    current_progress: {primary, training, trajectory, throughput, training_health, learning_signal, phase_timing, tracking}
     training_health, learning_signal, speed_comparison, recovery, resources, cleanup_safe
   dataset
     state, gcs_prefix, manifest_uri, schema_version, file_count
@@ -413,6 +423,9 @@ root
       checkpoint: {prefix, latest_marker, steps[], latest, highest, in_progress}
       export: {prefix, steps[], expected_final_step, final_export_prefix, final_export_exists, final_export}
       eval_outputs: {prefix, objects[], records[], summaries[], labels[], complete_labels[]}  # cpp-eval only
+    tracking
+      available, reason, backend
+      mlflow: {available, latest_step, metric_count, available_keys[], selected_keys[], latest, series, source}
     logs
       stage, stage_events[], last_step, last_loss, last_eval_loss
       trajectory_progress, evaluation_progress, training_progress
@@ -423,7 +436,7 @@ root
     phase: {current, group, source, log_stage, node_activity, artifact_activity, failed, message}
     progress
       pipeline, primary, training, trajectory, evaluation, checkpoint
-      timings, config, sft_config, grpo_config, metrics, training_health, learning_signal, phase_timing, bottleneck, throughput
+      timings, config, sft_config, grpo_config, metrics, tracking, training_health, learning_signal, phase_timing, bottleneck, throughput
     speed_comparison: {available, reason, primary, baselines[]}
     recovery: {available, recommended_action, fresh_cluster_recommended, requires_down_before_resume, reason, signals[], resume_from, resume_checkpoint_step, commands}
     resources: {total_instance_count, active_instance_count, zones[], machine_types[], accelerators, gpu_count, sampled_node_count, failed_node_count, sampled_gpu_count, gpu utilization/memory summaries, gpu_sample_interpretation}
@@ -545,6 +558,7 @@ src/w8_biayn/integrations/skyrl_grpo_health_patch.py
                                                SkyRL GRPO health metric logging patch
 src/w8_biayn/integrations/cpp_eval_main.py   vLLM eval generation and scoring
 src/w8_biayn/grpo_readiness.py               GRPO readiness and live-status guardrails
+src/w8_biayn/mlflow_metrics.py               MLflow tracking-server SQLite metric reader
 src/w8_biayn/run_status.py                   ops run-status JSON snapshots
 src/w8_biayn/shell.py                        dry-run-aware subprocess wrapper
 src/w8_biayn/sky_config.py                   SkyPilot YAML renderer

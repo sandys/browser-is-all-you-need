@@ -413,6 +413,50 @@ def test_progress_summary_flags_deterministic_low_gradient_with_checkpoint():
     assert progress["training_health"]["signals"]["checkpoint_resumable"] is True
 
 
+def test_progress_summary_uses_mlflow_tracking_metrics_for_learning_signal():
+    signals = {"metrics": {}, "timings": {}, "config": {}, "policy_health_events": [], "grpo_health_events": []}
+    tracking = {
+        "backend": "mlflow_tracking_server",
+        "mlflow": {
+            "available": True,
+            "latest_step": 3,
+            "metric_count": 5,
+            "selected_keys": [],
+            "source": {"gcs_uri": "gs://bucket/run/tracking/mlflow/mlflow.db"},
+            "latest": {
+                "loss/avg_final_rewards": {"step": 3, "value": 0.8, "timestamp_ms": 30},
+                "reward/avg_pass_at_8": {"step": 3, "value": 0.75, "timestamp_ms": 30},
+                "policy/policy_entropy": {"step": 3, "value": 0.0001, "timestamp_ms": 30},
+                "policy/grad_norm": {"step": 3, "value": 0.0, "timestamp_ms": 30},
+                "loss/avg_raw_advantages_abs": {"step": 3, "value": 0.0, "timestamp_ms": 30},
+            },
+            "series": {
+                "policy/policy_entropy": [
+                    {"step": 1, "value": 0.0001, "timestamp_ms": 10},
+                    {"step": 2, "value": 0.0001, "timestamp_ms": 20},
+                    {"step": 3, "value": 0.0001, "timestamp_ms": 30},
+                ],
+                "policy/grad_norm": [
+                    {"step": 1, "value": 0.0, "timestamp_ms": 10},
+                    {"step": 2, "value": 0.0, "timestamp_ms": 20},
+                    {"step": 3, "value": 0.0, "timestamp_ms": 30},
+                ],
+            },
+        },
+    }
+    merged = run_status._with_tracking_metrics(log_signals=signals, tracking=tracking)
+    artifacts = {"checkpoint": {"latest": {"step": 3, "resumable": True}}}
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=merged, artifacts=artifacts)
+
+    assert progress["tracking"]["available"] is True
+    assert progress["metrics"]["policy/policy_entropy"] == 0.0001
+    assert progress["metrics"]["reward"]["avg_pass_at_8"] == 0.75
+    assert progress["training_health"]["verdict"] == "deterministic_low_gradient"
+    assert progress["learning_signal"]["verdict"] == "deterministic_convergence_risk"
+    assert progress["learning_signal"]["trends"]["policy_entropy"]["available"] is True
+
+
 def test_progress_summary_does_not_flag_single_low_gradient_event():
     signals = _extract_log_signals(
         [

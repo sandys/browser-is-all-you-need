@@ -46,6 +46,9 @@ def test_grpo_readiness_passes_valid_multinode_render(tmp_path: Path) -> None:
     assert _check(payload, "skyrl.patch.io")["ok"] is True
     assert _check(payload, "skyrl.patch.vllm_logprob")["ok"] is True
     assert _check(payload, "skyrl.patch.grpo_health")["ok"] is True
+    assert _check(payload, "tracking.console_logger")["ok"] is True
+    assert _check(payload, "tracking.mlflow_server")["ok"] is True
+    assert _check(payload, "tracking.mlflow_persistence")["ok"] is True
     assert _check(payload, "multinode.hsdp_mesh")["ok"] is True
     assert _check(payload, "multinode.rollout_engines")["ok"] is True
     assert _check(payload, "multinode.utilization_gate")["ok"] is True

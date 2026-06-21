@@ -67,12 +67,22 @@ def test_cli_launch_cpp_smoke_dry_run_prints_sky_command(tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["launch", "cpp-smoke", "--credentials", str(credentials), "--run-id", "rtest", "--dry-run"],
+        [
+            "launch",
+            "cpp-smoke",
+            "--credentials",
+            str(credentials),
+            "--run-id",
+            "rtest",
+            "--detach-run",
+            "--dry-run",
+        ],
     )
 
     assert result.exit_code == 0, result.output
     assert "run_id: rtest" in result.output
     assert "sky launch -c w8-biayn-cpp-smoke-rtest" in result.output
+    assert "--detach-run" in result.output
     assert ".w8-biayn/rendered/cpp-smoke.sky.yaml" in result.output
 
 
@@ -148,6 +158,59 @@ def test_cli_allows_tuned_multinode_grpo_render(tmp_path):
     assert "trainer.algorithm.use_kl_loss=true" in rendered
     assert "trainer.algorithm.use_entropy_loss=true" in rendered
     assert "generator.inference_engine.gpu_memory_utilization=0.7" in rendered
+    assert "trainer.logger=[console,mlflow]" in rendered
+    assert "mlflow server" in rendered
+
+
+def test_cli_render_accepts_console_only_tracking_backend(tmp_path):
+    credentials = tmp_path / "sa.json"
+    output = tmp_path / "cpp-grpo.sky.yaml"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--tracking-backend",
+            "console",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    rendered = output.read_text(encoding="utf-8")
+    assert "trainer.logger=console" in rendered
+    assert "mlflow server" not in rendered
+
+
+def test_cli_render_rejects_unknown_tracking_backend(tmp_path):
+    credentials = tmp_path / "sa.json"
+    output = tmp_path / "cpp-grpo.sky.yaml"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--tracking-backend",
+            "sqlite",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "unknown tracking backend" in result.output
+    assert not output.exists()
 
 
 def test_cli_rejects_small_disk_for_multinode_grpo_resume(tmp_path):
@@ -452,6 +515,35 @@ def test_cli_ops_run_status_loads_baseline_status_for_dashboard_json(tmp_path, m
     assert comparison["rollout_speedup_factor"] == 0.6889
     assert comparison["verdict"] == "slower"
     assert comparison["cost_verdict"] == "cost_inefficient"
+
+
+def test_cli_ops_metrics_dry_run_emits_mlflow_schema(tmp_path):
+    credentials = tmp_path / "sa.json"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ops",
+            "metrics",
+            "--run-id",
+            "rtest",
+            "--pipeline",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--metric",
+            "policy/policy_entropy",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["schema_version"] == "w8-mlflow-metrics-v1"
+    assert payload["mlflow_db_uri"].endswith("/runs/cpp-perf/rtest/cpp-grpo/tracking/mlflow/mlflow.db")
+    assert payload["metrics"]["reason"] == "dry_run"
+    assert payload["checks"][0]["command"][0:3] == ["gcloud", "storage", "cp"]
 
 
 def test_cli_ops_grpo_readiness_emits_json(tmp_path):

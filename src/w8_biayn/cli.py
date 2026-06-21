@@ -58,6 +58,7 @@ from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
+from .mlflow_metrics import DEFAULT_METRIC_KEYS, read_mlflow_metrics
 from .run_status import PIPELINES as STATUS_PIPELINES
 from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -67,6 +68,7 @@ from .sky_config import (
     GRPO_MULTINODE_RESUME_MIN_DISK_GB,
     Pipeline,
     RenderOptions,
+    SUPPORTED_TRACKING_BACKENDS,
     write_sky_yaml,
 )
 
@@ -276,6 +278,21 @@ def _require_grpo_multinode_resume_disk(options: RenderOptions) -> None:
         f"--disk-size {GRPO_MULTINODE_RESUME_MIN_DISK_GB} or larger; 1024 GB failed during "
         "FSDP checkpoint restore with [Errno 28] No space left on device."
     )
+
+
+def _normalize_tracking_backends(backends: Optional[list[str]]) -> tuple[str, ...] | None:
+    if not backends:
+        return None
+    normalized: list[str] = []
+    for backend in backends:
+        value = backend.strip().lower()
+        if value not in SUPPORTED_TRACKING_BACKENDS:
+            raise typer.BadParameter(
+                f"unknown tracking backend {backend!r}; supported: {', '.join(SUPPORTED_TRACKING_BACKENDS)}"
+            )
+        if value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
 
 
 def _require_grpo_readiness(rendered_config_path: str | Path) -> None:
@@ -1007,6 +1024,14 @@ def config_render(
     export_checkpoint: str = typer.Option("", help="SFT/GRPO export-only checkpoint source: a global_step_N path."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
+    tracking_backend: Optional[list[str]] = typer.Option(
+        None,
+        "--tracking-backend",
+        help=(
+            "Tracking backend for training. Repeatable. Supported: "
+            f"{', '.join(SUPPORTED_TRACKING_BACKENDS)}. Full SFT/GRPO default to console+mlflow."
+        ),
+    ),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
     eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
@@ -1051,6 +1076,7 @@ def config_render(
         export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        tracking_backends=tracking_backend,
         run_id=run_id,
         owner=owner,
         eval_label=eval_label,
@@ -1116,12 +1142,25 @@ def launch(
     export_checkpoint: str = typer.Option("", help="SFT/GRPO export-only checkpoint source: a global_step_N path."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
+    tracking_backend: Optional[list[str]] = typer.Option(
+        None,
+        "--tracking-backend",
+        help=(
+            "Tracking backend for training. Repeatable. Supported: "
+            f"{', '.join(SUPPORTED_TRACKING_BACKENDS)}. Full SFT/GRPO default to console+mlflow."
+        ),
+    ),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
     eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
     eval_max_tasks: Optional[int] = typer.Option(None, help="Optional validation task limit for cpp-eval."),
     yes: bool = typer.Option(True, help="Skip cloud backend confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
+    detach_run: bool = typer.Option(
+        False,
+        "--detach-run/--no-detach-run",
+        help="Submit the backend job and return after it starts instead of streaming logs until completion.",
+    ),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
     allow_low_multinode_utilization: bool = typer.Option(
         False,
@@ -1164,6 +1203,7 @@ def launch(
         export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        tracking_backends=tracking_backend,
         run_id=effective_run_id,
         owner=owner,
         eval_label=eval_label,
@@ -1182,6 +1222,8 @@ def launch(
         sky_args.append("-y")
     if down_after:
         sky_args.append("--down")
+    if detach_run:
+        sky_args.append("--detach-run")
     sky_args.append(str(output))
     console.print(f"run_id: {options.run_id}")
     console.print(f"cluster: {options.name}")
@@ -1502,6 +1544,90 @@ def ops_run_status(
     console.print_json(data=payload)
 
 
+@ops_app.command("metrics")
+def ops_metrics(
+    run_id: str = typer.Option(..., "--run-id", help="Run id to inspect."),
+    pipeline: str = typer.Option("cpp-grpo", "--pipeline", help="Pipeline to inspect, usually cpp-sft or cpp-grpo."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI. Defaults from the credentials project."),
+    metric: Optional[list[str]] = typer.Option(
+        None,
+        "--metric",
+        help="Metric key to include. Repeatable. Defaults to the standard GRPO/SFT post-training metric set.",
+    ),
+    last: int = typer.Option(100, "--last", min=1, help="Number of points per selected metric to return."),
+    out: Optional[str] = typer.Option(None, "--out", help="Optional path to also write the JSON payload."),
+    dry_run: bool = typer.Option(False, help="Print the planned GCS download without reading cloud state."),
+) -> None:
+    """Fetch the synced MLflow tracking DB and emit headless metric JSON."""
+
+    if pipeline not in STATUS_PIPELINES:
+        raise typer.BadParameter(f"unknown pipeline: {pipeline}")
+    project_id = _project_id(credentials)
+    artifact_bucket = (bucket or default_bucket_for_project(project_id)).rstrip("/")
+    db_uri = f"{artifact_bucket}/runs/cpp-perf/{run_id}/{pipeline}/tracking/mlflow/mlflow.db"
+    local_db = Path(".w8-biayn/runs") / run_id / pipeline / "mlflow.db"
+    local_db.parent.mkdir(parents=True, exist_ok=True)
+    command = ["gcloud", "storage", "cp", db_uri, str(local_db)]
+    check: dict[str, object]
+    if dry_run:
+        check = {
+            "name": "gcloud_storage_cp:mlflow_db",
+            "command": command,
+            "ok": None,
+            "returncode": None,
+            "skipped": True,
+            "timed_out": False,
+            "attempt_count": 1,
+        }
+        metrics_payload = {
+            "available": False,
+            "reason": "dry_run",
+            "backend": "mlflow",
+            "source": {"path": str(local_db), "size_bytes": None},
+            "latest_step": None,
+            "metric_count": 0,
+            "available_keys": [],
+            "selected_keys": list(metric or DEFAULT_METRIC_KEYS),
+            "latest": {},
+            "series": {},
+        }
+    else:
+        proc = subprocess.run(
+            command,
+            env=_service_account_env(credentials, project_id=project_id),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        check = {
+            "name": "gcloud_storage_cp:mlflow_db",
+            "command": command,
+            "ok": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "skipped": False,
+            "timed_out": False,
+            "attempt_count": 1,
+        }
+        if proc.stderr:
+            check["stderr_tail"] = proc.stderr[-2000:]
+        metrics_payload = read_mlflow_metrics(local_db, metric_keys=metric, last=last)
+    payload = {
+        "schema_version": "w8-mlflow-metrics-v1",
+        "run_id": run_id,
+        "pipeline": pipeline,
+        "artifact_bucket": artifact_bucket,
+        "mlflow_db_uri": db_uri,
+        "local_db_path": str(local_db),
+        "metrics": metrics_payload,
+        "checks": [check],
+    }
+    if out:
+        _write_json(out, payload)
+    console.print_json(data=payload)
+
+
 @ops_app.command("grpo-readiness")
 def ops_grpo_readiness(
     rendered_config: str = typer.Option(
@@ -1619,6 +1745,7 @@ def _render_options(
     export_checkpoint: str,
     sandbox_image: str,
     sandbox_cpu: str,
+    tracking_backends: Optional[list[str]],
     run_id: Optional[str],
     owner: str,
     eval_label: str,
@@ -1639,6 +1766,7 @@ def _render_options(
         raise typer.BadParameter("--grpo-entropy-loss-coef must be non-negative")
     if not 0 < grpo_vllm_gpu_memory_utilization <= 1:
         raise typer.BadParameter("--grpo-vllm-gpu-memory-utilization must be in (0, 1]")
+    normalized_tracking_backends = _normalize_tracking_backends(tracking_backends)
     return RenderOptions(
         pipeline=pipeline,
         project_id=project_id,
@@ -1672,6 +1800,7 @@ def _render_options(
         sft_export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        tracking_backends=normalized_tracking_backends,
         run_id=run_id,
         owner=owner,
         eval_label=eval_label,

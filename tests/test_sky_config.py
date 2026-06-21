@@ -84,7 +84,14 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "w8-biayn cpp harness preflight --image \"w8-biayn-cpp-perf:latest\" --cpu \"3\"" in grpo["run"]
     assert grpo["run"].count("w8-biayn cpp harness preflight") == 2
     assert "environment.skyrl_gym.max_env_workers=32" in grpo["run"]
-    assert "trainer.logger=console" in grpo["run"]
+    assert "trainer.logger=[console,mlflow]" in grpo["run"]
+    assert "logger=[console,mlflow]" in sft["run"]
+    assert 'uv pip install "mlflow>=2.12,<3"' in grpo["run"]
+    assert "mlflow server" in grpo["run"]
+    assert 'export MLFLOW_TRACKING_URI="http://${W8_MLFLOW_HEAD_IP}:${W8_MLFLOW_PORT:-5000}"' in grpo["run"]
+    assert "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db" in grpo["run"]
+    assert "sync_mlflow_tracking_once" in grpo["run"]
+    assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/tracking\"" in grpo["run"]
     assert "trainer.ckpt_interval=-1" in grpo["run"]
     assert "trainer.hf_save_interval=-1" in grpo["run"]
     assert "trainer.micro_train_batch_size_per_gpu=1" in grpo["run"]
@@ -212,8 +219,26 @@ def test_render_cpp_grpo_export_checkpoint_skips_training_and_dataset_restore():
     assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" not in run
     assert "test -f /data/grpo/train.parquet" not in run
     assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/exports\"" in run
+    assert "mlflow server" not in run
+    assert "trainer.logger=[console,mlflow]" not in run
     assert config["envs"]["W8_BIAYN_MODEL"] == "gs://bucket/cpp-sft/exports/global_step_1074/policy"
     assert config["envs"]["W8_BIAYN_RUN_ID"] == "rexport"
+
+
+def test_render_cpp_training_allows_console_only_tracking():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            tracking_backends=("console",),
+        )
+    )
+    run = yaml.safe_load(rendered)["run"]
+
+    assert "trainer.logger=console" in run
+    assert "mlflow server" not in run
+    assert 'uv pip install "mlflow>=2.12,<3"' not in run
 
 
 def test_render_cpp_training_run_scripts_parse_nested_skyrl_patch():

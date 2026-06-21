@@ -184,6 +184,32 @@ def _add_static_runtime_checks(checks: list[dict[str, Any]], *, config: dict[str
     )
     _add_check(
         checks,
+        "tracking.console_logger",
+        "trainer.logger=[console,mlflow]" in run or "trainer.logger=console" in run,
+        "critical",
+        "GRPO keeps console logging enabled for log-tail fallback status.",
+        remediation="Keep console in trainer.logger even when MLflow tracking is enabled.",
+    )
+    _add_check(
+        checks,
+        "tracking.mlflow_server",
+        "mlflow server" in run and "MLFLOW_TRACKING_URI" in run,
+        "critical",
+        "GRPO starts an MLflow Tracking Server and points SkyRL at it through MLFLOW_TRACKING_URI.",
+        remediation="Use the rendered MLflow tracking-server setup instead of direct SQLite writes.",
+    )
+    _add_check(
+        checks,
+        "tracking.mlflow_persistence",
+        "sync_mlflow_tracking_once" in run
+        and "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db" in run
+        and "gcloud storage cp \"$snapshot\"" in run,
+        "critical",
+        "MLflow SQLite backend snapshots are synced to the run GCS tracking path.",
+        remediation="Keep the host-side MLflow tracking sync loop enabled for headless ops metrics.",
+    )
+    _add_check(
+        checks,
         "network.nccl_env",
         "-e NCCL_IB_DISABLE=1" in run
         and '-e NCCL_SOCKET_IFNAME="^lo,docker,veth"' in run
