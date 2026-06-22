@@ -54,3 +54,37 @@ def test_choose_candidates_prefers_archive_density_and_action_quota():
 
     assert [item.archive_base for item in selected[:2]] == [archive_small.base, archive_small.base]
     assert len(selected) == 4
+
+
+def test_cleanup_materialized_archive_removes_concat_tar_and_optionally_parts(tmp_path):
+    archive = subset.ArchiveInfo(
+        "data/data_a/web",
+        ["data/data_a/web.tar.gz.part-000", "data/data_a/web.tar.gz.part-001"],
+        6,
+    )
+    concat = subset.materialized_archive_path(tmp_path, archive)
+    concat.parent.mkdir(parents=True)
+    concat.write_bytes(b"concat")
+    for part in archive.parts:
+        part_path = tmp_path / part
+        part_path.parent.mkdir(parents=True, exist_ok=True)
+        part_path.write_bytes(b"part")
+
+    subset.cleanup_materialized_archive(tmp_path, archive, keep_concat_tar=False, cleanup_parts=True)
+
+    assert not concat.exists()
+    assert all(not (tmp_path / part).exists() for part in archive.parts)
+
+
+def test_cleanup_materialized_archive_can_keep_downloaded_files(tmp_path):
+    archive = subset.ArchiveInfo("data/data_a/web", ["data/data_a/web.tar.gz.part-000"], 4)
+    concat = subset.materialized_archive_path(tmp_path, archive)
+    concat.parent.mkdir(parents=True)
+    concat.write_bytes(b"keep")
+    part_path = tmp_path / archive.parts[0]
+    part_path.write_bytes(b"part")
+
+    subset.cleanup_materialized_archive(tmp_path, archive, keep_concat_tar=True, cleanup_parts=False)
+
+    assert concat.exists()
+    assert part_path.exists()

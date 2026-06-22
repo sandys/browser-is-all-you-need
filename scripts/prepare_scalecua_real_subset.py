@@ -268,6 +268,14 @@ def concatenate_parts(data_dir: Path, archive: ArchiveInfo) -> Path:
     return target
 
 
+def cleanup_materialized_archive(data_dir: Path, archive: ArchiveInfo, *, keep_concat_tar: bool, cleanup_parts: bool) -> None:
+    if not keep_concat_tar:
+        materialized_archive_path(data_dir, archive).unlink(missing_ok=True)
+    if cleanup_parts:
+        for part in archive.parts:
+            (data_dir / part).unlink(missing_ok=True)
+
+
 def safe_extract_selected(archive_path: Path, members: set[str], output_root: Path) -> int:
     extracted = 0
     output_root.mkdir(parents=True, exist_ok=True)
@@ -345,6 +353,12 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
                 archive_path = concatenate_parts(args.data_dir, archive)
                 output_root = args.images_dir / Path(archive_base).parent
                 safe_extract_selected(archive_path, members, output_root)
+                cleanup_materialized_archive(
+                    args.data_dir,
+                    archive,
+                    keep_concat_tar=args.keep_concat_tar,
+                    cleanup_parts=args.cleanup_archive_parts,
+                )
     write_outputs(args, selected, rejects, buckets)
     return {
         "rows": len(selected),
@@ -372,6 +386,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Plan/write JSONL/report without downloading or extracting archives.")
     parser.add_argument("--no-download", dest="download", action="store_false", help="Skip archive part download.")
     parser.add_argument("--no-extract", dest="extract", action="store_false", help="Skip selected-image extraction.")
+    parser.add_argument(
+        "--keep-concat-tar",
+        action="store_true",
+        help="Keep the temporary concatenated .tar.gz after extracting selected images. By default it is deleted.",
+    )
+    parser.add_argument(
+        "--cleanup-archive-parts",
+        action="store_true",
+        help="Delete downloaded .part-* files after extraction so only extracted selected images remain.",
+    )
     parser.set_defaults(download=True, extract=True)
     return parser.parse_args()
 

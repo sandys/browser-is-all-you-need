@@ -269,7 +269,7 @@ uv run --extra sft w8-biayn scalecua sft \
 
 The SFT command loads `Qwen2_5_VLForConditionalGeneration`, applies PEFT LoRA to the language-model projection/MLP modules, builds Qwen image+text chat inputs from the converted JSONL, and masks prompt tokens with `labels=-100` so loss is computed only on the assistant `<tool_call>` target. It saves only the LoRA adapter and processor files under the ignored `.w8-biayn/scalecua/lora/` tree.
 
-For real-image LoRA training, build the subset before downloading large image archives. The planner uses `meta.json` to map annotations to image roots, ranks archives by convertible rows per compressed GB, downloads only selected archive parts, extracts only selected image members, and writes a training JSONL whose `image` fields point at extracted files. Preview the archive cost first:
+For real-image LoRA training, build the subset before downloading large image archives. The planner uses `meta.json` to map annotations to image roots, ranks archives by convertible rows per compressed GB, downloads only selected archive parts, extracts only selected image members, deletes the temporary concatenated `.tar.gz` by default, and writes a training JSONL whose `image` fields point at extracted files. Preview the archive cost first:
 
 ```bash
 uv run --extra sft python scripts/prepare_scalecua_real_subset.py \
@@ -280,7 +280,7 @@ uv run --extra sft python scripts/prepare_scalecua_real_subset.py \
   --report .w8-biayn/scalecua/reports/train-10k-summary.md
 ```
 
-Download archive parts and extract only selected images by removing `--dry-run`:
+Download archive parts and extract only selected images by removing `--dry-run`. Add `--cleanup-archive-parts` when you want to keep only extracted images and are willing to redownload archive parts later; add `--keep-concat-tar` only for debugging extraction failures:
 
 ```bash
 uv run --extra sft python scripts/prepare_scalecua_real_subset.py \
