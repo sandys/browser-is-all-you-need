@@ -1689,6 +1689,8 @@ def scalecua_sft(
     logging_steps: int = typer.Option(5, help="Trainer logging interval."),
     save_steps: int = typer.Option(50, help="Checkpoint save interval."),
     limit: Optional[int] = typer.Option(None, help="Optional max JSONL rows to load."),
+    wandb_project: Optional[str] = typer.Option(None, help="Weights & Biases project. Enables W&B reporting when set."),
+    wandb_run_name: Optional[str] = typer.Option(None, help="Weights & Biases run name."),
 ) -> None:
     """Run Qwen2.5-VL LoRA SFT on converted ScaleCUA OSWorld tool-call rows."""
     from .scalecua_sft import SftConfig, run_sft
@@ -1708,6 +1710,8 @@ def scalecua_sft(
             logging_steps=logging_steps,
             save_steps=save_steps,
             limit=limit,
+            wandb_project=wandb_project,
+            wandb_run_name=wandb_run_name,
         )
     )
     console.print(f"adapter: {path}")

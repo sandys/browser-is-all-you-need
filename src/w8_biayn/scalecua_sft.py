@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -40,6 +41,8 @@ class SftConfig:
     gradient_checkpointing: bool = True
     min_pixels: int = DEFAULT_MIN_PIXELS
     max_pixels: int = DEFAULT_MAX_PIXELS
+    wandb_project: str | None = None
+    wandb_run_name: str | None = None
 
 
 def load_jsonl(path: Path, *, limit: int | None = None) -> list[dict[str, Any]]:
@@ -177,6 +180,9 @@ def run_sft(config: SftConfig) -> Path:
         def __getitem__(self, index: int) -> dict[str, Any]:
             return self.rows[index]
 
+    if config.wandb_project:
+        os.environ["WANDB_PROJECT"] = config.wandb_project
+
     rows = load_jsonl(config.train, limit=config.limit)
     processor = AutoProcessor.from_pretrained(
         config.model,
@@ -215,7 +221,8 @@ def run_sft(config: SftConfig) -> Path:
         save_steps=config.save_steps,
         save_total_limit=2,
         remove_unused_columns=False,
-        report_to=[],
+        report_to=["wandb"] if config.wandb_project else [],
+        run_name=config.wandb_run_name,
     )
     trainer = Trainer(
         model=model,

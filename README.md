@@ -269,6 +269,41 @@ uv run --extra sft w8-biayn scalecua sft \
 
 The SFT command loads `Qwen2_5_VLForConditionalGeneration`, applies PEFT LoRA to the language-model projection/MLP modules, builds Qwen image+text chat inputs from the converted JSONL, and masks prompt tokens with `labels=-100` so loss is computed only on the assistant `<tool_call>` target. It saves only the LoRA adapter and processor files under the ignored `.w8-biayn/scalecua/lora/` tree.
 
+For real-image LoRA training, build the subset before downloading large image archives. The planner uses `meta.json` to map annotations to image roots, ranks archives by convertible rows per compressed GB, downloads only selected archive parts, extracts only selected image members, and writes a training JSONL whose `image` fields point at extracted files. Preview the archive cost first:
+
+```bash
+uv run --extra sft python scripts/prepare_scalecua_real_subset.py \
+  --limit 10000 \
+  --dry-run \
+  --out .w8-biayn/scalecua/prepared/train-10k-toolcall.jsonl \
+  --rejects .w8-biayn/scalecua/prepared/train-10k-rejected.jsonl \
+  --report .w8-biayn/scalecua/reports/train-10k-summary.md
+```
+
+Download archive parts and extract only selected images by removing `--dry-run`:
+
+```bash
+uv run --extra sft python scripts/prepare_scalecua_real_subset.py \
+  --limit 10000 \
+  --out .w8-biayn/scalecua/prepared/train-10k-toolcall.jsonl \
+  --rejects .w8-biayn/scalecua/prepared/train-10k-rejected.jsonl \
+  --report .w8-biayn/scalecua/reports/train-10k-summary.md
+```
+
+Run a W&B-tracked LoRA after the summary shows `missing_images: 0`:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 uv run --extra sft w8-biayn scalecua sft \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --train .w8-biayn/scalecua/prepared/train-10k-toolcall.jsonl \
+  --output .w8-biayn/scalecua/lora/qwen25vl7b-scalecua-10k \
+  --max-steps 1000 \
+  --batch-size 1 \
+  --grad-accum 8 \
+  --wandb-project scalecua-osworld \
+  --wandb-run-name qwen25vl7b-scalecua-10k
+```
+
 ## R3 Pipeline
 
 The first R3 target is SkyRL routing replay for `moonshotai/Moonlight-16B-A3B-Instruct`.
