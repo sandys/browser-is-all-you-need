@@ -162,6 +162,34 @@ def test_cli_allows_tuned_multinode_grpo_render(tmp_path):
     assert "mlflow server" in rendered
 
 
+def test_cli_render_can_pin_gcp_zone(tmp_path):
+    credentials = tmp_path / "sa.json"
+    output = tmp_path / "cpp-grpo.sky.yaml"
+    write_credentials(credentials)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "config",
+            "render",
+            "cpp-grpo",
+            "--credentials",
+            str(credentials),
+            "--output",
+            str(output),
+            "--accelerators",
+            "A100:8",
+            "--zone",
+            "asia-northeast3-b",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load(output.read_text(encoding="utf-8"))
+    assert config["resources"]["infra"] == "gcp/asia-northeast3/asia-northeast3-b"
+    assert config["envs"]["W8_BIAYN_ZONE"] == "asia-northeast3-b"
+
+
 def test_cli_render_accepts_console_only_tracking_backend(tmp_path):
     credentials = tmp_path / "sa.json"
     output = tmp_path / "cpp-grpo.sky.yaml"

@@ -58,6 +58,8 @@ class RenderOptions:
     credentials_path: str = DEFAULT_CREDENTIALS_PATH
     accelerators: str = DEFAULT_CPP_SMOKE_ACCELERATORS
     num_nodes: int = 1
+    region: str = ""
+    zone: str = ""
     disk_size: int | None = None
     cluster_name: str | None = None
     model: str | None = None
@@ -105,6 +107,15 @@ class RenderOptions:
     @property
     def data_gcs_prefix(self) -> str:
         return self.dataset_gcs_prefix or f"{self.artifact_bucket}/datasets/cpp-perf/{CPP_DATA_SCHEMA_VERSION}/skyrl"
+
+    @property
+    def infra(self) -> str:
+        if self.zone:
+            region = self.region or self.zone.rsplit("-", 1)[0]
+            return f"gcp/{region}/{self.zone}"
+        if self.region:
+            return f"gcp/{self.region}"
+        return "gcp"
 
     @property
     def effective_model(self) -> str:
@@ -964,7 +975,7 @@ def render_sky_yaml(options: RenderOptions) -> str:
     config: dict[str, Any] = {
         "name": options.name,
         "resources": {
-            "infra": "gcp",
+            "infra": options.infra,
             "accelerators": options.accelerators,
             "memory": options.effective_memory,
             "disk_size": options.effective_disk_size,
@@ -981,6 +992,8 @@ def render_sky_yaml(options: RenderOptions) -> str:
             "W8_BIAYN_DATA_GCS_PREFIX": options.data_gcs_prefix,
             "W8_BIAYN_RUN_ID": options.run_id or "",
             "W8_BIAYN_TOTAL_GPU_COUNT": str(options.total_gpu_count),
+            "W8_BIAYN_REGION": options.region,
+            "W8_BIAYN_ZONE": options.zone,
             "W8_BIAYN_EFFECTIVE_SAMPLES_PER_STEP": str(options.effective_samples_per_step),
             "W8_BIAYN_SAMPLES_PER_GPU_PER_STEP": (
                 "" if options.samples_per_gpu_per_step is None else f"{options.samples_per_gpu_per_step:.6g}"

@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .mlflow_metrics import read_mlflow_metrics
+from .mlflow_metrics import read_mlflow_api, read_mlflow_metrics
 
 PIPELINES = ("cpp-sft", "cpp-grpo", "cpp-eval")
 CHECKPOINT_PIPELINES = {"cpp-sft", "cpp-grpo"}
@@ -158,6 +160,14 @@ STAGE_PRIORITY = {
     "container_start": 20,
     "container_pull": 15,
 }
+STARTUP_LONG_RUNNING_THRESHOLDS_S = {
+    "ref_model_init": 900,
+    "policy_model_init": 900,
+    "critic_model_init": 900,
+    "model_init": 900,
+    "skyrl_entrypoint": 1200,
+}
+DEFAULT_STARTUP_LONG_RUNNING_THRESHOLD_S = 1800
 CONFIG_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("trainer.ckpt_interval", re.compile(r"trainer\.ckpt_interval=([0-9-]+)")),
     ("trainer.hf_save_interval", re.compile(r"trainer\.hf_save_interval=([0-9-]+)")),
@@ -434,7 +444,9 @@ def _pipeline_status(
         dry_run=dry_run,
     )
     tracking = _tracking_status(
+        cluster=cluster,
         pipeline=pipeline,
+        active_job=active_job,
         run_gcs_prefix=run_gcs_prefix,
         env=env,
         timeout_s=timeout_s,
@@ -715,7 +727,9 @@ def _artifact_status(
 
 def _tracking_status(
     *,
+    cluster: str,
     pipeline: str,
+    active_job: dict[str, Any] | None,
     run_gcs_prefix: str,
     env: dict[str, str],
     timeout_s: int,
@@ -731,6 +745,18 @@ def _tracking_status(
             "checks": [],
         }
     db_uri = f"{run_gcs_prefix}/tracking/mlflow/mlflow.db"
+    checks: list[dict[str, Any]] = []
+    if not dry_run and str((active_job or {}).get("status") or "").upper() in ACTIVE_JOB_STATUSES:
+        api_mlflow, api_checks = _read_tracking_via_tunnel(cluster=cluster, env=env, timeout_s=min(timeout_s, 30))
+        checks.extend(api_checks)
+        if api_mlflow.get("available") is True:
+            return {
+                "available": True,
+                "reason": api_mlflow.get("reason"),
+                "backend": "mlflow_tracking_server",
+                "mlflow": api_mlflow,
+                "checks": checks,
+            }
     with tempfile.TemporaryDirectory(prefix="w8-mlflow-") as tempdir:
         local_db = Path(tempdir) / "mlflow.db"
         result = _run(
@@ -758,13 +784,94 @@ def _tracking_status(
         source = mlflow.get("source") if isinstance(mlflow.get("source"), dict) else {}
         source["gcs_uri"] = db_uri
         mlflow["source"] = source
+    checks.append(result.check(f"gcloud_storage_cp:{db_uri}", include_stdout=False))
     return {
         "available": mlflow.get("available") is True,
         "reason": mlflow.get("reason"),
         "backend": "mlflow_tracking_server",
         "mlflow": mlflow,
-        "checks": [result.check(f"gcloud_storage_cp:{db_uri}", include_stdout=False)],
+        "checks": checks,
     }
+
+
+def _read_tracking_via_tunnel(*, cluster: str, env: dict[str, str], timeout_s: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    local_port = _free_local_port()
+    command = [
+        "ssh",
+        "-N",
+        "-L",
+        f"127.0.0.1:{local_port}:127.0.0.1:5000",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=30",
+        cluster,
+    ]
+    check: dict[str, Any] = {
+        "name": "ssh_tunnel:mlflow_api",
+        "command": command,
+        "ok": False,
+        "returncode": None,
+        "skipped": False,
+        "timed_out": False,
+        "attempt_count": 1,
+    }
+    base_url = f"http://127.0.0.1:{local_port}"
+    payload: dict[str, Any] = {
+        "available": False,
+        "reason": "mlflow_api_unavailable",
+        "backend": "mlflow_api",
+        "tracking_state": "mlflow_api_unavailable",
+        "source": {"base_url": base_url},
+        "latest_step": None,
+        "metric_row_count": 0,
+        "metric_count": 0,
+        "available_keys": [],
+        "selected_keys": [],
+        "latest": {},
+        "series": {},
+    }
+    proc = subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + timeout_s
+    try:
+        while time.monotonic() < deadline:
+            returncode = proc.poll()
+            if returncode is not None:
+                check["returncode"] = returncode
+                _, stderr = proc.communicate(timeout=1)
+                if stderr:
+                    check["stderr_tail"] = stderr[-2000:]
+                payload["reason"] = f"ssh_tunnel_failed:{returncode}"
+                payload["tracking_state"] = payload["reason"]
+                return payload, [check]
+            payload = read_mlflow_api(base_url, last=100, timeout_s=3.0)
+            if payload.get("available") is True:
+                check["ok"] = True
+                return payload, [check]
+            time.sleep(0.5)
+        check["timed_out"] = True
+        payload["reason"] = "mlflow_api_tunnel_timeout"
+        payload["tracking_state"] = "mlflow_api_tunnel_timeout"
+        return payload, [check]
+    finally:
+        _stop_process(proc)
+
+
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _stop_process(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
 
 
 def _with_tracking_metrics(*, log_signals: dict[str, Any], tracking: dict[str, Any]) -> dict[str, Any]:
@@ -792,6 +899,15 @@ def _with_tracking_metrics(*, log_signals: dict[str, Any], tracking: dict[str, A
             "source": mlflow.get("source"),
         },
     }
+    mlflow_config = _mlflow_params_config(compact_params.get("selected"))
+    if mlflow_config:
+        config = dict(payload.get("config") if isinstance(payload.get("config"), dict) else {})
+        config.update(mlflow_config)
+        payload["config"] = config
+        sources = list(payload.get("config_sources") if isinstance(payload.get("config_sources"), list) else [])
+        if "mlflow_params" not in sources:
+            sources.append("mlflow_params")
+        payload["config_sources"] = sources
     metrics = dict(payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {})
     latest = mlflow.get("latest") if isinstance(mlflow.get("latest"), dict) else {}
     for key, item in latest.items():
@@ -818,6 +934,17 @@ def _with_tracking_metrics(*, log_signals: dict[str, Any], tracking: dict[str, A
         ]
         payload["policy_health_events"] = (existing_policy + policy_events)[-100:]
     return payload
+
+
+def _mlflow_params_config(selected_params: Any) -> dict[str, Any]:
+    if not isinstance(selected_params, dict):
+        return {}
+    config: dict[str, Any] = {}
+    for key, value in selected_params.items():
+        if not isinstance(key, str) or "/" not in key:
+            continue
+        config[key.replace("/", ".")] = value
+    return config
 
 
 def _grpo_health_events_from_mlflow_series(series: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1165,6 +1292,8 @@ def _parse_setup_stage_event(line: str) -> dict[str, Any] | None:
     stage = payload.get("stage")
     event = payload.get("event")
     if not isinstance(stage, str) or not isinstance(event, str):
+        return None
+    if stage == "%s" or event == "%s":
         return None
     return payload
 
@@ -1685,11 +1814,17 @@ def _startup_summary_from_processes(processes: list[dict[str, Any]]) -> dict[str
         (_to_int(group.get("max_elapsed_s")) or 0 for group in normalized_groups),
         default=None,
     )
+    active_elapsed = _to_int(normalized_groups[0].get("max_elapsed_s")) if normalized_groups else None
+    long_running_threshold_s = STARTUP_LONG_RUNNING_THRESHOLDS_S.get(
+        active_stage or "",
+        DEFAULT_STARTUP_LONG_RUNNING_THRESHOLD_S,
+    )
     return {
         "available": bool(normalized_groups),
         "active_stage": active_stage,
         "active_stage_group": STAGE_GROUPS.get(active_stage, "startup") if active_stage else None,
-        "long_running": bool(max_elapsed is not None and max_elapsed >= 1800),
+        "long_running": bool(active_elapsed is not None and active_elapsed >= long_running_threshold_s),
+        "long_running_threshold_s": long_running_threshold_s if normalized_groups else None,
         "max_elapsed_s": max_elapsed,
         "groups": normalized_groups,
     }

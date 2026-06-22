@@ -25,6 +25,32 @@ def test_render_cpp_smoke_yaml_contains_gcp_model_and_upstreams():
     assert "harbor" not in rendered.lower()
 
 
+def test_render_can_pin_gcp_region_and_zone():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            region="asia-northeast3",
+            zone="asia-northeast3-b",
+        )
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["resources"]["infra"] == "gcp/asia-northeast3/asia-northeast3-b"
+    assert config["envs"]["W8_BIAYN_REGION"] == "asia-northeast3"
+    assert config["envs"]["W8_BIAYN_ZONE"] == "asia-northeast3-b"
+
+
+def test_render_derives_region_from_zone_when_region_is_omitted():
+    rendered = render_sky_yaml(
+        RenderOptions(pipeline="cpp-grpo", project_id="proj", accelerators="A100:8", zone="asia-northeast3-b")
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["resources"]["infra"] == "gcp/asia-northeast3/asia-northeast3-b"
+
+
 def test_render_training_and_eval_default_to_qwen_model():
     for pipeline in ("cpp-sft", "cpp-grpo", "cpp-eval"):
         rendered = render_sky_yaml(RenderOptions(pipeline=pipeline, project_id="proj"))

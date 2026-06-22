@@ -186,6 +186,20 @@ def test_extract_log_signals_reports_w8_setup_stage_json():
     assert signals["stage_events"][0]["stage"] == "ref_model_init"
 
 
+def test_extract_log_signals_ignores_xtrace_setup_stage_template():
+    signals = run_status._extract_log_signals(
+        [
+            '+ printf W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}',
+            'W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"dependency_setup","event":"start"}',
+        ]
+    )
+
+    assert signals["stage"] == "dependency_setup"
+    assert signals["setup_events"] == [
+        {"schema_version": "w8-setup-stage-v1", "stage": "dependency_setup", "event": "start"}
+    ]
+
+
 def test_extract_log_signals_uses_priority_for_combined_stage_lines():
     signals = _extract_log_signals(
         [
@@ -393,6 +407,59 @@ def test_progress_summary_normalizes_training_throughput_and_metrics():
     assert progress["bottleneck"]["dominant_stage"]["stage"] == "policy_train"
 
 
+def test_progress_summary_prefers_mlflow_params_over_stale_rendered_config():
+    signals = {
+        "config": {
+            "trainer.train_batch_size": 32,
+            "trainer.placement.policy_num_nodes": 2,
+            "trainer.placement.policy_num_gpus_per_node": 8,
+            "trainer.policy.fsdp_config.fsdp_size": 8,
+            "trainer.ref.fsdp_config.fsdp_size": 8,
+            "generator.n_samples_per_prompt": 8,
+            "generator.inference_engine.num_engines": 16,
+            "environment.skyrl_gym.max_env_workers": 256,
+        },
+        "config_sources": ["rendered_yaml"],
+        "metrics": {},
+        "timings": {},
+    }
+    tracking = {
+        "backend": "mlflow_tracking_server",
+        "mlflow": {
+            "available": True,
+            "tracking_state": "metrics_available",
+            "params": {
+                "count": 313,
+                "selected": {
+                    "trainer/train_batch_size": "16",
+                    "trainer/placement/policy_num_nodes": "1",
+                    "trainer/placement/policy_num_gpus_per_node": "8",
+                    "trainer/policy/fsdp_config/fsdp_size": "8",
+                    "trainer/ref/fsdp_config/fsdp_size": "8",
+                    "generator/n_samples_per_prompt": "8",
+                    "generator/inference_engine/num_engines": "8",
+                    "environment/skyrl_gym/max_env_workers": "128",
+                },
+            },
+            "latest": {},
+            "series": {},
+        },
+    }
+
+    merged = run_status._with_tracking_metrics(log_signals=signals, tracking=tracking)
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=merged, artifacts={})
+
+    assert merged["config_sources"] == ["rendered_yaml", "mlflow_params"]
+    assert progress["grpo_config"]["train_batch_size"] == 16
+    assert progress["grpo_config"]["effective_samples_per_step"] == 128
+    assert progress["grpo_config"]["policy_num_nodes"] == 1
+    assert progress["grpo_config"]["total_gpu_count"] == 8
+    assert progress["grpo_config"]["rollout_engine_count"] == 8
+    assert progress["grpo_config"]["max_env_workers"] == 128
+    assert progress["grpo_config"]["fsdp_mesh_shape"] == {"ddp": 1, "fsdp": 8}
+    assert progress["grpo_config"]["hsdp_active"] is False
+
+
 def test_progress_summary_flags_grpo_entropy_collapse():
     signals = _extract_log_signals(
         [
@@ -498,6 +565,49 @@ def test_progress_summary_uses_mlflow_tracking_metrics_for_learning_signal():
     assert progress["training_health"]["verdict"] == "deterministic_low_gradient"
     assert progress["learning_signal"]["verdict"] == "deterministic_convergence_risk"
     assert progress["learning_signal"]["trends"]["policy_entropy"]["available"] is True
+
+
+def test_tracking_status_prefers_live_mlflow_api_for_running_job(monkeypatch):
+    def fake_tunnel(**kwargs):
+        return (
+            {
+                "available": True,
+                "reason": None,
+                "backend": "mlflow_api",
+                "tracking_state": "metrics_available",
+                "source": {"base_url": "http://127.0.0.1:12345"},
+                "latest_step": 1,
+                "metric_count": 1,
+                "metric_row_count": 1,
+                "available_keys": ["loss/avg_final_rewards"],
+                "selected_keys": ["loss/avg_final_rewards"],
+                "latest": {"loss/avg_final_rewards": {"step": 1, "value": 0.25}},
+                "series": {},
+            },
+            [{"name": "ssh_tunnel:mlflow_api", "ok": True}],
+        )
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("GCS SQLite fallback should not be used when live API is available")
+
+    monkeypatch.setattr(run_status, "_read_tracking_via_tunnel", fake_tunnel)
+    monkeypatch.setattr(run_status, "_run", fail_run)
+
+    tracking = run_status._tracking_status(
+        cluster="w8-biayn-cpp-grpo-rtest",
+        pipeline="cpp-grpo",
+        active_job={"status": "RUNNING"},
+        run_gcs_prefix="gs://bucket/runs/cpp-perf/rtest/cpp-grpo",
+        env={},
+        timeout_s=30,
+        retries=0,
+        dry_run=False,
+    )
+
+    assert tracking["available"] is True
+    assert tracking["mlflow"]["backend"] == "mlflow_api"
+    assert tracking["mlflow"]["latest_step"] == 1
+    assert tracking["checks"] == [{"name": "ssh_tunnel:mlflow_api", "ok": True}]
 
 
 def test_progress_summary_does_not_flag_single_low_gradient_event():
@@ -1630,6 +1740,27 @@ def test_parse_node_health_reports_ref_model_init_startup():
     assert ref_group["stage"] == "ref_model_init"
     assert ref_group["process_count"] == 1
     assert ref_group["max_elapsed_s"] == 3330
+
+
+def test_parse_node_health_marks_ref_model_init_long_running_at_15_minutes():
+    payload = run_status._parse_node_health(
+        "\n".join(
+            [
+                "__W8_GPU__",
+                "0, 100, 8850, 40960",
+                "__W8_DF__",
+                "Filesystem 1024-blocks Used Available Capacity Mounted on",
+                "/dev/root 1041235968 463470592 577765376 45% /",
+                "__W8_PS__",
+                "PID ELAPSED %CPU %MEM CMD",
+                "15010 901 199.0 2.3 ray::FSDPRefWorkerBase.init_model",
+            ]
+        )
+    )
+
+    assert payload["startup"]["active_stage"] == "ref_model_init"
+    assert payload["startup"]["long_running"] is True
+    assert payload["startup"]["long_running_threshold_s"] == 900
 
 
 def test_startup_progress_warns_when_mlflow_has_no_scalars():
