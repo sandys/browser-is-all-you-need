@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -824,3 +825,47 @@ def test_osworld_benchmark_runs_selected_domains(tmp_path, monkeypatch):
     assert "1" == calls[0][calls[0].index("--max_trajectory_length") + 1]
     assert result.total_tasks == 2
     assert result.completed == 0
+
+
+def test_osworld_benchmark_reports_progress(tmp_path, monkeypatch):
+    make_osworld_tree(tmp_path)
+    write_osworld_task(tmp_path / ".cache" / "upstreams" / "OSWorld", "chrome", "chrome-task")
+    snapshots = []
+
+    def fake_run_upstream(args, **kwargs):
+        result_dir = Path(args[args.index("--result_dir") + 1])
+        observation_type = args[args.index("--observation_type") + 1]
+        model = args[args.index("--model") + 1]
+        metadata_path = Path(args[args.index("--test_all_meta_path") + 1])
+        task_groups = json.loads(metadata_path.read_text(encoding="utf-8"))
+        for domain, task_ids in task_groups.items():
+            for task_id in task_ids:
+                time.sleep(0.02)
+                result_path = osworld.task_result_path(
+                    osworld.TaskRef(domain, task_id),
+                    observation_type=observation_type,
+                    model=model,
+                    result_dir=result_dir,
+                    repo_root=tmp_path,
+                )
+                result_path.parent.mkdir(parents=True, exist_ok=True)
+                result_path.write_text("1.0\n", encoding="utf-8")
+
+    monkeypatch.setattr(osworld, "run_upstream_command_with_cleanup", fake_run_upstream)
+
+    result = osworld.benchmark(
+        domains=("chrome", "os"),
+        limit_per_domain=1,
+        model="gpt-4o",
+        progress_callback=snapshots.append,
+        progress_poll_seconds=0.005,
+        repo_root=tmp_path,
+    )
+
+    assert result is not None
+    assert snapshots
+    assert snapshots[0].completed_tasks == 0
+    assert snapshots[-1].completed_tasks == 2
+    assert snapshots[-1].remaining_tasks == 0
+    assert any(snapshot.completed_tasks == 1 and snapshot.remaining_tasks == 1 for snapshot in snapshots)
+    assert any(snapshot.eta_seconds is not None for snapshot in snapshots if snapshot.completed_tasks > 0)

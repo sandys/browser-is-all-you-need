@@ -6,8 +6,11 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import time
 from datetime import datetime, timezone
 from importlib import resources
+from typing import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -141,6 +144,16 @@ class BenchmarkResult:
             return None
         weighted_sum = sum((domain.average_score or 0.0) * domain.completed for domain in scored_domains)
         return weighted_sum / total_completed
+
+
+@dataclass(frozen=True)
+class BenchmarkProgress:
+    total_tasks: int
+    completed_tasks: int
+    remaining_tasks: int
+    elapsed_seconds: float
+    eta_seconds: float | None
+    current_domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1064,6 +1077,13 @@ def write_one_task_metadata(task: TaskRef, repo_root: str | Path = ".") -> Path:
     return write_task_metadata([task], one_task_metadata_path(task, repo_root))
 
 
+def estimate_time_left_seconds(*, completed_tasks: int, total_tasks: int, elapsed_seconds: float) -> float | None:
+    if completed_tasks <= 0 or total_tasks <= completed_tasks or elapsed_seconds <= 0:
+        return None
+    average_seconds_per_task = elapsed_seconds / completed_tasks
+    return average_seconds_per_task * (total_tasks - completed_tasks)
+
+
 def validate(
     task: str = DEFAULT_OSWORLD_TASK,
     *,
@@ -1406,6 +1426,7 @@ def run(
     proxy_config_file: str | Path | None = None,
     client_password: str = DEFAULT_CLIENT_PASSWORD,
     dry_run: bool = False,
+    run_id: str | None = None,
     repo_root: str | Path = ".",
 ) -> tuple[Path, tuple[str, ...], str | None]:
     root = upstream_path(repo_root)
@@ -1478,7 +1499,7 @@ def run(
     if enable_proxy:
         ensure_proxy_run_support(repo_root=repo_root)
     ensure_a11y_compaction_support(repo_root=repo_root)
-    run_id = make_run_id("osworld")
+    run_id = run_id or make_run_id("osworld")
     result_dir = run_results_path(run_id, repo_root)
     result_dir.mkdir(parents=True, exist_ok=True)
     name = run_selector_metadata_name(suite=suite, domain=domain, taskset=taskset)
@@ -1686,6 +1707,8 @@ def benchmark(
     proxy_config_file: str | Path | None = None,
     client_password: str = DEFAULT_CLIENT_PASSWORD,
     dry_run: bool = False,
+    progress_callback: Callable[[BenchmarkProgress], None] | None = None,
+    progress_poll_seconds: float = 2.0,
     repo_root: str | Path = ".",
 ) -> BenchmarkResult | None:
     if dry_run:
@@ -1720,29 +1743,81 @@ def benchmark(
         smoke_candidates=smoke_candidates,
         repo_root=repo_root,
     )
+    total_tasks = sum(len(task_keys) for task_keys in task_groups.values())
+    start_time = time.monotonic()
+
+    def emit_progress(*, completed_tasks: int, current_domain: str | None = None) -> None:
+        if progress_callback is None:
+            return
+        elapsed_seconds = time.monotonic() - start_time
+        progress_callback(
+            BenchmarkProgress(
+                total_tasks=total_tasks,
+                completed_tasks=completed_tasks,
+                remaining_tasks=max(total_tasks - completed_tasks, 0),
+                elapsed_seconds=elapsed_seconds,
+                eta_seconds=estimate_time_left_seconds(
+                    completed_tasks=completed_tasks,
+                    total_tasks=total_tasks,
+                    elapsed_seconds=elapsed_seconds,
+                ),
+                current_domain=current_domain,
+            )
+        )
+
     results: list[BenchmarkDomainResult] = []
+    completed_so_far = 0
+    emit_progress(completed_tasks=0)
     for domain, task_keys in task_groups.items():
         if not task_keys:
             continue
-        _metadata, run_tasks, run_id = run(
-            tasks=task_keys,
-            provider=provider,
-            observation_type=observation_type,
-            model=model,
-            base_url=base_url,
-            api_key=api_key,
-            max_steps=max_steps,
-            max_tokens=max_tokens,
-            max_trajectory_length=max_trajectory_length,
-            a11y_tree_max_items=a11y_tree_max_items,
-            a11y_iou_threshold=a11y_iou_threshold,
-            headless=headless,
-            enable_proxy=enable_proxy,
-            proxy_config_file=proxy_config_file,
-            client_password=client_password,
-            dry_run=False,
-            repo_root=repo_root,
-        )
+        run_id = make_run_id("osworld")
+        result_dir = run_results_path(run_id, repo_root)
+        run_state: dict[str, object] = {}
+
+        def run_domain() -> None:
+            try:
+                run_state["value"] = run(
+                    tasks=task_keys,
+                    provider=provider,
+                    observation_type=observation_type,
+                    model=model,
+                    base_url=base_url,
+                    api_key=api_key,
+                    max_steps=max_steps,
+                    max_tokens=max_tokens,
+                    max_trajectory_length=max_trajectory_length,
+                    a11y_tree_max_items=a11y_tree_max_items,
+                    a11y_iou_threshold=a11y_iou_threshold,
+                    headless=headless,
+                    enable_proxy=enable_proxy,
+                    proxy_config_file=proxy_config_file,
+                    client_password=client_password,
+                    dry_run=False,
+                    run_id=run_id,
+                    repo_root=repo_root,
+                )
+            except BaseException as exc:  # pragma: no cover - propagated after join
+                run_state["error"] = exc
+
+        worker = threading.Thread(target=run_domain, daemon=True)
+        worker.start()
+        while worker.is_alive():
+            summary = summarize_task_results(
+                task_keys,
+                observation_type=observation_type,
+                model=model,
+                result_dir=result_dir,
+                repo_root=repo_root,
+            )
+            emit_progress(completed_tasks=completed_so_far + summary.completed, current_domain=domain)
+            worker.join(progress_poll_seconds)
+        worker.join()
+        error = run_state.get("error")
+        if isinstance(error, BaseException):
+            raise error
+        _metadata, run_tasks, finished_run_id = run_state["value"]
+        run_id = finished_run_id
         if run_id is None:
             continue
         record = read_run_record(run_id, repo_root=repo_root)
@@ -1754,6 +1829,8 @@ def benchmark(
             result_dir=result_dir,
             repo_root=repo_root,
         )
+        completed_so_far += summary.completed
+        emit_progress(completed_tasks=completed_so_far, current_domain=domain)
         results.append(
             BenchmarkDomainResult(
                 domain=domain,
@@ -1766,6 +1843,7 @@ def benchmark(
                 results=result_dir,
             )
         )
+    emit_progress(completed_tasks=completed_so_far)
     return BenchmarkResult(tuple(results))
 
 

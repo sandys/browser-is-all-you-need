@@ -10,6 +10,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from . import benchmarks, datasets, domdiff, osworld, upstreams
@@ -107,6 +108,19 @@ def _service_account_env(credentials: str, *, project_id: Optional[str] = None) 
         return service_account_env(credentials, project_id=project_id)
     except GcpAuthError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "estimating..."
+    total = max(0, int(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
 
 
 def _render_options(
@@ -1302,28 +1316,68 @@ def osworld_benchmark(
     ),
 ) -> None:
     """Run all or selected OSWorld domains as a benchmark sequence."""
+    benchmark_kwargs = dict(
+        domains=tuple(domains),
+        taskset=taskset,
+        limit_per_domain=limit_per_domain,
+        smoke_candidates=smoke_candidates,
+        provider=provider,
+        observation_type=observation_type,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        max_steps=max_steps,
+        max_tokens=max_tokens,
+        max_trajectory_length=max_trajectory_length,
+        a11y_tree_max_items=a11y_tree_max_items,
+        a11y_iou_threshold=a11y_iou_threshold,
+        headless=headless,
+        enable_proxy=enable_proxy,
+        proxy_config_file=proxy_config_file,
+        client_password=client_password,
+        dry_run=dry_run,
+    )
     try:
-        result = osworld.benchmark(
-            domains=tuple(domains),
-            taskset=taskset,
-            limit_per_domain=limit_per_domain,
-            smoke_candidates=smoke_candidates,
-            provider=provider,
-            observation_type=observation_type,
-            model=model,
-            base_url=base_url,
-            api_key=api_key,
-            max_steps=max_steps,
-            max_tokens=max_tokens,
-            max_trajectory_length=max_trajectory_length,
-            a11y_tree_max_items=a11y_tree_max_items,
-            a11y_iou_threshold=a11y_iou_threshold,
-            headless=headless,
-            enable_proxy=enable_proxy,
-            proxy_config_file=proxy_config_file,
-            client_password=client_password,
-            dry_run=dry_run,
-        )
+        if not dry_run and console.is_terminal:
+            progress = Progress(
+                TextColumn("OSWorld benchmark"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TextColumn("left: {task.fields[tasks_left]} tasks"),
+                TextColumn("ETA: {task.fields[eta]}"),
+                TextColumn("domain: {task.fields[domain]}"),
+                TimeElapsedColumn(),
+                console=console,
+                transient=True,
+            )
+            with progress:
+                task_id = progress.add_task(
+                    "benchmark",
+                    total=1,
+                    completed=0,
+                    tasks_left=0,
+                    eta="estimating...",
+                    domain="-",
+                )
+
+                def update_progress(snapshot: osworld.BenchmarkProgress) -> None:
+                    total = max(snapshot.total_tasks, 1)
+                    progress.update(
+                        task_id,
+                        total=total,
+                        completed=snapshot.completed_tasks,
+                        tasks_left=snapshot.remaining_tasks,
+                        eta=_format_duration(snapshot.eta_seconds),
+                        domain=snapshot.current_domain or "-",
+                    )
+
+                result = osworld.benchmark(
+                    **benchmark_kwargs,
+                    progress_callback=update_progress,
+                    progress_poll_seconds=2.0,
+                )
+        else:
+            result = osworld.benchmark(**benchmark_kwargs)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     if dry_run or result is None:

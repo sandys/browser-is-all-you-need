@@ -430,3 +430,10 @@ def test_cli_benchmarks_list():
     assert result.exit_code == 0, result.output
     assert "webvoyager-domdiff-heldout" in result.output
     assert "androidworld-transfer" in result.output
+
+
+def test_format_duration():
+    assert cli_mod._format_duration(None) == "estimating..."
+    assert cli_mod._format_duration(9) == "9s"
+    assert cli_mod._format_duration(65) == "1m 05s"
+    assert cli_mod._format_duration(3665) == "1h 01m"
