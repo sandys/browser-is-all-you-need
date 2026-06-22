@@ -210,6 +210,50 @@ If you want custom subsets, pass your own grouped JSON path with `--taskset /pat
 
 List available tasks first with commands such as `uv run w8-biayn osworld list --domain os` and `uv run w8-biayn osworld list --domain chrome`, then dry-run the custom subset with `uv run w8-biayn osworld benchmark --taskset /path/to/tasks.json --dry-run`, and finally run it with `uv run w8-biayn osworld benchmark --taskset /path/to/tasks.json --model qwen3-vl-8b --base-url http://127.0.0.1:8000/v1 --api-key EMPTY`.
 
+## ScaleCUA Conversion
+
+ScaleCUA action annotations use normalized actions such as `<action>click(x=0.5, y=0.25)</action>`. The OSWorld Qwen2.5-VL agent expects `computer_use` tool calls and then converts those tool calls into executable PyAutoGUI actions. Convert ScaleCUA actions into the OSWorld Qwen tool-call format before using them for OSWorld-oriented SFT.
+
+Download only lightweight annotation files first:
+
+```bash
+huggingface-cli download OpenGVLab/ScaleCUA-Data \
+  --repo-type dataset \
+  --include 'meta.json' \
+  --include '*.jsonl' \
+  --include '**/*.jsonl' \
+  --local-dir .w8-biayn/scalecua/raw
+```
+
+Create a 1k desktop/web smoke conversion:
+
+```bash
+python scripts/convert_scalecua_to_osworld_toolcalls.py \
+  --annotations .w8-biayn/scalecua/raw/annotations \
+  --limit 1000 \
+  --platforms windows ubuntu mac web \
+  --out .w8-biayn/scalecua/prepared/smoke-toolcall.jsonl \
+  --rejects .w8-biayn/scalecua/prepared/smoke-rejected.jsonl
+```
+
+Validate the smoke output before LoRA training:
+
+```bash
+wc -l .w8-biayn/scalecua/prepared/smoke-toolcall.jsonl
+wc -l .w8-biayn/scalecua/prepared/smoke-rejected.jsonl
+head -1 .w8-biayn/scalecua/prepared/smoke-toolcall.jsonl | python -m json.tool
+```
+
+The converted assistant target should look like:
+
+```xml
+<tool_call>
+{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [960, 270]}}
+</tool_call>
+```
+
+The first conversion pass keeps safe desktop/web actions (`click`, `rightclick`, `doubleclick`, `moveto`, `dragto`, `write`, `press`, `hotkey`, `scroll`, `swipe`, `wait`, `terminate`, `success`, `failure`) and writes unsupported actions such as `response`, `open_app`, `long_press`, and `tripleclick` to the reject JSONL.
+
 ## R3 Pipeline
 
 The first R3 target is SkyRL routing replay for `moonshotai/Moonlight-16B-A3B-Instruct`.
