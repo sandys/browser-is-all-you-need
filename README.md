@@ -139,6 +139,7 @@ uv run w8-biayn osworld list --domain os --smoke-candidates
 uv run w8-biayn osworld smoke --dry-run
 uv run w8-biayn osworld run --suite tiny --dry-run
 uv run w8-biayn osworld benchmark --dry-run
+uv run w8-biayn scalecua sft --help
 ```
 
 Pinned upstreams are cloned into ignored cache paths:
@@ -253,6 +254,20 @@ The converted assistant target should look like:
 ```
 
 The first conversion pass keeps safe desktop/web actions (`click`, `rightclick`, `doubleclick`, `moveto`, `dragto`, `write`, `press`, `hotkey`, `scroll`, `swipe`, `wait`, `terminate`, `success`, `failure`) and writes unsupported actions such as `response`, `open_app`, `long_press`, and `tripleclick` to the reject JSONL.
+
+Run a local Qwen2.5-VL LoRA SFT smoke with Transformers and PEFT:
+
+```bash
+uv run --extra sft w8-biayn scalecua sft \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --train .w8-biayn/scalecua/prepared/smoke-toolcall.jsonl \
+  --output .w8-biayn/scalecua/lora/qwen25vl7b-smoke \
+  --max-steps 100 \
+  --batch-size 1 \
+  --grad-accum 8
+```
+
+The SFT command loads `Qwen2_5_VLForConditionalGeneration`, applies PEFT LoRA to the language-model projection/MLP modules, builds Qwen image+text chat inputs from the converted JSONL, and masks prompt tokens with `labels=-100` so loss is computed only on the assistant `<tool_call>` target. It saves only the LoRA adapter and processor files under the ignored `.w8-biayn/scalecua/lora/` tree.
 
 ## R3 Pipeline
 

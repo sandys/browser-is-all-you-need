@@ -31,6 +31,15 @@ domdiff = [
     "uvicorn>=0.29",
     "websocket-client>=1.7",
 ]
+sft = [
+    "accelerate>=1.6",
+    "datasets>=3.0",
+    "peft>=0.15",
+    "Pillow>=10.0",
+    "qwen-vl-utils>=0.0.8",
+    "torch>=2.6",
+    "transformers>=4.51",
+]
 
 [project.scripts]
 w8-biayn = "w8_biayn.cli:app"

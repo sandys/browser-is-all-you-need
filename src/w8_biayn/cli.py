@@ -48,6 +48,7 @@ domdiff_local_app = typer.Typer(help="Run a local DOMDiff container and expose i
 benchmarks_app = typer.Typer(help="Inspect benchmark targets for the R3 pipeline.")
 harbor_app = typer.Typer(help="Inspect and smoke packaged Harbor DOMDiff tasks.")
 osworld_app = typer.Typer(help="Validate and smoke OSWorld desktop tasks from the upstream clone.")
+scalecua_app = typer.Typer(help="Prepare and train ScaleCUA OSWorld SFT artifacts.")
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
@@ -56,6 +57,7 @@ domdiff_app.add_typer(domdiff_local_app, name="local")
 app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(harbor_app, name="harbor")
 app.add_typer(osworld_app, name="osworld")
+app.add_typer(scalecua_app, name="scalecua")
 console = Console()
 
 SKYPILOT_GCP_LAUNCH_PERMISSIONS = (
@@ -1670,6 +1672,45 @@ def harbor_oracle_smoke(
             "reward": outcome.reward_doc,
         }
     )
+
+
+@scalecua_app.command("sft")
+def scalecua_sft(
+    model: str = typer.Option("Qwen/Qwen2.5-VL-7B-Instruct", help="Base Qwen2.5-VL model."),
+    train: str = typer.Option(..., "--train", help="Converted ScaleCUA OSWorld tool-call JSONL."),
+    output: str = typer.Option(..., "--output", help="Output directory for the LoRA adapter."),
+    max_steps: int = typer.Option(100, help="Maximum optimizer steps."),
+    batch_size: int = typer.Option(1, help="Per-device train batch size."),
+    grad_accum: int = typer.Option(8, help="Gradient accumulation steps."),
+    learning_rate: float = typer.Option(2e-4, help="LoRA learning rate."),
+    lora_r: int = typer.Option(16, help="LoRA rank."),
+    lora_alpha: int = typer.Option(32, help="LoRA alpha."),
+    lora_dropout: float = typer.Option(0.05, help="LoRA dropout."),
+    logging_steps: int = typer.Option(5, help="Trainer logging interval."),
+    save_steps: int = typer.Option(50, help="Checkpoint save interval."),
+    limit: Optional[int] = typer.Option(None, help="Optional max JSONL rows to load."),
+) -> None:
+    """Run Qwen2.5-VL LoRA SFT on converted ScaleCUA OSWorld tool-call rows."""
+    from .scalecua_sft import SftConfig, run_sft
+
+    path = run_sft(
+        SftConfig(
+            model=model,
+            train=Path(train),
+            output=Path(output),
+            max_steps=max_steps,
+            batch_size=batch_size,
+            grad_accum=grad_accum,
+            learning_rate=learning_rate,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            logging_steps=logging_steps,
+            save_steps=save_steps,
+            limit=limit,
+        )
+    )
+    console.print(f"adapter: {path}")
 
 
 @app.command()
