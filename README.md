@@ -290,16 +290,29 @@ uv run --extra sft python scripts/prepare_scalecua_real_subset.py \
   --report .w8-biayn/scalecua/reports/train-10k-summary.md
 ```
 
+Create a deterministic held-out split when you want validation loss in W&B:
+
+```bash
+python scripts/split_jsonl_train_eval.py \
+  --input .w8-biayn/scalecua/prepared/train-10k-toolcall.jsonl \
+  --train-out .w8-biayn/scalecua/prepared/train-10k-train.jsonl \
+  --eval-out .w8-biayn/scalecua/prepared/train-10k-val.jsonl \
+  --eval-size 500 \
+  --seed 42
+```
+
 Run a W&B-tracked LoRA after the summary shows `missing_images: 0`:
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 uv run --extra sft w8-biayn scalecua sft \
   --model Qwen/Qwen2.5-VL-7B-Instruct \
-  --train .w8-biayn/scalecua/prepared/train-10k-toolcall.jsonl \
+  --train .w8-biayn/scalecua/prepared/train-10k-train.jsonl \
+  --eval .w8-biayn/scalecua/prepared/train-10k-val.jsonl \
   --output .w8-biayn/scalecua/lora/qwen25vl7b-scalecua-10k \
-  --max-steps 1000 \
-  --batch-size 1 \
-  --grad-accum 8 \
+  --max-steps 1188 \
+  --batch-size 2 \
+  --grad-accum 4 \
+  --eval-steps 50 \
   --wandb-project scalecua-osworld \
   --wandb-run-name qwen25vl7b-scalecua-10k
 ```

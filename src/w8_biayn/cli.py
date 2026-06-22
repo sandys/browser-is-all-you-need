@@ -1678,6 +1678,7 @@ def harbor_oracle_smoke(
 def scalecua_sft(
     model: str = typer.Option("Qwen/Qwen2.5-VL-7B-Instruct", help="Base Qwen2.5-VL model."),
     train: str = typer.Option(..., "--train", help="Converted ScaleCUA OSWorld tool-call JSONL."),
+    eval_path: Optional[str] = typer.Option(None, "--eval", help="Optional held-out eval JSONL."),
     output: str = typer.Option(..., "--output", help="Output directory for the LoRA adapter."),
     max_steps: int = typer.Option(100, help="Maximum optimizer steps."),
     batch_size: int = typer.Option(1, help="Per-device train batch size."),
@@ -1688,6 +1689,7 @@ def scalecua_sft(
     lora_dropout: float = typer.Option(0.05, help="LoRA dropout."),
     logging_steps: int = typer.Option(5, help="Trainer logging interval."),
     save_steps: int = typer.Option(50, help="Checkpoint save interval."),
+    eval_steps: int = typer.Option(50, help="Run held-out eval every N optimizer steps when --eval is set."),
     limit: Optional[int] = typer.Option(None, help="Optional max JSONL rows to load."),
     wandb_project: Optional[str] = typer.Option(None, help="Weights & Biases project. Enables W&B reporting when set."),
     wandb_run_name: Optional[str] = typer.Option(None, help="Weights & Biases run name."),
@@ -1699,6 +1701,7 @@ def scalecua_sft(
         SftConfig(
             model=model,
             train=Path(train),
+            eval=Path(eval_path) if eval_path else None,
             output=Path(output),
             max_steps=max_steps,
             batch_size=batch_size,
@@ -1709,6 +1712,7 @@ def scalecua_sft(
             lora_dropout=lora_dropout,
             logging_steps=logging_steps,
             save_steps=save_steps,
+            eval_steps=eval_steps,
             limit=limit,
             wandb_project=wandb_project,
             wandb_run_name=wandb_run_name,

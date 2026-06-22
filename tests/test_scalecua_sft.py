@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from w8_biayn.scalecua_sft import load_jsonl, mask_prompt_tokens, qwen_messages_from_row
+from w8_biayn.scalecua_sft import (
+    load_jsonl,
+    mask_prompt_tokens,
+    qwen_messages_from_row,
+    training_args_eval_kwargs,
+)
 
 
 def row() -> dict[str, object]:
@@ -102,3 +107,34 @@ def test_mask_prompt_tokens_masks_prompt_and_padding():
         [-100, -100, 12, -100],
         [-100, 21, -100, -100],
     ]
+
+
+
+def test_training_args_eval_kwargs_supports_new_transformers_name():
+    class Args:
+        def __init__(self, eval_strategy=None, eval_steps=None):
+            pass
+
+    assert training_args_eval_kwargs(Args, has_eval=True, eval_steps=25) == {
+        "eval_strategy": "steps",
+        "eval_steps": 25,
+    }
+
+
+def test_training_args_eval_kwargs_supports_old_transformers_name():
+    class Args:
+        def __init__(self, evaluation_strategy=None, eval_steps=None):
+            pass
+
+    assert training_args_eval_kwargs(Args, has_eval=True, eval_steps=50) == {
+        "evaluation_strategy": "steps",
+        "eval_steps": 50,
+    }
+
+
+def test_training_args_eval_kwargs_disabled_without_eval():
+    class Args:
+        def __init__(self):
+            pass
+
+    assert training_args_eval_kwargs(Args, has_eval=False, eval_steps=50) == {}

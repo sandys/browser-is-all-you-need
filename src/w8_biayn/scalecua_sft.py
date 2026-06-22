@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ class SftConfig:
     model: str
     train: Path
     output: Path
+    eval: Path | None = None
     max_steps: int = 100
     batch_size: int = 1
     grad_accum: int = 8
@@ -36,6 +38,7 @@ class SftConfig:
     lora_dropout: float = 0.05
     logging_steps: int = 5
     save_steps: int = 50
+    eval_steps: int = 50
     limit: int | None = None
     bf16: bool = True
     gradient_checkpointing: bool = True
@@ -97,6 +100,20 @@ def mask_prompt_tokens(labels: Any, prompt_lengths: Iterable[int], pad_token_id:
     if pad_token_id is not None:
         labels[labels == pad_token_id] = -100
     return labels
+
+
+def training_args_eval_kwargs(training_args_cls: Any, *, has_eval: bool, eval_steps: int) -> dict[str, Any]:
+    if not has_eval:
+        return {}
+    signature = inspect.signature(training_args_cls.__init__)
+    kwargs: dict[str, Any] = {"eval_steps": eval_steps}
+    if "eval_strategy" in signature.parameters:
+        kwargs["eval_strategy"] = "steps"
+    elif "evaluation_strategy" in signature.parameters:
+        kwargs["evaluation_strategy"] = "steps"
+    else:
+        raise RuntimeError("Installed transformers TrainingArguments has no eval strategy parameter")
+    return kwargs
 
 
 class ScaleCuaDataCollator:
@@ -184,6 +201,7 @@ def run_sft(config: SftConfig) -> Path:
         os.environ["WANDB_PROJECT"] = config.wandb_project
 
     rows = load_jsonl(config.train, limit=config.limit)
+    eval_rows = load_jsonl(config.eval) if config.eval else None
     processor = AutoProcessor.from_pretrained(
         config.model,
         min_pixels=config.min_pixels,
@@ -209,6 +227,9 @@ def run_sft(config: SftConfig) -> Path:
     )
     model = get_peft_model(model, lora_config)
 
+    eval_kwargs = training_args_eval_kwargs(
+        TrainingArguments, has_eval=eval_rows is not None, eval_steps=config.eval_steps
+    )
     training_args = TrainingArguments(
         output_dir=str(config.output),
         per_device_train_batch_size=config.batch_size,
@@ -223,11 +244,13 @@ def run_sft(config: SftConfig) -> Path:
         remove_unused_columns=False,
         report_to=["wandb"] if config.wandb_project else [],
         run_name=config.wandb_run_name,
+        **eval_kwargs,
     )
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=JsonlDataset(rows),
+        eval_dataset=JsonlDataset(eval_rows) if eval_rows is not None else None,
         data_collator=ScaleCuaDataCollator(processor=processor, process_vision_info=process_vision_info),
     )
     trainer.train()
