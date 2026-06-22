@@ -38,6 +38,7 @@ sft = [
     "Pillow>=10.0",
     "qwen-vl-utils>=0.0.8",
     "torch>=2.6",
+    "torchvision>=0.21",
     "transformers>=4.51",
 ]
 
