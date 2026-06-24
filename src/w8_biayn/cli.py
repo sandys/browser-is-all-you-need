@@ -13,6 +13,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from . import benchmarks, osworld, upstreams
@@ -1543,7 +1544,46 @@ def osworld_benchmark(
         dry_run=dry_run,
     )
     try:
-        result = osworld.benchmark(**benchmark_kwargs)
+        if not dry_run and console.is_terminal:
+            progress = Progress(
+                TextColumn("OSWorld benchmark"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TextColumn("left: {task.fields[tasks_left]} tasks"),
+                TextColumn("ETA: {task.fields[eta]}"),
+                TextColumn("domain: {task.fields[domain]}"),
+                TimeElapsedColumn(),
+                console=console,
+                transient=True,
+            )
+            with progress:
+                task_id = progress.add_task(
+                    "benchmark",
+                    total=1,
+                    completed=0,
+                    tasks_left=0,
+                    eta="estimating...",
+                    domain="-",
+                )
+
+                def update_progress(snapshot: osworld.BenchmarkProgress) -> None:
+                    total = max(snapshot.total_tasks, 1)
+                    progress.update(
+                        task_id,
+                        total=total,
+                        completed=snapshot.completed_tasks,
+                        tasks_left=snapshot.remaining_tasks,
+                        eta=_format_duration(snapshot.eta_seconds),
+                        domain=snapshot.current_domain or "-",
+                    )
+
+                result = osworld.benchmark(
+                    **benchmark_kwargs,
+                    progress_callback=update_progress,
+                    progress_poll_seconds=2.0,
+                )
+        else:
+            result = osworld.benchmark(**benchmark_kwargs)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     if dry_run or result is None:
@@ -2477,6 +2517,19 @@ def down(
 
     ops_down(cluster, credentials=credentials, yes=yes, dry_run=dry_run)
 
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "estimating..."
+    total = max(0, int(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
 
 
 def _render_options(

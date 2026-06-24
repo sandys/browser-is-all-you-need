@@ -36,6 +36,7 @@ LOCAL_OPENAI_PROVIDER_PATCH_V2_MARKER = "# w8-biayn local OpenAI-compatible prov
 KIMI_PROVIDER_PATCH_MARKER = LOCAL_OPENAI_PROVIDER_PATCH_MARKER
 PROXY_RUN_PATCH_MARKER = "# w8-biayn OSWorld proxy patch"
 A11Y_COMPACTION_PATCH_MARKER = "# w8-biayn OSWorld a11y compaction patch"
+RESULT_ARTIFACT_PATCH_MARKER = "# w8-biayn OSWorld result artifact patch"
 DEFAULT_A11Y_TREE_MAX_ITEMS = 300
 DEFAULT_A11Y_IOU_THRESHOLD = 0.2
 TASKSET_PACKAGE = "w8_biayn.data.osworld_tasksets"
@@ -53,6 +54,16 @@ METADATA_DIR = STATE_DIR / "metadata"
 RESULTS_DIR = STATE_DIR / "results"
 RUNS_DIR = STATE_DIR / "runs"
 LATEST_RUN = STATE_DIR / "latest-run.txt"
+
+
+def uv_command() -> list[str]:
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        return [uv_bin]
+    local_uv = Path.home() / ".local" / "bin" / "uv"
+    if local_uv.exists():
+        return [str(local_uv)]
+    raise FileNotFoundError("Could not find `uv`. Install it or add it to PATH.")
 
 
 @dataclass(frozen=True)
@@ -181,6 +192,10 @@ def upstream_agent_path(repo_root: str | Path = ".") -> Path:
 
 def upstream_run_path(repo_root: str | Path = ".") -> Path:
     return upstream_path(repo_root) / "run.py"
+
+
+def upstream_lib_run_single_path(repo_root: str | Path = ".") -> Path:
+    return upstream_path(repo_root) / "lib_run_single.py"
 
 
 def uses_local_openai_provider(model: str, *, base_url: str | None = None) -> bool:
@@ -493,6 +508,53 @@ def ensure_proxy_run_support(*, repo_root: str | Path = ".") -> bool:
             "the pinned upstream DesktopEnv construction changed."
         )
     run_path.write_text(source.replace(replacement[0], replacement[1], 1), encoding="utf-8")
+    return True
+
+
+def ensure_result_artifact_support(*, repo_root: str | Path = ".") -> bool:
+    """Patch ignored OSWorld upstream to create artifact directories before writes."""
+    lib_path = upstream_lib_run_single_path(repo_root)
+    if not lib_path.exists():
+        raise FileNotFoundError(f"OSWorld lib_run_single.py not found: {lib_path}")
+    source = lib_path.read_text(encoding="utf-8")
+    if RESULT_ARTIFACT_PATCH_MARKER in source:
+        return False
+    old = """def run_single_example(agent, env, example, max_steps, instruction, args, example_result_dir, scores):
+    runtime_logger = setup_logger(example, example_result_dir)
+
+    # Reset environment first to get fresh VM IP
+"""
+    new = """def run_single_example(agent, env, example, max_steps, instruction, args, example_result_dir, scores):
+    os.makedirs(example_result_dir, exist_ok=True)
+    runtime_logger = setup_logger(example, example_result_dir)
+
+    # Reset environment first to get fresh VM IP
+"""
+    if old not in source:
+        raise RuntimeError(
+            "Could not apply OSWorld result artifact patch; upstream run_single_example changed."
+        )
+    patched = source.replace(old, new, 1)
+    replacement_applied = False
+    for indent in ("            ", "        "):
+        write_target = (
+            f"{indent}# Save screenshot and trajectory information\n"
+            f"{indent}with open(os.path.join(example_result_dir, f\"step_{{step_idx + 1}}_{{action_timestamp}}.png\"),\n"
+        )
+        write_replacement = (
+            f"{indent}# Save screenshot and trajectory information\n"
+            f"{indent}os.makedirs(example_result_dir, exist_ok=True)  # {RESULT_ARTIFACT_PATCH_MARKER}\n"
+            f"{indent}with open(os.path.join(example_result_dir, f\"step_{{step_idx + 1}}_{{action_timestamp}}.png\"),\n"
+        )
+        if write_target in patched:
+            patched = patched.replace(write_target, write_replacement, 1)
+            replacement_applied = True
+            break
+    if not replacement_applied:
+        raise RuntimeError(
+            "Could not apply OSWorld result artifact patch; upstream artifact write block changed."
+        )
+    lib_path.write_text(patched, encoding="utf-8")
     return True
 
 
@@ -1010,6 +1072,57 @@ def task_result_path(
     )
 
 
+def task_artifact_dir(
+    task: TaskRef,
+    *,
+    action_space: str = DEFAULT_ACTION_SPACE,
+    observation_type: str = DEFAULT_OBSERVATION_TYPE,
+    model: str = DEFAULT_MODEL,
+    result_dir: str | Path | None = None,
+    repo_root: str | Path = ".",
+) -> Path:
+    return task_result_path(
+        task,
+        action_space=action_space,
+        observation_type=observation_type,
+        model=model,
+        result_dir=result_dir,
+        repo_root=repo_root,
+    ).parent
+
+
+def ensure_result_dir_writable(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    probe = path / ".w8-write-test"
+    try:
+        probe.write_text("ok\n", encoding="utf-8")
+    finally:
+        if probe.exists():
+            probe.unlink()
+
+
+def prepare_task_artifact_dirs(
+    task_keys: tuple[str, ...],
+    *,
+    action_space: str = DEFAULT_ACTION_SPACE,
+    observation_type: str = DEFAULT_OBSERVATION_TYPE,
+    model: str = DEFAULT_MODEL,
+    result_dir: str | Path | None = None,
+    repo_root: str | Path = ".",
+) -> None:
+    for task_key in task_keys:
+        task_ref = parse_task(task_key)
+        task_dir = task_artifact_dir(
+            task_ref,
+            action_space=action_space,
+            observation_type=observation_type,
+            model=model,
+            result_dir=result_dir,
+            repo_root=repo_root,
+        )
+        ensure_result_dir_writable(task_dir)
+
+
 def read_task_result(
     task: str,
     *,
@@ -1213,7 +1326,7 @@ def setup(dry_run: bool = False, repo_root: str | Path = ".") -> None:
         raise FileNotFoundError(
             "OSWorld upstream is missing. Run `uv run w8-biayn upstreams clone osworld` first."
         )
-    run_command(["uv", "sync"], cwd=root, dry_run=dry_run)
+    run_command([*uv_command(), "sync"], cwd=root, dry_run=dry_run)
 
 
 def command_for_task_keys(
@@ -1239,7 +1352,7 @@ def command_for_task_keys(
     domains = {task_ref.domain for task_ref in task_refs}
     domain = next(iter(domains)) if len(domains) == 1 else "all"
     args = [
-        "uv",
+        *uv_command(),
         "run",
         "python",
         "run.py",
@@ -1514,9 +1627,10 @@ def run(
     if enable_proxy:
         ensure_proxy_run_support(repo_root=repo_root)
     ensure_a11y_compaction_support(repo_root=repo_root)
+    ensure_result_artifact_support(repo_root=repo_root)
     run_id = run_id or make_run_id("osworld")
     result_dir = run_results_path(run_id, repo_root)
-    result_dir.mkdir(parents=True, exist_ok=True)
+    ensure_result_dir_writable(result_dir)
     name = run_selector_metadata_name(suite=suite, domain=domain, taskset=taskset)
     metadata, args, _ = command_for_task_keys(
         task_keys,
@@ -1538,6 +1652,13 @@ def run(
     metadata = per_run_metadata
     test_meta_idx = args.index("--test_all_meta_path") + 1
     args[test_meta_idx] = str(metadata.resolve())
+    prepare_task_artifact_dirs(
+        task_keys,
+        observation_type=observation_type,
+        model=model,
+        result_dir=result_dir,
+        repo_root=repo_root,
+    )
     ensure_local_openai_provider(model=model, base_url=base_url, repo_root=repo_root)
     write_run_record(
         run_id=run_id,
@@ -1674,7 +1795,7 @@ def benchmark_plan(
             lines.append("skip=no selected tasks")
             continue
         args = [
-            "uv",
+            *uv_command(),
             "run",
             "w8-biayn",
             "osworld",

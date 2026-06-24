@@ -9,12 +9,46 @@ import pytest
 from w8_biayn import osworld
 
 
+@pytest.fixture(autouse=True)
+def _stub_osworld_upstream_path(request, monkeypatch):
+    if "tmp_path" not in request.fixturenames:
+        return
+    tmp_path = request.getfixturevalue("tmp_path")
+    monkeypatch.setattr(
+        osworld,
+        "upstream_path",
+        lambda *_args, **_kwargs: tmp_path / ".cache" / "upstreams" / "OSWorld",
+    )
+
+
 def make_osworld_tree(tmp_path):
     root = tmp_path / ".cache" / "upstreams" / "OSWorld"
     task_dir = root / "evaluation_examples" / "examples" / "os"
     task_dir.mkdir(parents=True)
     (root / "run.py").write_text("", encoding="utf-8")
     (root / "pyproject.toml").write_text("[project]\nname='osworld'\n", encoding="utf-8")
+    (root / "lib_run_single.py").write_text(
+        """import os
+
+
+def run_single_example(agent, env, example, max_steps, instruction, args, example_result_dir, scores):
+    runtime_logger = setup_logger(example, example_result_dir)
+
+    # Reset environment first to get fresh VM IP
+    env.reset(task_config=example)
+    while False:
+        pass
+        # Save screenshot and trajectory information
+        with open(os.path.join(example_result_dir, f"step_{step_idx + 1}_{action_timestamp}.png"),
+                  "wb") as _f:
+            _f.write(obs['screenshot'])
+
+
+def setup_logger(example, example_result_dir):
+    return None
+""",
+        encoding="utf-8",
+    )
     agent_dir = root / "mm_agents"
     agent_dir.mkdir()
     (agent_dir / "agent.py").write_text(
@@ -609,6 +643,26 @@ def test_osworld_run_uses_timestamped_result_dir(tmp_path, monkeypatch):
     assert record["observation_type"] == "screenshot"
 
 
+def test_osworld_run_precreates_task_artifact_dirs(tmp_path, monkeypatch):
+    make_osworld_tree(tmp_path)
+    clear_local_provider_env(monkeypatch)
+    monkeypatch.setattr(osworld, "make_run_id", lambda prefix="osworld": "osworld-fixed")
+    monkeypatch.setattr(osworld, "run_upstream_command_with_cleanup", lambda *args, **kwargs: None)
+
+    osworld.run(suite="tiny", model="Qwen/Qwen2.5-VL-7B-Instruct", repo_root=tmp_path)
+
+    for task_key in osworld.tasks_for_suite("tiny"):
+        task_dir = osworld.task_artifact_dir(
+            osworld.parse_task(task_key),
+            observation_type="screenshot",
+            model="Qwen/Qwen2.5-VL-7B-Instruct",
+            result_dir=osworld.run_results_path("osworld-fixed", repo_root=tmp_path),
+            repo_root=tmp_path,
+        )
+        assert task_dir.exists()
+        assert task_dir.is_dir()
+
+
 def test_osworld_proxy_environment_validates_default_upstream_config(tmp_path):
     root = make_osworld_tree(tmp_path)
     proxy_path = write_proxy_config(root / osworld.DEFAULT_PROXY_CONFIG)
@@ -657,6 +711,24 @@ def test_osworld_ensure_proxy_run_support_patches_upstream_run_py(tmp_path):
 
     assert patched_again is False
     assert run_py.read_text(encoding="utf-8") == before
+
+
+def test_osworld_ensure_result_artifact_support_patches_upstream_lib_run_single(tmp_path):
+    root = make_osworld_tree(tmp_path)
+    lib_run_single = root / "lib_run_single.py"
+
+    patched = osworld.ensure_result_artifact_support(repo_root=tmp_path)
+    source = lib_run_single.read_text(encoding="utf-8")
+
+    assert patched is True
+    assert 'os.makedirs(example_result_dir, exist_ok=True)' in source
+    assert osworld.RESULT_ARTIFACT_PATCH_MARKER in source
+
+    before = source
+    patched_again = osworld.ensure_result_artifact_support(repo_root=tmp_path)
+
+    assert patched_again is False
+    assert lib_run_single.read_text(encoding="utf-8") == before
 
 
 def test_osworld_run_with_proxy_sets_env_and_records_config(tmp_path, monkeypatch):
@@ -935,3 +1007,16 @@ def test_osworld_benchmark_reports_progress(tmp_path, monkeypatch):
     assert snapshots[-1].remaining_tasks == 0
     assert any(snapshot.completed_tasks == 1 and snapshot.remaining_tasks == 1 for snapshot in snapshots)
     assert any(snapshot.eta_seconds is not None for snapshot in snapshots if snapshot.completed_tasks > 0)
+
+
+def test_osworld_run_fails_early_when_result_dir_is_not_creatable(tmp_path, monkeypatch):
+    make_osworld_tree(tmp_path)
+    clear_local_provider_env(monkeypatch)
+    blocked = osworld.run_results_path("osworld-fixed", repo_root=tmp_path)
+    blocked.parent.mkdir(parents=True, exist_ok=True)
+    blocked.write_text("not a directory\n", encoding="utf-8")
+    monkeypatch.setattr(osworld, "make_run_id", lambda prefix="osworld": "osworld-fixed")
+
+    with pytest.raises(FileExistsError):
+        osworld.run(suite="tiny", model="qwen3-vl-2b", repo_root=tmp_path)
+
