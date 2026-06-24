@@ -65,6 +65,7 @@ Use `uv run w8-biayn upstreams clone` for pinned upstream copies under `.cache/u
 - SkyRL GRPO health metric logging patch: `src/w8_biayn/integrations/skyrl_grpo_health_patch.py`
 - SkyRL startup stage logging patch: `src/w8_biayn/integrations/skyrl_startup_patch.py`
 - Eval entrypoint: `src/w8_biayn/integrations/cpp_eval_main.py`
+- Local ScaleCUA SFT pipeline: `src/w8_biayn/scalecua_sft.py`
 - GRPO readiness guardrails: `src/w8_biayn/grpo_readiness.py`
 - MLflow metric snapshots: `src/w8_biayn/mlflow_metrics.py`
 - Run status snapshots: `src/w8_biayn/run_status.py`
@@ -243,6 +244,8 @@ For UI work, bind to normalized fields first: `summary.current_phase`, `summary.
 If `progress.startup.recommended_action=inspect_failed_startup_or_relaunch`, dashboards should also expect `phase.source=tracking`: the run registered in MLflow, never produced scalar metrics, and no live backend remains to inspect.
 
 Do not put raw `sky ...` commands in docs, runbooks, or handoffs. Treat SkyPilot/SkyRL calls as backend details behind the `w8-biayn` CLI so the operator DX stays stable if the backend changes.
+
+Local ScaleCUA SFT runs are separate from the SkyPilot full-training path. Use `uv sync --extra sft` and `uv run --extra sft w8-biayn scalecua sft ...` for local LoRA smoke/full experiments. Local SFT can log to W&B, MLflow, or both; prefer a SQLite MLflow URI such as `sqlite:////abs/path/.w8-biayn/mlflow-scalecua-sft.db` instead of MLflow's legacy file-store backend. If both W&B and MLflow are enabled, keep the run names identical because Hugging Face Trainer exposes one shared `run_name`.
 
 Training renders and launches through SkyPilot:
 

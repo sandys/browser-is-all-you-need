@@ -106,6 +106,27 @@ The command logs:
 
 Run records persist MLflow identifiers in `.w8-biayn/osworld/runs/<run_id>/record.json` so `w8-biayn osworld status` can be extended later with IDs if needed.
 
+## Local ScaleCUA SFT + MLflow
+
+Local ScaleCUA LoRA SFT can report to W&B, MLflow, or both through Hugging Face Trainer callbacks. Install the SFT extra so the local environment includes `mlflow` as well as the vision/training stack.
+
+```bash
+uv sync --extra sft
+uv run --extra sft w8-biayn scalecua sft \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --train .w8-biayn/scalecua/prepared/train-500k-train.jsonl \
+  --eval .w8-biayn/scalecua/prepared/train-500k-val.jsonl \
+  --output .w8-biayn/scalecua/lora/qwen25vl7b-scalecua-mlflow \
+  --max-steps 5000 \
+  --batch-size 4 \
+  --grad-accum 2 \
+  --mlflow-tracking-uri sqlite:////home/<user>/browser-is-all-you-need-fork/.w8-biayn/mlflow-scalecua-sft.db \
+  --mlflow-experiment scalecua-sft \
+  --mlflow-run-name qwen25vl7b-scalecua-5k
+```
+
+The local SFT path logs Trainer metrics such as `loss`, `eval_loss`, `learning_rate`, `grad_norm`, and runtime counters to MLflow when `--mlflow-tracking-uri` or the other MLflow flags are set. Use a SQLite tracking URI for local runs; recent MLflow versions reject the legacy file-store backend unless `MLFLOW_ALLOW_FILE_STORE=true` is set explicitly. If W&B and MLflow are both enabled, keep `--wandb-run-name` and `--mlflow-run-name` identical because Transformers exposes a single shared Trainer run name.
+
 ## Full Official PIE Dataset
 
 Dataset conversion is a deliverable. No one-off notebook, shell-history, or untracked-script munging is allowed.
