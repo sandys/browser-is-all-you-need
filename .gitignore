@@ -20,4 +20,7 @@ datasets/
 artifacts/
 outputs/
 checkpoints/
+task-pools/
+gem5-results/
+perf-results/
 *.parquet

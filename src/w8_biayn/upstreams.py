@@ -65,4 +65,3 @@ def status(repo_root: str | Path = ".") -> list[dict[str, str]]:
             }
         )
     return rows
-

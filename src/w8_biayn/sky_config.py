@@ -1,28 +1,42 @@
-"""Render SkyPilot YAML for BrowserGym/SkyRL runs."""
+"""Render SkyPilot YAML for C++ performance-RL bridge runs."""
 
 from __future__ import annotations
 
-import ipaddress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 import yaml
 
+from .cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE
 from .constants import (
-    DEFAULT_ACCELERATORS,
+    CPP_DATA_SCHEMA_VERSION,
+    DEFAULT_CPP_CONTAINER_IMAGE,
+    DEFAULT_CPP_EVAL_TRANSFORMERS_VERSION,
+    DEFAULT_CPP_EVAL_VLLM_VERSION,
+    DEFAULT_CPP_MODEL,
+    DEFAULT_CPP_SMOKE_ACCELERATORS,
+    DEFAULT_CPP_TRAIN_MODEL,
     DEFAULT_CREDENTIALS_PATH,
-    DEFAULT_DOMDIFF_IMAGE,
-    DEFAULT_HARBOR_R3_ACCELERATORS,
-    DEFAULT_GPU_CONTAINER_IMAGE,
+    DEFAULT_RENDER_DIR,
+    RLLM_PIN,
+    RLLM_REPO,
     SKYRL_PIN,
     SKYRL_REPO,
 )
-from .harbor.tasks import DEFAULT_HARBOR_TASK_IDS, DEFAULT_HARBOR_TASK_ROOT
 from .secrets import default_bucket_for_project
 
-Pipeline = Literal["miniwob", "webarena", "r3"]
+Pipeline = Literal["cpp-smoke", "cpp-sft", "cpp-grpo", "cpp-eval"]
+LABEL_VALUE_MAX = 63
+GRPO_MIN_SAMPLES_PER_GPU_STEP = 16
+GRPO_MULTINODE_RESUME_MIN_DISK_GB = 2048
+SKYRL_RAY_PG_TIMEOUT_S = 1800
+SKYRL_WORKER_NCCL_TIMEOUT_S = 3600
+SUPPORTED_TRACKING_BACKENDS = ("console", "mlflow")
+DEFAULT_TRAINING_TRACKING_BACKENDS = ("console", "mlflow")
+DEFAULT_TRACKING_BACKENDS = ("console",)
+MLFLOW_TRACKING_PORT = 5000
+MLFLOW_PACKAGE_SPEC = "mlflow>=2.12,<3"
 
 
 class LiteralStr(str):
@@ -42,19 +56,43 @@ class RenderOptions:
     project_id: str
     bucket: str | None = None
     credentials_path: str = DEFAULT_CREDENTIALS_PATH
-    accelerators: str = DEFAULT_ACCELERATORS
+    accelerators: str = DEFAULT_CPP_SMOKE_ACCELERATORS
     num_nodes: int = 1
+    region: str = ""
+    zone: str = ""
+    disk_size: int | None = None
     cluster_name: str | None = None
-    logger: str = "console"
-    wandb_secret: bool = False
-    webarena_archives_gcs: str | None = None
-    chromiumrl_url: str | None = None
-    cdp_url: str | None = None
-    domdiff_reward_image: str = DEFAULT_DOMDIFF_IMAGE
-    benchmark: str | None = None
-    harbor_task_ids: tuple[str, ...] = DEFAULT_HARBOR_TASK_IDS
-    harbor_oracle: bool = True
-    gpu_container_image: str = DEFAULT_GPU_CONTAINER_IMAGE
+    model: str | None = None
+    gpu_container_image: str = DEFAULT_CPP_CONTAINER_IMAGE
+    dataset_gcs_prefix: str | None = None
+    remote_data_dir: str = "$HOME/.w8-biayn/data/skyrl"
+    train_batch_size: int = 16
+    micro_train_batch_size_per_gpu: int = 1
+    grpo_use_kl_loss: bool = True
+    grpo_kl_loss_coef: float = 0.001
+    grpo_use_entropy_loss: bool = True
+    grpo_entropy_loss_coef: float = 0.001
+    grpo_vllm_gpu_memory_utilization: float = 0.7
+    n_samples_per_prompt: int = 4
+    train_epochs: int = 1
+    eval_before_train: bool = True
+    eval_interval: int = 50
+    max_env_workers: int = 32
+    ckpt_interval: int = -1
+    hf_save_interval: int = -1
+    ckpt_path: str = "~/ckpts/"
+    export_path: str = "~/exports/"
+    max_ckpts_to_keep: int = -1
+    resume_from: str = ""
+    sft_export_checkpoint: str = ""
+    sandbox_image: str = DEFAULT_DOCKER_IMAGE
+    sandbox_cpu: str = DEFAULT_CPU
+    tracking_backends: tuple[str, ...] | None = None
+    run_id: str | None = None
+    owner: str = "sss"
+    eval_label: str = "model"
+    eval_max_tasks: int | None = None
+    allow_low_multinode_utilization: bool = False
 
     @property
     def artifact_bucket(self) -> str:
@@ -62,128 +100,173 @@ class RenderOptions:
 
     @property
     def name(self) -> str:
+        if self.run_id:
+            return self.cluster_name or f"w8-biayn-{self.pipeline}-{self.run_id}"
         return self.cluster_name or f"w8-biayn-{self.pipeline}"
 
+    @property
+    def data_gcs_prefix(self) -> str:
+        return self.dataset_gcs_prefix or f"{self.artifact_bucket}/datasets/cpp-perf/{CPP_DATA_SCHEMA_VERSION}/skyrl"
 
-def remote_data_dir(pipeline: Pipeline) -> str:
-    benchmark = "miniwob" if pipeline in ("miniwob", "r3") else "webarena"
-    return f"$HOME/data/w8-biayn/{benchmark}"
+    @property
+    def infra(self) -> str:
+        if self.zone:
+            region = self.region or self.zone.rsplit("-", 1)[0]
+            return f"gcp/{region}/{self.zone}"
+        if self.region:
+            return f"gcp/{self.region}"
+        return "gcp"
+
+    @property
+    def effective_model(self) -> str:
+        if self.model:
+            return self.model
+        if self.pipeline == "cpp-smoke":
+            return DEFAULT_CPP_MODEL
+        return DEFAULT_CPP_TRAIN_MODEL
+
+    @property
+    def gpu_count(self) -> int:
+        return gpu_count_from_accelerators(self.accelerators)
+
+    @property
+    def total_gpu_count(self) -> int:
+        return self.gpu_count * self.num_nodes
+
+    @property
+    def effective_samples_per_step(self) -> int:
+        return self.train_batch_size * self.n_samples_per_prompt
+
+    @property
+    def samples_per_gpu_per_step(self) -> float | None:
+        if self.total_gpu_count <= 0:
+            return None
+        return self.effective_samples_per_step / self.total_gpu_count
+
+    @property
+    def min_multinode_effective_samples_per_step(self) -> int:
+        return GRPO_MIN_SAMPLES_PER_GPU_STEP * self.total_gpu_count
+
+    @property
+    def grpo_multinode_utilization_ok(self) -> bool:
+        if self.pipeline != "cpp-grpo" or self.num_nodes <= 1:
+            return True
+        return (
+            self.effective_samples_per_step >= self.min_multinode_effective_samples_per_step
+            and self.max_env_workers >= self.effective_samples_per_step
+        )
+
+    @property
+    def effective_disk_size(self) -> int:
+        if self.disk_size is not None:
+            return self.disk_size
+        if self.pipeline == "cpp-grpo" and self.num_nodes > 1 and self.resume_from.strip():
+            return GRPO_MULTINODE_RESUME_MIN_DISK_GB
+        if self.pipeline in {"cpp-sft", "cpp-grpo", "cpp-eval"}:
+            return 1024
+        return 256
+
+    @property
+    def effective_memory(self) -> str:
+        if self.pipeline == "cpp-eval":
+            return "80+"
+        return "128+"
+
+    @property
+    def eval_gcs_prefix(self) -> str:
+        run_id = self.run_id or self.pipeline
+        return f"{self.artifact_bucket}/runs/cpp-perf/{run_id}/{self.pipeline}"
+
+    @property
+    def run_gcs_prefix(self) -> str:
+        return self.eval_gcs_prefix
+
+    @property
+    def labels(self) -> dict[str, str]:
+        if not self.run_id:
+            return {}
+        return {
+            "project": "w8-biayn",
+            "phase": "cpp-perf-rl",
+            "pipeline": _label_value(self.pipeline),
+            "run_id": _label_value(self.run_id),
+            "owner": _label_value(self.owner),
+            "ttl": "training",
+        }
+
+    @property
+    def effective_tracking_backends(self) -> tuple[str, ...]:
+        default = (
+            DEFAULT_TRAINING_TRACKING_BACKENDS
+            if self.pipeline in {"cpp-sft", "cpp-grpo"} and not self.sft_export_checkpoint
+            else DEFAULT_TRACKING_BACKENDS
+        )
+        requested = self.tracking_backends or default
+        normalized: list[str] = []
+        for backend in requested:
+            value = backend.strip().lower()
+            if value not in SUPPORTED_TRACKING_BACKENDS:
+                raise ValueError(f"unsupported tracking backend: {backend}")
+            if value not in normalized:
+                normalized.append(value)
+        if self.pipeline in {"cpp-sft", "cpp-grpo"} and "console" not in normalized:
+            normalized.insert(0, "console")
+        return tuple(normalized or DEFAULT_TRACKING_BACKENDS)
+
+    @property
+    def uses_mlflow_tracking(self) -> bool:
+        return "mlflow" in self.effective_tracking_backends
+
+    @property
+    def logger(self) -> str:
+        backends = self.effective_tracking_backends
+        if len(backends) == 1:
+            return backends[0]
+        return "[" + ",".join(backends) + "]"
 
 
-def model_for_pipeline(pipeline: Pipeline) -> str:
-    if pipeline == "r3":
-        return "moonshotai/Moonlight-16B-A3B-Instruct"
-    if pipeline == "webarena":
-        return "Qwen/Qwen3-8B"
-    return "Qwen/Qwen2.5-1.5B-Instruct"
+def gpu_count_from_accelerators(accelerators: str) -> int:
+    """Parse SkyPilot accelerator strings like A100:8 into a GPU count."""
 
-
-def accelerator_count(accelerators: str) -> int:
-    """Parse the GPU count from a SkyPilot accelerator request."""
-
-    first_request = accelerators.split(",", maxsplit=1)[0].strip()
-    if not first_request or ":" not in first_request:
+    if ":" not in accelerators:
         return 1
     try:
-        return max(int(first_request.rsplit(":", maxsplit=1)[1].strip()), 1)
+        return int(accelerators.rsplit(":", 1)[1])
     except ValueError:
         return 1
 
 
-def benchmark_for_pipeline(pipeline: Pipeline) -> str:
-    return "webarena" if pipeline == "webarena" else "miniwob"
+def _label_value(value: str) -> str:
+    normalized = value.lower().replace("/", "-").replace("_", "-").replace(":", "-")
+    normalized = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in normalized)
+    normalized = normalized.strip("-")[:LABEL_VALUE_MAX]
+    return normalized or "unset"
 
 
-def is_harbor_domdiff_benchmark(options: RenderOptions) -> bool:
-    return options.pipeline == "r3" and options.benchmark == "harbor-domdiff-browser-swe"
+def _skyrl_resume_mode(resume_from: str) -> str:
+    value = resume_from.strip()
+    if not value:
+        return "null"
+    if value == "latest":
+        return "latest"
+    return f'"{value}"'
 
 
-def default_accelerators_for(pipeline: Pipeline, benchmark: str | None = None) -> str:
-    if pipeline == "r3" and benchmark == "harbor-domdiff-browser-swe":
-        return DEFAULT_HARBOR_R3_ACCELERATORS
-    return DEFAULT_ACCELERATORS
+def gcp_env_exports(options: RenderOptions) -> str:
+    """Return scoped GCP auth exports used by host and container scripts."""
 
-
-def is_private_runtime_url(url: str | None) -> bool:
-    """Return True when a URL cannot be reached from a remote SkyPilot VM."""
-
-    if not url:
-        return False
-    host = (urlparse(url).hostname or "").strip().lower()
-    if not host:
-        return False
-    if host in {"localhost", "host.docker.internal", "docker.for.mac.localhost"}:
-        return True
-    if host.endswith(".local"):
-        return True
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return bool(
-        address.is_loopback
-        or address.is_private
-        or address.is_link_local
-        or address.is_unspecified
-        or address.is_reserved
-    )
-
-
-def validate_remote_runtime_urls(options: RenderOptions) -> None:
-    """Reject DOMDiff URLs that would only work on the operator workstation."""
-
-    for label, url in (
-        ("CHROMIUMRL_URL", options.chromiumrl_url),
-        ("CDP_URL", options.cdp_url),
-    ):
-        if is_private_runtime_url(url):
-            raise ValueError(
-                f"{label} must be reachable from the GCP/SkyPilot trainer, not a local/private URL: {url}. "
-                "Use `w8-biayn domdiff local up` and pass the Cloudflare tunnel URL."
-            )
+    return f"""export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/w8-gcp-service-account.json
+export CLOUDSDK_CORE_PROJECT="{options.project_id}"
+export GOOGLE_CLOUD_PROJECT="{options.project_id}"
+export GCLOUD_PROJECT="{options.project_id}"
+export CLOUDSDK_CORE_DISABLE_PROMPTS=1"""
 
 
 def setup_script(options: RenderOptions) -> LiteralStr:
-    if is_harbor_domdiff_benchmark(options):
-        return harbor_setup_script(options)
-    benchmark = benchmark_for_pipeline(options.pipeline)
-    extra_browser_pkg = "browsergym-webarena browsergym" if benchmark == "webarena" else "browsergym-miniwob"
-    maybe_playwright = "python -m playwright install chromium || true" if benchmark == "webarena" else "true"
-    webarena_setup = webarena_provision_script(options) if benchmark == "webarena" else "true"
-    skyrl_extra = "megatron" if options.pipeline == "r3" else "fsdp"
     return LiteralStr(
         f"""set -euxo pipefail
-export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
-export W8_WEBARENA_ARCHIVES_GCS="{options.webarena_archives_gcs or ""}"
-if ! command -v uv >/dev/null 2>&1; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
-fi
-W8_WORKDIR="$PWD"
-SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
-mkdir -p "$(dirname "$SKYRL_DIR")"
-if [ ! -d "$SKYRL_DIR/.git" ]; then
-  git clone {SKYRL_REPO} "$SKYRL_DIR"
-fi
-git -C "$SKYRL_DIR" fetch origin {SKYRL_PIN} --depth 1 || git -C "$SKYRL_DIR" fetch --all --tags
-git -C "$SKYRL_DIR" checkout {SKYRL_PIN}
-cd "$SKYRL_DIR"
-uv venv --python 3.12 --seed
-source .venv/bin/activate
-uv sync --extra {skyrl_extra} --extra gcp
-uv pip install -e "$W8_WORKDIR"
-uv pip install pandas pyarrow gymnasium {extra_browser_pkg}
-{maybe_playwright}
-{webarena_setup}
-w8-biayn data prepare {benchmark} --out "{remote_data_dir(options.pipeline)}"
-"""
-    )
-
-
-def harbor_setup_script(_options: RenderOptions) -> LiteralStr:
-    return LiteralStr(
-        f"""set -euxo pipefail
-export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+{gcp_env_exports(options)}
 if ! command -v docker >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update
@@ -194,11 +277,11 @@ if command -v systemctl >/dev/null 2>&1; then
   sudo systemctl enable --now docker || true
 fi
 sudo chmod 666 /var/run/docker.sock || true
-docker version
-if ! command -v cloudflared >/dev/null 2>&1; then
-  curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-  sudo install -m 0755 /tmp/cloudflared /usr/local/bin/cloudflared
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
 fi
+export PATH="$HOME/.local/bin:$PATH"
 W8_CACHE="$HOME/.cache/w8-biayn/upstreams"
 mkdir -p "$W8_CACHE"
 if [ ! -d "$W8_CACHE/SkyRL/.git" ]; then
@@ -206,328 +289,696 @@ if [ ! -d "$W8_CACHE/SkyRL/.git" ]; then
 fi
 git -C "$W8_CACHE/SkyRL" fetch origin {SKYRL_PIN} --depth 1 || git -C "$W8_CACHE/SkyRL" fetch --all --tags
 git -C "$W8_CACHE/SkyRL" checkout {SKYRL_PIN}
+if [ ! -d "$W8_CACHE/rllm/.git" ]; then
+  git clone {RLLM_REPO} "$W8_CACHE/rllm"
+fi
+git -C "$W8_CACHE/rllm" fetch origin {RLLM_PIN} --depth 1 || git -C "$W8_CACHE/rllm" fetch --all --tags
+git -C "$W8_CACHE/rllm" checkout {RLLM_PIN}
 """
     )
-
-
-def webarena_env_exports() -> str:
-    return """BASE_URL="${W8_WEBARENA_BASE_URL:-http://127.0.0.1}"
-export WA_SHOPPING="${WA_SHOPPING:-$BASE_URL:8082/}"
-export WA_SHOPPING_ADMIN="${WA_SHOPPING_ADMIN:-$BASE_URL:8083/admin}"
-export WA_REDDIT="${WA_REDDIT:-$BASE_URL:8080}"
-export WA_GITLAB="${WA_GITLAB:-$BASE_URL:9001}"
-export WA_WIKIPEDIA="${WA_WIKIPEDIA:-$BASE_URL:8081/wikipedia_en_all_maxi_2022-05/A/User:The_other_Kiwix_guy/Landing}"
-export WA_MAP="${WA_MAP:-$BASE_URL:443}"
-export WA_HOMEPAGE="${WA_HOMEPAGE:-$BASE_URL:80}"
-export WA_FULL_RESET="${WA_FULL_RESET:-$BASE_URL:7565}"
-"""
-
-
-def webarena_provision_script(_options: RenderOptions) -> str:
-    return f"""{webarena_env_exports()}
-if [ -n "$W8_WEBARENA_ARCHIVES_GCS" ]; then
-  WEBARENA_ASSETS="$HOME/webarena-assets"
-  WEBARENA_SETUP="$HOME/.cache/w8-biayn/webarena-setup"
-  mkdir -p "$WEBARENA_ASSETS" "$(dirname "$WEBARENA_SETUP")"
-  gcloud storage cp -r "$W8_WEBARENA_ARCHIVES_GCS/*" "$WEBARENA_ASSETS/" || gsutil -m cp -r "$W8_WEBARENA_ARCHIVES_GCS/*" "$WEBARENA_ASSETS/"
-  if [ ! -d "$WEBARENA_SETUP/.git" ]; then
-    git clone https://github.com/gasse/webarena-setup.git "$WEBARENA_SETUP"
-  fi
-  cd "$WEBARENA_SETUP/webarena"
-  cp -R "$WEBARENA_ASSETS"/. .
-  python - <<'PY'
-from pathlib import Path
-path = Path("00_vars.sh")
-text = path.read_text()
-text = text.replace('PUBLIC_HOSTNAME="YOUR_HOSTNAME_HERE"', 'PUBLIC_HOSTNAME="127.0.0.1"')
-text = text.replace('ARCHIVES_LOCATION="./"', f'ARCHIVES_LOCATION="{Path.home() / "webarena-assets"}"')
-path.write_text(text)
-PY
-  sudo bash 01_docker_load_images.sh
-  sudo bash 02_docker_remove_containers.sh || true
-  sudo bash 03_docker_create_containers.sh
-  sudo bash 04_docker_start_containers.sh
-  sudo bash 05_docker_patch_containers.sh
-  nohup sudo bash 06_serve_homepage.sh > "$HOME/webarena-homepage.log" 2>&1 &
-  nohup sudo bash 07_serve_reset.sh > "$HOME/webarena-reset.log" 2>&1 &
-else
-  echo "W8_WEBARENA_ARCHIVES_GCS is not set; WebArena services will not be provisioned."
-  echo "MiniWoB works without this. WebArena training requires WebArena services or WA_* URLs."
-fi"""
-
-
-def skyrl_overrides(options: RenderOptions) -> list[str]:
-    pipeline = options.pipeline
-    data_dir = remote_data_dir(pipeline)
-    num_gpus = str(accelerator_count(options.accelerators))
-    megatron_tp = str(max(accelerator_count(options.accelerators) // 2, 1))
-    model = model_for_pipeline(pipeline)
-    max_turns = "6" if pipeline == "miniwob" else "12"
-    train_batch_size = "16" if pipeline == "miniwob" else "8"
-    mini_batch = train_batch_size
-    micro_batch = "4" if pipeline == "miniwob" else "1"
-    max_prompt = "4096" if pipeline == "miniwob" else "8192"
-    max_gen = "1024" if pipeline == "miniwob" else "2048"
-
-    overrides = [
-        f"data.train_data=\"['{data_dir}/train.parquet']\"",
-        f"data.val_data=\"['{data_dir}/validation.parquet']\"",
-        'trainer.algorithm.advantage_estimator="grpo"',
-        f'trainer.policy.model.path="{model}"',
-        "trainer.placement.colocate_all=true",
-        f"trainer.strategy={'megatron' if pipeline == 'r3' else 'fsdp'}",
-        f"trainer.placement.policy_num_gpus_per_node={num_gpus}",
-        f"trainer.placement.ref_num_gpus_per_node={num_gpus}",
-        f"generator.inference_engine.num_engines={num_gpus}",
-        "generator.inference_engine.tensor_parallel_size=1",
-        "trainer.epochs=3",
-        "trainer.eval_batch_size=16",
-        "trainer.eval_before_train=true",
-        "trainer.eval_interval=5",
-        "trainer.update_epochs_per_batch=1",
-        f"trainer.train_batch_size={train_batch_size}",
-        f"trainer.policy_mini_batch_size={mini_batch}",
-        f"trainer.micro_forward_batch_size_per_gpu={micro_batch}",
-        f"trainer.micro_train_batch_size_per_gpu={micro_batch}",
-        "trainer.ckpt_interval=5",
-        f"trainer.max_prompt_length={max_prompt}",
-        f"generator.sampling_params.max_generate_length={max_gen}",
-        "generator.sampling_params.temperature=0.7",
-        "generator.sampling_params.top_p=0.95",
-        "generator.sampling_params.stop='[\"</action>\"]'",
-        "generator.eval_sampling_params.stop='[\"</action>\"]'",
-        f"generator.eval_sampling_params.max_generate_length={max_gen}",
-        "trainer.policy.optimizer_config.lr=1.0e-6",
-        f"trainer.algorithm.use_kl_loss={'false' if pipeline == 'r3' else 'true'}",
-        f"generator.max_turns={max_turns}",
-        "generator.inference_engine.backend=vllm",
-        "generator.inference_engine.run_engines_locally=true",
-        "generator.inference_engine.weight_sync_backend=nccl",
-        "generator.inference_engine.async_engine=true",
-        "generator.batched=false",
-        "environment.env_class=browsergym",
-        "generator.use_conversation_multi_turn=true",
-        "generator.n_samples_per_prompt=4",
-        "generator.inference_engine.gpu_memory_utilization=0.8",
-        f'trainer.logger="{options.logger}"',
-        f'trainer.project_name="w8-biayn-{pipeline}"',
-        f'trainer.run_name="{pipeline}"',
-        "trainer.resume_mode=latest",
-        f'trainer.ckpt_path="$HOME/ckpts/w8-biayn/{pipeline}"',
-        f'trainer.export_path="$HOME/exports/w8-biayn/{pipeline}"',
-        "trainer.dump_data_batch=true",
-    ]
-    if pipeline == "r3":
-        overrides.extend(
-            [
-                "generator.inference_engine.enable_return_routed_experts=true",
-                "generator.inference_engine.num_engines=1",
-                f"generator.inference_engine.tensor_parallel_size={num_gpus}",
-                f"generator.inference_engine.expert_parallel_size={num_gpus}",
-                "generator.inference_engine.distributed_executor_backend=mp",
-                "generator.inference_engine.data_parallel_size=1",
-                f"trainer.policy.megatron_config.tensor_model_parallel_size={megatron_tp}",
-                "trainer.policy.megatron_config.pipeline_model_parallel_size=1",
-                "trainer.policy.megatron_config.context_parallel_size=1",
-                f"trainer.policy.megatron_config.expert_model_parallel_size={num_gpus}",
-                "trainer.policy.megatron_config.expert_tensor_parallel_size=1",
-                f"trainer.ref.megatron_config.tensor_model_parallel_size={megatron_tp}",
-                "trainer.ref.megatron_config.pipeline_model_parallel_size=1",
-                "trainer.ref.megatron_config.context_parallel_size=1",
-                f"trainer.ref.megatron_config.expert_model_parallel_size={num_gpus}",
-                "trainer.ref.megatron_config.expert_tensor_parallel_size=1",
-                "trainer.policy.megatron_config.moe_enable_routing_replay=true",
-                "trainer.ref.megatron_config.moe_enable_routing_replay=true",
-                "trainer.use_sample_packing=true",
-                "trainer.flash_attn=false",
-                'trainer.project_name="w8-biayn-r3"',
-                'trainer.run_name="miniwob-moonlight-routing-replay"',
-            ]
-        )
-    return overrides
 
 
 def run_script(options: RenderOptions) -> LiteralStr:
-    if is_harbor_domdiff_benchmark(options):
-        return harbor_run_script(options)
-    overrides = " \\\n  ".join(skyrl_overrides(options))
-    webarena_exports = webarena_env_exports() if options.pipeline == "webarena" else ""
-    domdiff_enabled = "1" if options.chromiumrl_url or options.cdp_url else "0"
-    return LiteralStr(
-        f"""set -euxo pipefail
-export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
-export ARTIFACT_BUCKET="{options.artifact_bucket}"
-export W8_WEBARENA_ARCHIVES_GCS="{options.webarena_archives_gcs or ""}"
-export W8_BIAYN_DOMDIFF_ENABLED="{domdiff_enabled}"
-export W8_BIAYN_DOMDIFF_REWARD_IMAGE="{options.domdiff_reward_image}"
-export W8_BIAYN_BENCHMARK="{options.benchmark or ""}"
-export CHROMIUMRL_URL="{options.chromiumrl_url or ""}"
-export CHROMIUMRL_API_URL="{options.chromiumrl_url or ""}"
-export CDP_URL="{options.cdp_url or ""}"
-{webarena_exports}
-cd "$HOME/.cache/w8-biayn/upstreams/SkyRL"
-source .venv/bin/activate
-python -m w8_biayn.integrations.skyrl_browsergym_main \\
-  {overrides}
-"""
-    )
+    if options.pipeline == "cpp-smoke":
+        return smoke_run_script(options)
+    if options.pipeline == "cpp-sft":
+        return sft_run_script(options)
+    if options.pipeline == "cpp-grpo":
+        return grpo_run_script(options)
+    if options.pipeline == "cpp-eval":
+        return eval_run_script(options)
+    raise ValueError(f"Unknown pipeline: {options.pipeline}")
 
 
-def harbor_run_script(options: RenderOptions) -> LiteralStr:
-    task_ids = ",".join(options.harbor_task_ids or DEFAULT_HARBOR_TASK_IDS)
-    oracle_value = "true" if options.harbor_oracle else "false"
-    num_gpus = accelerator_count(options.accelerators)
-    megatron_tp = max(num_gpus // 2, 1)
-    accelerator_name = options.accelerators.split(":", maxsplit=1)[0].strip().upper()
-    optimizer_cpu_offload = "true" if accelerator_name == "A100" else "false"
-    optimizer_offload_fraction = "1.0" if optimizer_cpu_offload == "true" else "0.0"
+def smoke_run_script(options: RenderOptions) -> LiteralStr:
     return LiteralStr(
         f"""set -euxo pipefail
-export GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json
+{gcp_env_exports(options)}
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
-export W8_BIAYN_BENCHMARK="{options.benchmark or ""}"
-export W8_HARBOR_TASK_ROOT="{DEFAULT_HARBOR_TASK_ROOT}"
-export W8_HARBOR_TASK_IDS="{task_ids}"
-export W8_HARBOR_ORACLE="{oracle_value}"
-export CHROMIUMRL_URL="{options.chromiumrl_url or ""}"
-export CHROMIUMRL_API_URL="{options.chromiumrl_url or ""}"
+export W8_BIAYN_PIPELINE="cpp-smoke"
+export W8_BIAYN_MODEL="{options.effective_model}"
 export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
 docker pull "$W8_GPU_CONTAINER_IMAGE"
 docker run --rm --gpus all --network host --shm-size=32g \\
-  -v /var/run/docker.sock:/var/run/docker.sock \\
   -v "$PWD":/workspace \\
   -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
-  -v "$HOME/data/w8-biayn":/root/data/w8-biayn \\
   -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
-  -e CHROMIUMRL_URL \\
-  -e CHROMIUMRL_API_URL \\
-  -e W8_REPO_ROOT=/workspace \\
-  -e W8_HARBOR_TASK_ROOT=/workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
-  -e W8_HARBOR_TASK_IDS \\
-  -e W8_HARBOR_ORACLE \\
+  -e CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/w8-gcp-service-account.json \\
+  -e CLOUDSDK_CORE_PROJECT="$CLOUDSDK_CORE_PROJECT" \\
+  -e GOOGLE_CLOUD_PROJECT="$GOOGLE_CLOUD_PROJECT" \\
+  -e GCLOUD_PROJECT="$GCLOUD_PROJECT" \\
+  -e CLOUDSDK_CORE_DISABLE_PROMPTS="$CLOUDSDK_CORE_DISABLE_PROMPTS" \\
+  -e HF_HOME=/root/.cache/huggingface \\
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
 set -euxo pipefail
-if ! command -v docker >/dev/null 2>&1; then
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
-fi
-if ! command -v curl >/dev/null 2>&1; then
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y curl git ca-certificates
-fi
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
 fi
 export PATH="$HOME/.local/bin:$PATH"
-SKYRL_DIR="$HOME/.cache/w8-biayn/upstreams/SkyRL"
-HARBOR_DATA_DIR="$HOME/data/w8-biayn/harbor-domdiff-browser-swe"
-HARBOR_VENV="$HOME/.cache/w8-biayn/venvs/harbor-r3"
-if [ ! -x "$HARBOR_VENV/bin/python" ]; then
-  uv venv --python 3.12 --seed --clear "$HARBOR_VENV"
-fi
-source "$HARBOR_VENV/bin/activate"
-cd "$SKYRL_DIR"
-uv sync --active --extra megatron --extra gcp
-cd /workspace
-uv pip install -e /workspace
-uv pip install blobfile docker pandas pyarrow
+uv venv --clear --python 3.12 --seed /tmp/w8-cpp-smoke
+source /tmp/w8-cpp-smoke/bin/activate
+uv pip install vllm transformers accelerate
 python - <<PY
-import subprocess
-subprocess.run(["nvidia-smi"], check=False)
+from vllm import LLM, SamplingParams
+model = "{options.effective_model}"
+prompt = "Optimize this C++ program while preserving behavior.\\n```cpp\\n#include <bits/stdc++.h>\\nint main(){{long long n,s=0; std::cin>>n; for(long long i=1;i<=n;i++) s+=i; std::cout<<s<<\"\\\\n\";}}\\n```"
+llm = LLM(model=model, max_model_len=4096, trust_remote_code=True)
+outputs = llm.generate([prompt], SamplingParams(max_tokens=128, temperature=0.2))
+print(outputs[0].outputs[0].text[:1000])
 PY
-ORACLE_FLAG=""
-if [ "$W8_HARBOR_ORACLE" = "true" ]; then
-  ORACLE_FLAG="--oracle"
-fi
-w8-biayn harbor prepare-data \\
-  --out "$HARBOR_DATA_DIR" \\
-  --task-root /workspace/{DEFAULT_HARBOR_TASK_ROOT} \\
-  $ORACLE_FLAG \\
-  $(printf "%s" "$W8_HARBOR_TASK_IDS" | awk -F, '"'"'{{for (i=1; i<=NF; i++) printf " --task %s", $i}}'"'"')
-export SKYRL_RAY_PG_TIMEOUT_IN_S=300
-python -m w8_biayn.integrations.skyrl_harbor_main \\
-  data.train_data=[$HARBOR_DATA_DIR/train.parquet] \\
-  data.val_data=[$HARBOR_DATA_DIR/validation.parquet] \\
-  trainer.algorithm.advantage_estimator=grpo \\
-  trainer.policy.model.path=moonshotai/Moonlight-16B-A3B-Instruct \\
-  trainer.placement.colocate_all=true \\
-  trainer.strategy=megatron \\
-  trainer.placement.policy_num_gpus_per_node={num_gpus} \\
-  trainer.placement.ref_num_gpus_per_node={num_gpus} \\
-  generator.inference_engine.num_engines=1 \\
-  generator.inference_engine.tensor_parallel_size={num_gpus} \\
-  generator.inference_engine.expert_parallel_size={num_gpus} \\
-  generator.inference_engine.distributed_executor_backend=mp \\
-  trainer.policy.megatron_config.tensor_model_parallel_size={megatron_tp} \\
-  trainer.policy.megatron_config.pipeline_model_parallel_size=1 \\
-  trainer.policy.megatron_config.context_parallel_size=1 \\
-  trainer.policy.megatron_config.expert_model_parallel_size={num_gpus} \\
-  trainer.policy.megatron_config.expert_tensor_parallel_size=1 \\
-  trainer.ref.megatron_config.tensor_model_parallel_size={megatron_tp} \\
-  trainer.ref.megatron_config.pipeline_model_parallel_size=1 \\
-  trainer.ref.megatron_config.context_parallel_size=1 \\
-  trainer.ref.megatron_config.expert_model_parallel_size={num_gpus} \\
-  trainer.ref.megatron_config.expert_tensor_parallel_size=1 \\
-  generator.inference_engine.backend=vllm \\
-  generator.inference_engine.run_engines_locally=true \\
-  generator.inference_engine.weight_sync_backend=nccl \\
-  generator.inference_engine.async_engine=true \\
-  generator.inference_engine.enable_return_routed_experts=true \\
-  trainer.policy.megatron_config.moe_enable_routing_replay=true \\
-  trainer.ref.megatron_config.moe_enable_routing_replay=true \\
-  trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_cpu_offload={optimizer_cpu_offload} \\
-  trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_offload_fraction={optimizer_offload_fraction} \\
-  trainer.use_sample_packing=true \\
-  trainer.flash_attn=false \\
-  trainer.epochs=1 \\
-  trainer.update_epochs_per_batch=1 \\
-  trainer.train_batch_size=2 \\
-  trainer.policy_mini_batch_size=2 \\
-  trainer.micro_train_batch_size_per_gpu=1 \\
-  trainer.micro_forward_batch_size_per_gpu=1 \\
-  trainer.eval_before_train=false \\
-  trainer.eval_interval=-1 \\
-  trainer.ckpt_interval=-1 \\
-  trainer.hf_save_interval=-1 \\
-  trainer.max_prompt_length=8192 \\
-  trainer.algorithm.use_kl_loss=false \\
-  generator.max_turns=1 \\
-  generator.max_input_length=8192 \\
-  generator.sampling_params.max_generate_length=4096 \\
-  generator.sampling_params.temperature=0.7 \\
-  generator.sampling_params.top_p=0.95 \\
-  generator.batched=false \\
-  generator.use_conversation_multi_turn=true \\
-  generator.n_samples_per_prompt=2 \\
-  generator.inference_engine.gpu_memory_utilization=0.6 \\
-  environment.env_class=harbor-domdiff \\
-  environment.skyrl_gym.max_env_workers=1 \\
-  trainer.logger="[console]" \\
-  trainer.project_name=w8-biayn-r3 \\
-  trainer.run_name=harbor-domdiff-moonlight-r3-smoke \\
-  trainer.ckpt_path="$HOME/ckpts/w8-biayn/harbor-r3" \\
-  trainer.export_path="$HOME/exports/w8-biayn/harbor-r3"
 '
 """
     )
 
 
-def render_sky_yaml(options: RenderOptions) -> str:
-    validate_remote_runtime_urls(options)
-    secrets: dict[str, Any] = {}
-    if options.wandb_secret:
-        secrets["WANDB_API_KEY"] = None
+def training_prelude(options: RenderOptions) -> str:
+    runtime_prelude = ""
+    if options.pipeline in {"cpp-grpo", "cpp-eval"}:
+        runtime_prelude = f"""w8_stage host_preflight start
+uv run w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+w8_stage host_preflight end
+"""
+    prelude = f"""set -euxo pipefail
+w8_stage() {{
+  printf 'W8_SETUP_STAGE {{"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}}\\n' "$1" "$2" "$(date -u +%FT%TZ)"
+}}
+{gcp_env_exports(options)}
+export ARTIFACT_BUCKET="{options.artifact_bucket}"
+export W8_BIAYN_PIPELINE="{options.pipeline}"
+export W8_BIAYN_MODEL="{options.effective_model}"
+export W8_BIAYN_MODEL_PATH="{options.effective_model}"
+export W8_GPU_CONTAINER_IMAGE="{options.gpu_container_image}"
+export W8_DATA_GCS_PREFIX="{options.data_gcs_prefix}"
+export W8_DATA_DIR="{options.remote_data_dir}"
+export W8_GPUS_PER_NODE="{options.gpu_count}"
+export W8_RUN_GCS_PREFIX="{options.run_gcs_prefix}"
+export W8_ARTIFACT_DIR="$HOME/.w8-biayn/runs/{options.run_id or options.pipeline}/{options.pipeline}"
+export W8_CKPT_PATH="{options.ckpt_path}"
+export W8_EXPORT_PATH="{options.export_path}"
+export W8_SFT_EXPORT_CHECKPOINT="{options.sft_export_checkpoint}"
+export W8_ENABLE_MLFLOW_TRACKING="{"1" if options.uses_mlflow_tracking else "0"}"
+export W8_TRACKING_DIR="$W8_ARTIFACT_DIR/tracking"
+export W8_MLFLOW_DB="$W8_TRACKING_DIR/mlflow/mlflow.db"
+export SKYRL_RAY_PG_TIMEOUT_IN_S="${{SKYRL_RAY_PG_TIMEOUT_IN_S:-{SKYRL_RAY_PG_TIMEOUT_S}}}"
+export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${{SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-{SKYRL_WORKER_NCCL_TIMEOUT_S}}}"
+export W8_GLOO_SOCKET_IFNAME="${{GLOO_SOCKET_IFNAME:-$(ip route show default 2>/dev/null | awk '{{print $5; exit}}')}}"
+mkdir -p "$W8_DATA_DIR"
+rm -rf "$W8_ARTIFACT_DIR"
+mkdir -p "$W8_ARTIFACT_DIR/ckpts" "$W8_ARTIFACT_DIR/exports" "$W8_TRACKING_DIR/mlflow"
+if [ "$W8_CKPT_PATH" = "~/ckpts/" ]; then
+  export W8_CKPT_PATH="/artifacts/ckpts"
+fi
+if [ "$W8_EXPORT_PATH" = "~/exports/" ]; then
+  export W8_EXPORT_PATH="/artifacts/exports"
+fi
+sync_mlflow_tracking_once() {{
+  if [ "${{W8_ENABLE_MLFLOW_TRACKING:-0}}" != "1" ] || [ "${{SKYPILOT_NODE_RANK:-0}}" != "0" ]; then
+    return 0
+  fi
+  if [ ! -f "$W8_MLFLOW_DB" ]; then
+    return 0
+  fi
+  local snapshot="$W8_TRACKING_DIR/mlflow/mlflow.snapshot.db"
+  python3 - "$W8_MLFLOW_DB" "$snapshot" <<'PY'
+import sqlite3
+import sys
 
+source, target = sys.argv[1:]
+with sqlite3.connect("file:" + source + "?mode=ro", uri=True) as src:
+    with sqlite3.connect(target) as dst:
+        src.backup(dst)
+PY
+  gcloud storage cp "$snapshot" "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db"
+}}
+start_mlflow_tracking_sync() {{
+  if [ "${{W8_ENABLE_MLFLOW_TRACKING:-0}}" != "1" ] || [ "${{SKYPILOT_NODE_RANK:-0}}" != "0" ]; then
+    return 0
+  fi
+  (
+    while true; do
+      sync_mlflow_tracking_once || true
+      sleep 60
+    done
+  ) &
+  export W8_MLFLOW_SYNC_PID=$!
+}}
+stop_mlflow_tracking_sync() {{
+  if [ -n "${{W8_MLFLOW_SYNC_PID:-}}" ]; then
+    kill "$W8_MLFLOW_SYNC_PID" >/dev/null 2>&1 || true
+    wait "$W8_MLFLOW_SYNC_PID" 2>/dev/null || true
+    unset W8_MLFLOW_SYNC_PID
+  fi
+  sync_mlflow_tracking_once || true
+}}
+trap stop_mlflow_tracking_sync EXIT
+{runtime_prelude.rstrip()}
+if ! command -v gcloud >/dev/null 2>&1; then
+  echo "gcloud is required on the SkyPilot host to restore dataset cache from GCS" >&2
+  exit 2
+fi
+resolve_gcs_model_export() {{
+  local source="${{1%/}}"
+  has_gcs_policy_weights() {{
+    local candidate="${{1%/}}"
+    gcloud storage ls "$candidate/*.safetensors" >/dev/null 2>&1 || gcloud storage ls "$candidate/pytorch_model*.bin" >/dev/null 2>&1 || gcloud storage ls "$candidate/model*.bin" >/dev/null 2>&1
+  }}
+  if [[ "$source" =~ /global_step_[0-9]+/policy$ ]]; then
+    if has_gcs_policy_weights "$source"; then
+      echo "$source"
+      return 0
+    fi
+    echo "no model weight files found under concrete HF policy export $source" >&2
+    return 2
+  fi
+  local steps=()
+  mapfile -t steps < <(gcloud storage ls "$source/" 2>/dev/null | sed -n 's#.*/global_step_\\([0-9][0-9]*\\)/$#\\1#p' | sort -nr)
+  if [ "${{#steps[@]}}" -eq 0 ]; then
+    echo "$source"
+    return 0
+  fi
+  local step
+  for step in "${{steps[@]}}"; do
+    local candidate="$source/global_step_${{step}}/policy"
+    if has_gcs_policy_weights "$candidate"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo "no complete HF policy export with weights found under $source" >&2
+  return 2
+}}
+assert_local_hf_model() {{
+  local model_dir=$1
+  test -f "$model_dir/config.json"
+  if ! find "$model_dir" -maxdepth 1 \\( -name "*.safetensors" -o -name "pytorch_model*.bin" -o -name "model*.bin" \\) -print -quit | grep -q .; then
+    echo "no model weight files found under $model_dir" >&2
+    return 2
+  fi
+}}
+normalize_local_hf_tokenizer_config() {{
+  local model_dir=$1
+  local tokenizer_config="$model_dir/tokenizer_config.json"
+  if [ ! -f "$tokenizer_config" ]; then
+    return 0
+  fi
+  python3 - "$tokenizer_config" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+extra = data.get("extra_special_tokens")
+if not isinstance(extra, list):
+    raise SystemExit(0)
+additional = data.get("additional_special_tokens", [])
+if not isinstance(additional, list):
+    additional = []
+merged = list(additional)
+for token in extra:
+    if token not in merged:
+        merged.append(token)
+data["additional_special_tokens"] = merged
+data.pop("extra_special_tokens", None)
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\\n")
+print(f"normalized tokenizer_config extra_special_tokens list into additional_special_tokens for {{path.parent}}")
+PY
+}}
+"""
+    if options.sft_export_checkpoint:
+        data_restore = f"""w8_stage data_restore skipped
+echo "{options.pipeline} export-only: skipping dataset restore"
+"""
+    else:
+        data_restore = """w8_stage data_restore start
+if [ -f "$W8_DATA_DIR/.w8_data_gcs_prefix" ] \\
+  && [ "$(cat "$W8_DATA_DIR/.w8_data_gcs_prefix")" = "$W8_DATA_GCS_PREFIX" ] \\
+  && [ -f "$W8_DATA_DIR/_w8_data_manifest.json" ] \\
+  && [ -d "$W8_DATA_DIR/tasks" ]; then
+  echo "dataset cache already restored for $W8_DATA_GCS_PREFIX"
+else
+  rm -rf "$W8_DATA_DIR"
+  mkdir -p "$W8_DATA_DIR"
+  gcloud storage cp --recursive "$W8_DATA_GCS_PREFIX/*" "$W8_DATA_DIR/"
+  printf '%s\\n' "$W8_DATA_GCS_PREFIX" > "$W8_DATA_DIR/.w8_data_gcs_prefix"
+fi
+test -f "$W8_DATA_DIR/_w8_data_manifest.json"
+test -d "$W8_DATA_DIR/tasks"
+w8_stage data_restore end
+"""
+    return (
+        prelude
+        + data_restore
+        + f"""
+if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
+  w8_stage model_stage start
+  export W8_BIAYN_MODEL_SOURCE="$W8_BIAYN_MODEL_PATH"
+  export W8_BIAYN_MODEL_PATH="$(resolve_gcs_model_export "$W8_BIAYN_MODEL_PATH")"
+  echo "resolved GCS model export: $W8_BIAYN_MODEL_SOURCE -> $W8_BIAYN_MODEL_PATH"
+  export W8_LOCAL_MODEL_DIR="$W8_ARTIFACT_DIR/model"
+  rm -rf "$W8_LOCAL_MODEL_DIR"
+  mkdir -p "$W8_LOCAL_MODEL_DIR"
+  gcloud storage cp --recursive "$W8_BIAYN_MODEL_PATH/*" "$W8_LOCAL_MODEL_DIR/"
+  assert_local_hf_model "$W8_LOCAL_MODEL_DIR"
+  normalize_local_hf_tokenizer_config "$W8_LOCAL_MODEL_DIR"
+  export W8_BIAYN_MODEL_PATH="/artifacts/model"
+  w8_stage model_stage end
+fi
+w8_stage container_pull start
+docker pull "$W8_GPU_CONTAINER_IMAGE"
+if [ "{options.sandbox_image}" != "{DEFAULT_DOCKER_IMAGE}" ]; then
+  docker pull "{options.sandbox_image}"
+fi
+w8_stage container_pull end
+"""
+    )
+
+
+def training_container_prefix(options: RenderOptions) -> str:
+    mlflow_install = f'uv pip install "{MLFLOW_PACKAGE_SPEC}"\n' if options.uses_mlflow_tracking else ""
+    mlflow_start = (
+        """setup_mlflow_tracking_server() {
+  if [ "${W8_ENABLE_MLFLOW_TRACKING:-0}" != "1" ]; then
+    return 0
+  fi
+  w8_stage mlflow_setup start
+  read -r W8_MLFLOW_HEAD_IP _ <<< "${SKYPILOT_NODE_IPS:-127.0.0.1}"
+  if [ -z "$W8_MLFLOW_HEAD_IP" ]; then
+    W8_MLFLOW_HEAD_IP=127.0.0.1
+  fi
+  export MLFLOW_TRACKING_URI="http://${W8_MLFLOW_HEAD_IP}:${W8_MLFLOW_PORT:-5000}"
+  mkdir -p "$W8_TRACKING_DIR/mlflow/artifacts"
+  if [ "${SKYPILOT_NODE_RANK:-0}" = "0" ]; then
+    mlflow server \\
+      --host 0.0.0.0 \\
+      --port "${W8_MLFLOW_PORT:-5000}" \\
+      --backend-store-uri "$W8_MLFLOW_BACKEND_STORE_URI" \\
+      --default-artifact-root "$W8_MLFLOW_DEFAULT_ARTIFACT_ROOT" \\
+      > "$W8_TRACKING_DIR/mlflow/server.log" 2>&1 &
+    export W8_MLFLOW_SERVER_PID=$!
+  fi
+  python - <<'PY'
+import os
+import sys
+import time
+from urllib.request import urlopen
+
+uri = os.environ["MLFLOW_TRACKING_URI"].rstrip("/") + "/health"
+for _ in range(120):
+    try:
+        with urlopen(uri, timeout=2) as response:
+            if response.status < 500:
+                print(f"MLflow tracking server ready at {uri}")
+                raise SystemExit(0)
+    except Exception:
+        time.sleep(2)
+print(f"MLflow tracking server did not become ready at {uri}", file=sys.stderr)
+raise SystemExit(2)
+PY
+  w8_stage mlflow_setup end
+}
+cleanup_mlflow_tracking_server() {
+  if [ -n "${W8_MLFLOW_SERVER_PID:-}" ]; then
+    kill "$W8_MLFLOW_SERVER_PID" >/dev/null 2>&1 || true
+    wait "$W8_MLFLOW_SERVER_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup_mlflow_tracking_server EXIT
+setup_mlflow_tracking_server
+"""
+        if options.uses_mlflow_tracking
+        else ""
+    )
+    return """start_mlflow_tracking_sync
+w8_stage container_start start
+docker run --rm --gpus all --network host --shm-size=32g \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v /tmp:/tmp \\
+  -v "$PWD":/workspace \\
+  -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
+  -v "$W8_DATA_DIR":/data \\
+  -v "$W8_ARTIFACT_DIR":/artifacts \\
+  -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
+  -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
+  -e CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/w8-gcp-service-account.json \\
+  -e CLOUDSDK_CORE_PROJECT="$CLOUDSDK_CORE_PROJECT" \\
+  -e GOOGLE_CLOUD_PROJECT="$GOOGLE_CLOUD_PROJECT" \\
+  -e GCLOUD_PROJECT="$GCLOUD_PROJECT" \\
+  -e CLOUDSDK_CORE_DISABLE_PROMPTS="$CLOUDSDK_CORE_DISABLE_PROMPTS" \\
+  -e W8_BIAYN_DATA_DIR=/data \\
+  -e W8_BIAYN_MODEL_PATH="$W8_BIAYN_MODEL_PATH" \\
+  -e W8_CKPT_PATH="$W8_CKPT_PATH" \\
+  -e W8_EXPORT_PATH="$W8_EXPORT_PATH" \\
+  -e W8_SFT_EXPORT_CHECKPOINT="$W8_SFT_EXPORT_CHECKPOINT" \\
+  -e W8_ENABLE_MLFLOW_TRACKING="$W8_ENABLE_MLFLOW_TRACKING" \\
+  -e W8_TRACKING_DIR=/artifacts/tracking \\
+  -e W8_MLFLOW_BACKEND_STORE_URI=sqlite:////artifacts/tracking/mlflow/mlflow.db \\
+  -e W8_MLFLOW_DEFAULT_ARTIFACT_ROOT=/artifacts/tracking/mlflow/artifacts \\
+  -e W8_MLFLOW_PORT=5000 \\
+  -e SKYRL_RAY_PG_TIMEOUT_IN_S="$SKYRL_RAY_PG_TIMEOUT_IN_S" \\
+  -e SKYRL_WORKER_NCCL_TIMEOUT_IN_S="$SKYRL_WORKER_NCCL_TIMEOUT_IN_S" \\
+  -e NCCL_IB_DISABLE=1 \\
+  -e NCCL_SOCKET_IFNAME="^lo,docker,veth" \\
+  -e GLOO_SOCKET_IFNAME="$W8_GLOO_SOCKET_IFNAME" \\
+  -e NCCL_DEBUG=WARN \\
+  -e SKYPILOT_NODE_RANK="${SKYPILOT_NODE_RANK:-0}" \\
+  -e SKYPILOT_NODE_IPS="${SKYPILOT_NODE_IPS:-}" \\
+  -e SKYPILOT_NUM_NODES="${SKYPILOT_NUM_NODES:-1}" \\
+  -e SKYPILOT_NUM_GPUS_PER_NODE="${SKYPILOT_NUM_GPUS_PER_NODE:-$W8_GPUS_PER_NODE}" \\
+  -e HF_HOME=/root/.cache/huggingface \\
+  -w /workspace \\
+  "$W8_GPU_CONTAINER_IMAGE" bash -lc '
+set -euxo pipefail
+w8_stage() {
+  printf '"'"'W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}\n'"'"' "$1" "$2" "$(date -u +%FT%TZ)"
+}
+if ! command -v docker >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+  else
+    echo "docker CLI is required inside the training container for cpp-perf rewards" >&2
+    exit 2
+  fi
+fi
+docker version
+w8_stage dependency_setup start
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+export PATH="$HOME/.local/bin:$PATH"
+uv venv --clear --python 3.12 --seed /tmp/w8-train
+source /tmp/w8-train/bin/activate
+uv pip install -e /workspace
+uv pip install -e /root/.cache/w8-biayn/upstreams/rllm
+cd /root/.cache/w8-biayn/upstreams/SkyRL
+python -m w8_biayn.integrations.skyrl_io_patch
+python -m w8_biayn.integrations.skyrl_vllm_logprob_patch
+python -m w8_biayn.integrations.skyrl_grpo_health_patch
+python -m w8_biayn.integrations.skyrl_startup_patch
+uv sync --active --extra fsdp --extra gcp
+cd /workspace
+""" + mlflow_install + """uv pip install gcsfs
+uv pip install --no-deps -e /workspace
+w8_stage dependency_setup end
+""" + mlflow_start
+
+
+def training_artifact_upload_script() -> str:
+    return """
+if [ "${SKYPILOT_NODE_RANK:-0}" != "0" ]; then
+  echo "skipping artifact upload on worker rank ${SKYPILOT_NODE_RANK:-unknown}"
+  exit 0
+fi
+sync_mlflow_tracking_once || true
+if find "$W8_ARTIFACT_DIR/exports" -mindepth 1 -print -quit | grep -q .; then
+  gcloud storage cp --recursive "$W8_ARTIFACT_DIR/exports" "$W8_RUN_GCS_PREFIX/"
+else
+  echo "no exports found under $W8_ARTIFACT_DIR/exports" >&2
+fi
+if find "$W8_ARTIFACT_DIR/ckpts" -mindepth 1 -print -quit | grep -q .; then
+  gcloud storage cp --recursive "$W8_ARTIFACT_DIR/ckpts" "$W8_RUN_GCS_PREFIX/"
+else
+  echo "no checkpoints found under $W8_ARTIFACT_DIR/ckpts" >&2
+fi
+if find "$W8_ARTIFACT_DIR/tracking" -mindepth 1 -print -quit | grep -q .; then
+  gcloud storage cp --recursive "$W8_ARTIFACT_DIR/tracking" "$W8_RUN_GCS_PREFIX/"
+else
+  echo "no tracking artifacts found under $W8_ARTIFACT_DIR/tracking" >&2
+fi
+"""
+
+
+def grpo_training_command(options: RenderOptions) -> str:
+    # fsdp_size = GPUs-per-node keeps policy/ref FSDP sharding node-local (HSDP) on
+    # multi-node runs: the model reduce-scatters over NVLink and only does one gradient
+    # all-reduce across the slow inter-node link per step, instead of all-gathering the
+    # whole model across nodes on every micro-step. On a single node it equals the world
+    # size, so SkyRL renders a no-op flat mesh and behavior is unchanged.
+    return f"""python -m w8_biayn.integrations.skyrl_cpp_perf_main \\
+  'data.train_data=[/data/grpo/train.parquet]' \\
+  'data.val_data=[/data/grpo/validation.parquet]' \\
+  environment.env_class=cpp-perf \\
+  environment.skyrl_gym.max_env_workers={options.max_env_workers} \\
+  trainer.algorithm.advantage_estimator=grpo \\
+  trainer.algorithm.use_kl_loss={str(options.grpo_use_kl_loss).lower()} \\
+  trainer.algorithm.kl_loss_coef={options.grpo_kl_loss_coef:g} \\
+  trainer.algorithm.use_entropy_loss={str(options.grpo_use_entropy_loss).lower()} \\
+  trainer.algorithm.entropy_loss_coef={options.grpo_entropy_loss_coef:g} \\
+  trainer.policy.model.path="$W8_BIAYN_MODEL_PATH" \\
+  trainer.strategy=fsdp \\
+  trainer.placement.colocate_all=true \\
+  trainer.placement.policy_num_nodes={options.num_nodes} \\
+  trainer.placement.policy_num_gpus_per_node={options.gpu_count} \\
+  trainer.placement.ref_num_nodes={options.num_nodes} \\
+  trainer.placement.ref_num_gpus_per_node={options.gpu_count} \\
+  trainer.policy.fsdp_config.fsdp_size={options.gpu_count} \\
+  trainer.ref.fsdp_config.fsdp_size={options.gpu_count} \\
+  trainer.logger={options.logger} \\
+  trainer.epochs={options.train_epochs} \\
+  trainer.eval_before_train={str(options.eval_before_train).lower()} \\
+  trainer.eval_interval={options.eval_interval} \\
+  trainer.ckpt_interval={options.ckpt_interval} \\
+  trainer.hf_save_interval={options.hf_save_interval} \\
+  trainer.ckpt_path="$W8_CKPT_PATH" \\
+  trainer.export_path="$W8_EXPORT_PATH" \\
+  trainer.max_ckpts_to_keep={options.max_ckpts_to_keep} \\
+  trainer.resume_mode={_skyrl_resume_mode(options.resume_from)} \\
+  trainer.train_batch_size={options.train_batch_size} \\
+  trainer.policy_mini_batch_size={options.train_batch_size} \\
+  trainer.micro_train_batch_size_per_gpu={options.micro_train_batch_size_per_gpu} \\
+  trainer.max_prompt_length=8192 \\
+  generator.max_turns=1 \\
+  generator.n_samples_per_prompt={options.n_samples_per_prompt} \\
+  generator.inference_engine.num_engines={options.total_gpu_count} \\
+  generator.inference_engine.tensor_parallel_size=1 \\
+  generator.inference_engine.pipeline_parallel_size=1 \\
+  generator.inference_engine.data_parallel_size=1 \\
+  generator.inference_engine.backend=vllm \\
+  generator.inference_engine.run_engines_locally=true \\
+  generator.inference_engine.weight_sync_backend=nccl \\
+  generator.inference_engine.async_engine=true \\
+  generator.inference_engine.gpu_memory_utilization={options.grpo_vllm_gpu_memory_utilization:g} \\
+  generator.batched=false \\
+  generator.sampling_params.max_generate_length=1024 \\
+  generator.sampling_params.temperature=0.8"""
+
+
+def grpo_multinode_ray_script(options: RenderOptions, train_command: str) -> str:
+    if options.num_nodes <= 1:
+        return train_command
+    indented_train = "\n".join(f"  {line}" if line else "" for line in train_command.splitlines())
+    return f"""wait_for_ray() {{
+  local address=$1
+  for _ in $(seq 1 60); do
+    if ray status --address "$address" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 5
+  done
+  echo "Ray cluster at $address failed to become ready" >&2
+  return 1
+}}
+
+start_ray_worker() {{
+  local address=$1
+  for _ in $(seq 1 60); do
+    if ray start --address "$address" --disable-usage-stats --num-gpus {options.gpu_count}; then
+      return 0
+    fi
+    sleep 5
+  done
+  echo "Worker rank ${{SKYPILOT_NODE_RANK:-unknown}} failed to join Ray at $address" >&2
+  return 1
+}}
+
+read -r W8_RAY_HEAD_IP _ <<< "${{SKYPILOT_NODE_IPS:-127.0.0.1}}"
+export RAY_RUNTIME_ENV_HOOK=ray._private.runtime_env.uv_runtime_env_hook.hook
+if [ "${{SKYPILOT_NODE_RANK:-0}}" = "0" ]; then
+  w8_stage ray_cluster start
+  if ! ray status --address 127.0.0.1:6479 >/dev/null 2>&1; then
+    ray start --head --disable-usage-stats --port 6479 --num-gpus {options.gpu_count}
+  fi
+  wait_for_ray 127.0.0.1:6479
+  w8_stage ray_cluster end
+  export RAY_ADDRESS=127.0.0.1:6479
+  cleanup_ray() {{ ray stop --force || true; }}
+  trap cleanup_ray EXIT
+  w8_stage skyrl_entrypoint start
+{indented_train}
+else
+  w8_stage ray_worker_join start
+  start_ray_worker "$W8_RAY_HEAD_IP:6479"
+  wait_for_ray "$W8_RAY_HEAD_IP:6479"
+  w8_stage ray_worker_join end
+  echo "worker rank ${{SKYPILOT_NODE_RANK:-unknown}} joined Ray at $W8_RAY_HEAD_IP:6479"
+  while ray status --address "$W8_RAY_HEAD_IP:6479" >/dev/null 2>&1; do
+    sleep 30
+  done
+  ray stop --force || true
+fi"""
+
+
+def export_checkpoint_run_body(options: RenderOptions) -> str:
+    return f"""
+test -n "$W8_SFT_EXPORT_CHECKPOINT"
+python -m w8_biayn.integrations.skyrl_sft_export_checkpoint_main \\
+  --model "$W8_BIAYN_MODEL_PATH" \\
+  --checkpoint "$W8_SFT_EXPORT_CHECKPOINT" \\
+  --export-path "$W8_EXPORT_PATH" \\
+  --num-nodes {options.num_nodes} \\
+  --num-gpus-per-node {options.gpu_count} \\
+  --batch-size {options.train_batch_size} \\
+  --micro-train-batch-size-per-gpu {options.micro_train_batch_size_per_gpu} \\
+  --max-length 8192 \\
+  --logger {options.logger}
+"""
+
+
+def sft_run_script(options: RenderOptions) -> LiteralStr:
+    if options.sft_export_checkpoint:
+        run_body = export_checkpoint_run_body(options)
+    else:
+        run_body = f"""
+test -f /data/sft/train.jsonl
+test -f /data/sft/validation.jsonl
+python -m skyrl.train.main_sft \\
+  strategy=fsdp \\
+  model.path="$W8_BIAYN_MODEL_PATH" \\
+  dataset_name=/data/sft \\
+  dataset_split=train \\
+  eval_dataset_name=/data/sft \\
+  eval_dataset_split=validation \\
+  eval_interval={options.eval_interval} \\
+  placement.num_nodes={options.num_nodes} \\
+  placement.num_gpus_per_node={options.gpu_count} \\
+  batch_size={options.train_batch_size} \\
+  micro_train_batch_size_per_gpu={options.micro_train_batch_size_per_gpu} \\
+  num_epochs={options.train_epochs} \\
+  max_length=8192 \\
+  ckpt_path="$W8_CKPT_PATH" \\
+  ckpt_interval={max(options.ckpt_interval, 0)} \\
+  hf_save_interval={max(options.hf_save_interval, 0)} \\
+  export_path="$W8_EXPORT_PATH" \\
+  max_ckpts_to_keep={options.max_ckpts_to_keep} \\
+  resume_from="{options.resume_from}" \\
+  logger={options.logger} \\
+  project_name=w8_biayn_cpp_sft \\
+  run_name={options.pipeline}
+"""
+    return LiteralStr(
+        training_prelude(options)
+        + training_container_prefix(options)
+        + run_body
+        + "\n'\n"
+        + "stop_mlflow_tracking_sync\n"
+        + training_artifact_upload_script()
+    )
+
+
+def grpo_run_script(options: RenderOptions) -> LiteralStr:
+    if options.sft_export_checkpoint:
+        return LiteralStr(
+            training_prelude(options)
+            + training_container_prefix(options)
+            + export_checkpoint_run_body(options)
+            + "\n'\n"
+            + "stop_mlflow_tracking_sync\n"
+            + training_artifact_upload_script()
+        )
+    train_command = grpo_multinode_ray_script(options, grpo_training_command(options))
+    return LiteralStr(
+        training_prelude(options)
+        + training_container_prefix(options)
+        + f"""
+test -f /data/grpo/train.parquet
+test -f /data/grpo/validation.parquet
+w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+{train_command}
+'
+"""
+        + "stop_mlflow_tracking_sync\n"
+        + training_artifact_upload_script()
+    )
+
+
+def eval_run_script(options: RenderOptions) -> LiteralStr:
+    max_tasks_arg = f"--max-tasks {options.eval_max_tasks}" if options.eval_max_tasks else ""
+    return LiteralStr(
+        training_prelude(options)
+        + f"""export W8_EVAL_OUTPUT_DIR="/tmp/w8-cpp-eval-{options.run_id or 'manual'}"
+export W8_EVAL_MODEL="$W8_BIAYN_MODEL_PATH"
+rm -rf "$W8_EVAL_OUTPUT_DIR"
+mkdir -p "$W8_EVAL_OUTPUT_DIR"
+if [[ "$W8_EVAL_MODEL" == gs://* ]]; then
+  echo "eval GCS model export was not staged by training_prelude: $W8_EVAL_MODEL" >&2
+  exit 2
+fi
+docker run --rm --gpus all --network host --shm-size=32g \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v /tmp:/tmp \\
+  -v "$PWD":/workspace \\
+  -v "$HOME/.cache/w8-biayn":/root/.cache/w8-biayn \\
+  -v "$W8_DATA_DIR":/data \\
+  -v "$W8_ARTIFACT_DIR":/artifacts \\
+  -v /tmp/w8-gcp-service-account.json:/tmp/w8-gcp-service-account.json:ro \\
+  -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/w8-gcp-service-account.json \\
+  -e CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/w8-gcp-service-account.json \\
+  -e CLOUDSDK_CORE_PROJECT="$CLOUDSDK_CORE_PROJECT" \\
+  -e GOOGLE_CLOUD_PROJECT="$GOOGLE_CLOUD_PROJECT" \\
+  -e GCLOUD_PROJECT="$GCLOUD_PROJECT" \\
+  -e CLOUDSDK_CORE_DISABLE_PROMPTS="$CLOUDSDK_CORE_DISABLE_PROMPTS" \\
+  -e W8_BIAYN_DATA_DIR=/data \\
+  -e W8_EVAL_OUTPUT_DIR="$W8_EVAL_OUTPUT_DIR" \\
+  -e W8_EVAL_MODEL="$W8_EVAL_MODEL" \\
+  -e HF_HOME=/root/.cache/huggingface \\
+  -w /workspace \\
+  "$W8_GPU_CONTAINER_IMAGE" bash -lc '
+set -euxo pipefail
+if ! command -v docker >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+  else
+    echo "docker CLI is required inside the eval container for cpp-perf rewards" >&2
+    exit 2
+  fi
+fi
+docker version
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+export PATH="$HOME/.local/bin:$PATH"
+uv venv --clear --python 3.10 --seed /tmp/w8-eval
+source /tmp/w8-eval/bin/activate
+uv pip install -e /workspace
+uv pip install "vllm=={DEFAULT_CPP_EVAL_VLLM_VERSION}" "transformers=={DEFAULT_CPP_EVAL_TRANSFORMERS_VERSION}" --extra-index-url https://download.pytorch.org/whl/cu124
+w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+python -m w8_biayn.integrations.cpp_eval_main \\
+  --data-dir /data \\
+  --model "$W8_EVAL_MODEL" \\
+  --label "{options.eval_label}" \\
+  --output-dir "$W8_EVAL_OUTPUT_DIR" \\
+  --samples-per-task {options.n_samples_per_prompt} \\
+  --sandbox-image "{options.sandbox_image}" \\
+  --sandbox-cpu "{options.sandbox_cpu}" \\
+  {max_tasks_arg}
+'
+gcloud storage cp --recursive "$W8_EVAL_OUTPUT_DIR" "{options.eval_gcs_prefix}/"
+"""
+    )
+
+
+def render_sky_yaml(options: RenderOptions) -> str:
     config: dict[str, Any] = {
         "name": options.name,
         "resources": {
-            "infra": "gcp",
+            "infra": options.infra,
             "accelerators": options.accelerators,
-            "memory": "128+",
-            "ports": 6479,
+            "memory": options.effective_memory,
+            "disk_size": options.effective_disk_size,
         },
         "num_nodes": options.num_nodes,
         "workdir": ".",
@@ -537,29 +988,34 @@ def render_sky_yaml(options: RenderOptions) -> str:
         "envs": {
             "W8_BIAYN_PIPELINE": options.pipeline,
             "W8_BIAYN_ARTIFACT_BUCKET": options.artifact_bucket,
+            "W8_BIAYN_MODEL": options.effective_model,
+            "W8_BIAYN_DATA_GCS_PREFIX": options.data_gcs_prefix,
+            "W8_BIAYN_RUN_ID": options.run_id or "",
+            "W8_BIAYN_TOTAL_GPU_COUNT": str(options.total_gpu_count),
+            "W8_BIAYN_REGION": options.region,
+            "W8_BIAYN_ZONE": options.zone,
+            "W8_BIAYN_EFFECTIVE_SAMPLES_PER_STEP": str(options.effective_samples_per_step),
+            "W8_BIAYN_SAMPLES_PER_GPU_PER_STEP": (
+                "" if options.samples_per_gpu_per_step is None else f"{options.samples_per_gpu_per_step:.6g}"
+            ),
+            "W8_BIAYN_ALLOW_LOW_MULTINODE_UTILIZATION": str(options.allow_low_multinode_utilization).lower(),
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/w8-gcp-service-account.json",
+            "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE": "/tmp/w8-gcp-service-account.json",
+            "CLOUDSDK_CORE_PROJECT": options.project_id,
+            "GOOGLE_CLOUD_PROJECT": options.project_id,
+            "GCLOUD_PROJECT": options.project_id,
+            "CLOUDSDK_CORE_DISABLE_PROMPTS": "1",
         },
         "setup": setup_script(options),
         "run": run_script(options),
     }
-    if secrets:
-        config["secrets"] = secrets
-    if options.webarena_archives_gcs:
-        config["envs"]["W8_WEBARENA_ARCHIVES_GCS"] = options.webarena_archives_gcs
-    if options.benchmark:
-        config["envs"]["W8_BIAYN_BENCHMARK"] = options.benchmark
-    if options.chromiumrl_url or options.cdp_url:
-        config["envs"]["W8_BIAYN_DOMDIFF_ENABLED"] = "1"
-        config["envs"]["W8_BIAYN_DOMDIFF_REWARD_IMAGE"] = options.domdiff_reward_image
-        if options.chromiumrl_url:
-            config["envs"]["CHROMIUMRL_URL"] = options.chromiumrl_url
-            config["envs"]["CHROMIUMRL_API_URL"] = options.chromiumrl_url
-        if options.cdp_url:
-            config["envs"]["CDP_URL"] = options.cdp_url
+    if options.labels:
+        config["resources"]["labels"] = options.labels
     return yaml.safe_dump(config, sort_keys=False)
 
 
-def write_sky_yaml(options: RenderOptions, output: str | Path) -> Path:
-    output_path = Path(output)
+def write_sky_yaml(options: RenderOptions, output: str | Path | None = None) -> Path:
+    output_path = Path(output or f"{DEFAULT_RENDER_DIR}/{options.pipeline}.sky.yaml")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(render_sky_yaml(options), encoding="utf-8")
     return output_path
