@@ -1,0 +1,15 @@
+# Fix Variable Name Typo
+
+- Domain: `vscode`
+- Task ID: `7b77f2a1-1e64-4c6b-9b29-0dcbcf847068`
+- Snapshot: `vscode`
+- Source: `custom/w8-biayn`
+- Proxy: `False`
+
+## Instruction
+
+In calc.py, rename the misspelled variable lenght to length everywhere in the file. Save.
+
+## Evaluator
+
+This task uses OSWorld's `check_include_exclude` evaluator with a `vm_command_line` Python check. The command prints `Evaluation successful.` only when the expected final VM state is present, and `Evaluation failed.` otherwise.

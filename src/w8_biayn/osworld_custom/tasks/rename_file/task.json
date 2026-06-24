@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; Path(\"/home/user/Desktop/draft.txt\").write_text(\"my content\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nok = (Path(\"/home/user/Desktop/final.txt\").exists() and\n      not Path(\"/home/user/Desktop/draft.txt\").exists())\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847042",
+  "instruction": "Using the terminal, rename Desktop/draft.txt to Desktop/final.txt.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

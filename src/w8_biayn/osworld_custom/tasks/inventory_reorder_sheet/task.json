@@ -1,0 +1,57 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\np = Path('\"'\"'/home/user/Desktop/inventory_reorder.csv'\"'\"')\np.write_text('\"'\"'Item,Stock,Threshold,Status\\nCable,3,10,\\nAdapter,25,10,\\nDock,4,4,\\nMouse,0,2,\\n'\"'\"')'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/inventory_reorder.csv"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Calc"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nimport csv\np = Path('\"'\"'/home/user/Desktop/inventory_reorder.csv'\"'\"')\ntry:\n    rows = list(csv.DictReader(p.open(newline='\"'\"''\"'\"')))\n    got = {row['\"'\"'Item'\"'\"']: row.get('\"'\"'Status'\"'\"', '\"'\"''\"'\"').strip() for row in rows}\nexcept Exception:\n    got = {}\nexpected = {'\"'\"'Cable'\"'\"': '\"'\"'Reorder'\"'\"', '\"'\"'Adapter'\"'\"': '\"'\"'OK'\"'\"', '\"'\"'Dock'\"'\"': '\"'\"'OK'\"'\"', '\"'\"'Mouse'\"'\"': '\"'\"'Reorder'\"'\"'}\nprint('\"'\"'Evaluation successful.'\"'\"' if got == expected else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847017",
+  "instruction": "In the inventory spreadsheet, fill the Status column with Reorder when Stock is below Threshold, otherwise OK. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "snapshot": "libreoffice_calc",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

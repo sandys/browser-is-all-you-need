@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nbase = Path(\"/home/user/Desktop\")\nsplit = base / \"split\"\nshutil.rmtree(split, ignore_errors=True)\nPath(base / \"products.csv\").write_text(\"Item,Category,Price\\nApple,Fruit,1.20\\nBroccoli,Vegetable,0.80\\nBanana,Fruit,0.50\\nCarrot,Vegetable,0.60\\nRice,Grain,2.00\\nWheat,Grain,1.50\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import csv\nfrom pathlib import Path\nsplit = Path(\"/home/user/Desktop/split\")\ntry:\n    fruits = list(csv.DictReader((split / \"Fruit.csv\").open()))\n    vegs = list(csv.DictReader((split / \"Vegetable.csv\").open()))\n    grains = list(csv.DictReader((split / \"Grain.csv\").open()))\n    ok = (\n        sorted(r[\"Item\"] for r in fruits) == [\"Apple\", \"Banana\"] and\n        sorted(r[\"Item\"] for r in vegs) == [\"Broccoli\", \"Carrot\"] and\n        sorted(r[\"Item\"] for r in grains) == [\"Rice\", \"Wheat\"]\n    )\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847034",
+  "instruction": "Split Desktop/products.csv into separate CSV files per Category inside Desktop/split/. Each output file should be named after its category (e.g. Fruit.csv) and include the header row.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

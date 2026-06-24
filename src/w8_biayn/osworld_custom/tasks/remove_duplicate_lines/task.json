@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; Path(\"/home/user/Desktop/list.txt\").write_text(\"apple\\nbanana\\napple\\ncherry\\nbanana\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\np = Path(\"/home/user/Desktop/deduped.txt\")\ntry:\n    lines = p.read_text().splitlines()\n    ok = sorted(lines) == [\"apple\", \"banana\", \"cherry\"] and len(lines) == 3\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847079",
+  "instruction": "Remove duplicate lines from Desktop/list.txt and write only the unique lines (sorted) to Desktop/deduped.txt.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

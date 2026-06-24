@@ -1,0 +1,57 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\np = Path('\"'\"'/home/user/Desktop/budget_totals.csv'\"'\"')\np.write_text('\"'\"'Category,Jan,Feb,Mar,Total\\nTravel,100,150,200,\\nMeals,50,75,85,\\nSupplies,60,40,80,\\nGrand Total,,,,\\n'\"'\"')'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/budget_totals.csv"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Calc"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nimport csv\np = Path('\"'\"'/home/user/Desktop/budget_totals.csv'\"'\"')\ntry:\n    rows = list(csv.DictReader(p.open(newline='\"'\"''\"'\"')))\n    totals = {row['\"'\"'Category'\"'\"']: float(row.get('\"'\"'Total'\"'\"') or 0) for row in rows}\nexcept Exception:\n    totals = {}\nexpected = {'\"'\"'Travel'\"'\"': 450.0, '\"'\"'Meals'\"'\"': 210.0, '\"'\"'Supplies'\"'\"': 180.0, '\"'\"'Grand Total'\"'\"': 840.0}\nprint('\"'\"'Evaluation successful.'\"'\"' if totals == expected else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847018",
+  "instruction": "In the budget spreadsheet, fill each row Total and the Grand Total row. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "snapshot": "libreoffice_calc",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

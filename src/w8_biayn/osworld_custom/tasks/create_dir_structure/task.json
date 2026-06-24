@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nshutil.rmtree(\"/home/user/Desktop/project\", ignore_errors=True)\nPath(\"/home/user/Desktop/manifest.txt\").write_text(\"src\\ntests\\ndocs\\nassets/images\\nassets/fonts\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nbase = Path(\"/home/user/Desktop/project\")\npaths = [\"src\", \"tests\", \"docs\", \"assets/images\", \"assets/fonts\"]\nok = all((base / p).is_dir() for p in paths)\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847037",
+  "instruction": "Read Desktop/manifest.txt and create every directory path listed under Desktop/project/. Each line in the manifest is a relative path to create.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

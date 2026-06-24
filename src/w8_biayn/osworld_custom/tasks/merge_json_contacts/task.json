@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nimport json, shutil\nbase = Path('\"'\"'/home/user/Desktop'\"'\"')\ncontacts = base / '\"'\"'contacts'\"'\"'\nshutil.rmtree(contacts, ignore_errors=True)\ncontacts.mkdir(parents=True, exist_ok=True)\n(contacts / '\"'\"'contacts_a.json'\"'\"').write_text(json.dumps([\n    {'\"'\"'name'\"'\"': '\"'\"'Omar'\"'\"', '\"'\"'email'\"'\"': '\"'\"'omar@example.com'\"'\"'},\n    {'\"'\"'name'\"'\"': '\"'\"'Ada'\"'\"', '\"'\"'email'\"'\"': '\"'\"'ada@example.com'\"'\"'},\n], indent=2))\n(contacts / '\"'\"'contacts_b.json'\"'\"').write_text(json.dumps([\n    {'\"'\"'name'\"'\"': '\"'\"'Lee'\"'\"', '\"'\"'email'\"'\"': '\"'\"'lee@example.com'\"'\"'},\n    {'\"'\"'name'\"'\"': '\"'\"'Ada'\"'\"', '\"'\"'email'\"'\"': '\"'\"'ada@example.com'\"'\"'},\n], indent=2))\nout = base / '\"'\"'contacts_merged.json'\"'\"'\nif out.exists():\n    out.unlink()'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'import pyautogui, time; pyautogui.hotkey('\"'\"'ctrl'\"'\"','\"'\"'alt'\"'\"','\"'\"'t'\"'\"'); time.sleep(0.5)'",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nimport json\nout = Path('\"'\"'/home/user/Desktop/contacts_merged.json'\"'\"')\nexpected = [\n    {'\"'\"'name'\"'\"': '\"'\"'Ada'\"'\"', '\"'\"'email'\"'\"': '\"'\"'ada@example.com'\"'\"'},\n    {'\"'\"'name'\"'\"': '\"'\"'Lee'\"'\"', '\"'\"'email'\"'\"': '\"'\"'lee@example.com'\"'\"'},\n    {'\"'\"'name'\"'\"': '\"'\"'Omar'\"'\"', '\"'\"'email'\"'\"': '\"'\"'omar@example.com'\"'\"'},\n]\ntry:\n    data = json.loads(out.read_text())\nexcept Exception:\n    data = None\nprint('\"'\"'Evaluation successful.'\"'\"' if data == expected else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847013",
+  "instruction": "Merge Desktop/contacts/contacts_a.json and Desktop/contacts/contacts_b.json into Desktop/contacts_merged.json. De-duplicate by email and sort the final list by email.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

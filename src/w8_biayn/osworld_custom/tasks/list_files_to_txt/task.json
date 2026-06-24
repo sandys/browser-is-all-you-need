@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nd = Path(\"/home/user/Desktop/assets\")\nshutil.rmtree(d, ignore_errors=True); d.mkdir()\n(d / \"logo.png\").write_text(\"\")\n(d / \"style.css\").write_text(\"\")\n(d / \"main.js\").write_text(\"\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\np = Path(\"/home/user/Desktop/files.txt\")\ntry:\n    names = sorted(p.read_text().splitlines())\n    ok = names == [\"logo.png\", \"main.js\", \"style.css\"]\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847081",
+  "instruction": "List all filenames in Desktop/assets/ and write them (one per line, sorted) to Desktop/files.txt.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

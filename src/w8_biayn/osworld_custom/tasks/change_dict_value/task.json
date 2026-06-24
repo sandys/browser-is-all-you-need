@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nd = Path(\"/home/user/Desktop/custom_dictval\")\nshutil.rmtree(d, ignore_errors=True); d.mkdir()\n(d / \"settings.py\").write_text(\"config = {\\n    \\\\\"debug\\\\\": False,\\n    \\\\\"enabled\\\\\": False,\\n    \\\\\"timeout\\\\\": 30,\\n}\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_dictval"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nimport ast\np = Path(\"/home/user/Desktop/custom_dictval/settings.py\")\ntry:\n    tree = ast.parse(p.read_text())\n    assign = tree.body[0]\n    d = {k.s: v for k, v in zip(assign.value.keys, assign.value.values)}\n    ok = False  # fallback\nexcept Exception:\n    ok = False\ntry:\n    text = p.read_text()\n    ok = '\"enabled\": True' in text\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847067",
+  "instruction": "In settings.py, change \"enabled\": False to \"enabled\": True in the config dict. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

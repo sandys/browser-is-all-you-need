@@ -1,0 +1,75 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; Path(\"/home/user/Desktop/inventory.csv\").write_text(\"Item,Quantity,Price\\nGadget,10,24.99\\nDoohickey,3,4.50\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/inventory.csv"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Calc"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import csv\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/inventory.csv\")\ntry:\n    rows = list(csv.DictReader(p.open(newline=\"\")))\n    last = rows[-1]\n    ok = (last[\"Item\"] == \"Widget\" and\n          int(last[\"Quantity\"]) == 5 and\n          float(last[\"Price\"]) == 9.99)\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "LibreOffice Calc"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847071",
+  "instruction": "Add a new row at the bottom of the spreadsheet with Item=Widget, Quantity=5, Price=9.99. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "snapshot": "libreoffice_calc",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

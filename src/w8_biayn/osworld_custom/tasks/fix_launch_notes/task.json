@@ -1,0 +1,75 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; Path(\"/home/user/Desktop/launch_notes.txt\").write_text(\"Draft Launch Notes\\n\\nWootzapp shipped the beta build.\\nThe Wootzapp team will prepare the release checklist.\\n\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--writer",
+          "/home/user/Desktop/launch_notes.txt"
+        ]
+      },
+      "type": "launch"
+    },
+    {
+      "parameters": {
+        "window_name": "launch_notes.txt - LibreOffice Writer"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "postconfig": [
+      {
+        "parameters": {
+          "window_name": "launch_notes.txt - LibreOffice Writer"
+        },
+        "type": "activate_window"
+      },
+      {
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        },
+        "type": "execute"
+      }
+    ],
+    "result": {
+      "command": "python3 -c 'from pathlib import Path; text=Path(\"/home/user/Desktop/launch_notes.txt\").read_text(); lines=[l.strip() for l in text.splitlines() if l.strip()]; ok=(lines and lines[0]==\"Quarterly Launch Notes\" and \"Wootzapp\" not in text and text.count(\"WootzApp\")==2); print(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847009",
+  "instruction": "In the document, change every occurrence of Wootzapp to WootzApp and make the title exactly Quarterly Launch Notes. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "libreoffice_writer"
+  ],
+  "snapshot": "libreoffice_writer",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

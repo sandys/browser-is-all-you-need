@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nd = Path(\"/home/user/Desktop/custom_typehints\")\nshutil.rmtree(d, ignore_errors=True); d.mkdir()\n(d / \"math_utils.py\").write_text(\"def multiply(a, b):\\n    return a * b\\n\\nresult = multiply(6, 7)\\nprint(result)\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_typehints"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import subprocess\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/custom_typehints/math_utils.py\")\ntry:\n    text = p.read_text()\n    proc = subprocess.run([\"python3\", str(p)], text=True, capture_output=True, timeout=5)\n    ok = (\"a: int\" in text and \"b: int\" in text and \"-> int\" in text and proc.stdout.strip() == \"42\")\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847028",
+  "instruction": "Add type hints to the multiply function so its signature reads: def multiply(a: int, b: int) -> int. The script must still print 42.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

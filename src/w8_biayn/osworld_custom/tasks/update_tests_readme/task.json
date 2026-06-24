@@ -1,0 +1,56 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nimport shutil\nroot = Path('\"'\"'/home/user/Desktop/custom20_tests_readme'\"'\"')\nshutil.rmtree(root, ignore_errors=True)\nroot.mkdir(parents=True, exist_ok=True)\n(root / '\"'\"'README.md'\"'\"').write_text('\"'\"'# Demo Package\\n\\nPLACEHOLDER introduction.\\n\\nTODO: add setup and test instructions.\\n'\"'\"')'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom20_tests_readme/README.md"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\ntext = Path('\"'\"'/home/user/Desktop/custom20_tests_readme/README.md'\"'\"').read_text()\nok = ('\"'\"'## Installation'\"'\"' in text and '\"'\"'pip install -e .'\"'\"' in text and '\"'\"'## Tests'\"'\"' in text and '\"'\"'pytest'\"'\"' in text and '\"'\"'PLACEHOLDER'\"'\"' not in text and '\"'\"'TODO'\"'\"' not in text)\nprint('\"'\"'Evaluation successful.'\"'\"' if ok else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847016",
+  "instruction": "Edit README.md by adding Installation and Tests sections. Include the commands pip install -e . and pytest, and remove all PLACEHOLDER and TODO text.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vs_code"
+  ],
+  "snapshot": "vs_code",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nPath(\"/home/user/Desktop/article.txt\").write_text(\"the quick brown fox jumps over the lazy dog. the dog barked at the fox. the fox ran away. the dog was very lazy. the end.\\n\")\nout = Path(\"/home/user/Desktop/word_report.txt\")\nif out.exists(): out.unlink()'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\np = Path(\"/home/user/Desktop/word_report.txt\")\ntry:\n    lines = [l.strip() for l in p.read_text().splitlines() if l.strip()][:5]\n    parsed = {}\n    for line in lines:\n        parts = line.split(\": \")\n        parsed[parts[0].strip()] = int(parts[1].strip())\n    ok = parsed.get(\"the\") == 7 and len(parsed) == 5\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847040",
+  "instruction": "Count word frequencies in Desktop/article.txt (case-insensitive, ignore punctuation) and write the top 5 words and their counts to Desktop/word_report.txt, one per line in the format: word: count, sorted by count descending.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

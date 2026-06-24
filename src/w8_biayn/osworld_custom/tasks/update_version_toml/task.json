@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nd = Path(\"/home/user/Desktop/custom_tomlver\")\nshutil.rmtree(d, ignore_errors=True); d.mkdir()\n(d / \"pyproject.toml\").write_text(\"[project]\\nname = \\\\\"myapp\\\\\"\\nversion = \\\\\"0.1.0\\\\\"\\ndescription = \\\\\"A sample app\\\\\"\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_tomlver"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\np = Path(\"/home/user/Desktop/custom_tomlver/pyproject.toml\")\ntry:\n    text = p.read_text()\n    ok = 'version = \"1.0.0\"' in text and 'version = \"0.1.0\"' not in text\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847066",
+  "instruction": "In pyproject.toml, change version = \"0.1.0\" to version = \"1.0.0\". Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

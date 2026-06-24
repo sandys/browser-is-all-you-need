@@ -1,0 +1,75 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; Path(\"/home/user/Desktop/members.csv\").write_text(\"Name,Role\\nAlice,Admin\\nBob,User\\nCarol,User\\nDUPLICATE,Error\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/members.csv"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Calc"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import csv\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/members.csv\")\ntry:\n    rows = list(csv.DictReader(p.open(newline=\"\")))\n    names = [r[\"Name\"] for r in rows]\n    ok = \"DUPLICATE\" not in names and len(rows) == 3\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "LibreOffice Calc"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847099",
+  "instruction": "Delete the last data row (the DUPLICATE entry) from the spreadsheet. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "snapshot": "libreoffice_calc",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

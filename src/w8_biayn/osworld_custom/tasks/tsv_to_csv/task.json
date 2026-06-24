@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nPath(\"/home/user/Desktop/data.tsv\").write_text(\"Name\\tAge\\tCity\\nAlice\\t30\\tNew York\\nBob\\t25\\tLos Angeles\\nCarol\\t35\\tChicago\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import csv\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/data.csv\")\ntry:\n    rows = list(csv.DictReader(p.open()))\n    ok = (\n        len(rows) == 3 and\n        rows[0] == {\"Name\": \"Alice\", \"Age\": \"30\", \"City\": \"New York\"} and\n        rows[1] == {\"Name\": \"Bob\", \"Age\": \"25\", \"City\": \"Los Angeles\"} and\n        rows[2] == {\"Name\": \"Carol\", \"Age\": \"35\", \"City\": \"Chicago\"}\n    )\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847035",
+  "instruction": "Convert Desktop/data.tsv (tab-separated) to Desktop/data.csv (comma-separated) using the terminal. The header and all rows must be preserved.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

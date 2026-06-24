@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; d=Path(\"/home/user/Desktop/custom10_readme\"); d.mkdir(parents=True, exist_ok=True); (d/\"README.md\").write_text(\"# Widget Tool\\n\\nTODO: describe the project.\\n\\n## Install\\n\\nRun setup first.\\n\\nTODO: add usage instructions.\\n\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom10_readme/README.md"
+        ]
+      },
+      "type": "launch"
+    },
+    {
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "postconfig": [
+      {
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        },
+        "type": "activate_window"
+      },
+      {
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        },
+        "type": "execute"
+      }
+    ],
+    "result": {
+      "command": "python3 -c 'from pathlib import Path; text=Path(\"/home/user/Desktop/custom10_readme/README.md\").read_text(); ok=(\"## Usage\" in text and \"python app.py\" in text and \"TODO\" not in text); print(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847006",
+  "instruction": "Edit README.md by adding a ## Usage section that mentions python app.py, and remove every TODO marker from the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

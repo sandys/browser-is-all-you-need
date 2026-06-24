@@ -1,0 +1,57 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; d=Path(\"/home/user/Desktop/assets\"); d.mkdir(parents=True, exist_ok=True); [p.write_text(\"data\\n\") for p in [d/\"q1.csv\", d/\"q2.csv\", d/\"notes.txt\", d/\"readme.txt\", d/\"ignore.md\"]]; (d/\"logo.png\").write_bytes(b\"png-one\"); (d/\"chart.png\").write_bytes(b\"png-two\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "python",
+          "-c",
+          "import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)"
+        ]
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "window_name": "Terminal"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "result": {
+      "command": "python3 -c 'import json; from pathlib import Path; p=Path(\"/home/user/Desktop/summary.json\"); ok=False\ntry:\n data=json.loads(p.read_text()); ok=data=={\"csv\":2,\"txt\":2,\"png\":2}\nexcept Exception:\n ok=False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847002",
+  "instruction": "Create Desktop/summary.json with exactly these file extension counts from Desktop/assets: csv=2, txt=2, png=2. Use the keys csv, txt, and png.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}
