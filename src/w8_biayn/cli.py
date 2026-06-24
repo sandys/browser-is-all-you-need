@@ -92,6 +92,7 @@ gcp_app = typer.Typer(help="Run-scoped GCP cleanup helpers.")
 ops_app = typer.Typer(help="Inspect and manage cloud runs without calling the backend directly.")
 eval_app = typer.Typer(help="Aggregate C++ performance-RL evaluation outputs.")
 osworld_app = typer.Typer(help="Validate and run OSWorld desktop tasks from the upstream clone.")
+osworld_custom_app = typer.Typer(help="Manage custom OSWorld-style tasks stored in this repo.")
 scalecua_app = typer.Typer(help="Run ScaleCUA OSWorld SFT pipeline steps.")
 
 app.add_typer(upstreams_app, name="upstreams")
@@ -101,6 +102,7 @@ data_app.add_typer(data_supercoder_app, name="supercoder")
 data_app.add_typer(data_skyrl_app, name="skyrl")
 data_app.add_typer(data_cache_app, name="cache")
 app.add_typer(osworld_app, name="osworld")
+osworld_app.add_typer(osworld_custom_app, name="custom")
 app.add_typer(scalecua_app, name="scalecua")
 app.add_typer(cpp_app, name="cpp")
 cpp_app.add_typer(task_app, name="task")
@@ -1275,6 +1277,119 @@ def osworld_list(
         )
     console.print(table)
     console.print(f"tasks: {len(tasks)}")
+
+
+@osworld_custom_app.command("list")
+def osworld_custom_list(
+    taskset: Optional[str] = typer.Option(None, help="Optional JSON taskset path for a filtered list."),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of tasks to print."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON instead of a table."),
+) -> None:
+    """List custom OSWorld-style tasks tracked in this repository."""
+    from .osworld_custom import registry
+
+    tasks = registry.load_taskset(taskset) if taskset else registry.iter_custom_tasks()
+    if limit is not None:
+        tasks = tasks[:limit]
+    if json_output:
+        console.print_json(data=[task.as_row() for task in tasks])
+        return
+    table = Table(title="Custom OSWorld tasks")
+    for column in ("domain", "task_id", "source", "instruction"):
+        table.add_column(column)
+    for task in tasks:
+        instruction = task.instruction.replace("\n", " ")
+        if len(instruction) > 100:
+            instruction = instruction[:97] + "..."
+        table.add_row(task.domain, task.task_id, task.source, instruction)
+    console.print(table)
+    console.print(f"tasks: {len(tasks)}")
+
+
+@osworld_custom_app.command("validate")
+def osworld_custom_validate(
+    targets: list[str] = typer.Argument(None, help="Task directories or task.json paths."),
+    taskset: Optional[str] = typer.Option(None, help="Optional JSON taskset path to validate."),
+    allow_proxy: bool = typer.Option(False, "--allow-proxy", help="Allow tasks with proxy=true."),
+    allow_network: bool = typer.Option(False, "--allow-network", help="Allow non-proxy tasks to contain network URLs."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON instead of text."),
+) -> None:
+    """Validate custom OSWorld task JSON for deterministic local use."""
+    from .osworld_custom import validate as custom_validate
+
+    if taskset:
+        report = custom_validate.validate_taskset(taskset, allow_proxy=allow_proxy, strict_network=not allow_network)
+    else:
+        if not targets:
+            raise typer.BadParameter("provide task path(s) or --taskset")
+        report = custom_validate.validate_task_paths(targets, allow_proxy=allow_proxy, strict_network=not allow_network)
+    if json_output:
+        console.print_json(data=report.as_dict())
+    else:
+        console.print(custom_validate.format_report(report))
+    if not report.ok:
+        raise typer.Exit(1)
+
+
+@osworld_custom_app.command("smoke")
+def osworld_custom_smoke(
+    targets: list[str] = typer.Argument(None, help="Task directories or task.json paths."),
+    taskset: Optional[str] = typer.Option(None, help="Optional JSON taskset path to run."),
+    task_id: Optional[str] = typer.Option(None, help="Optional task id filter after task/taskset resolution."),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of tasks to run."),
+    provider: str = typer.Option(osworld.DEFAULT_PROVIDER, help="OSWorld provider name."),
+    headless: bool = typer.Option(True, "--headless/--headed", help="Run DesktopEnv in headless mode."),
+    screen_width: int = typer.Option(1920, help="Screen width passed to DesktopEnv."),
+    screen_height: int = typer.Option(1080, help="Screen height passed to DesktopEnv."),
+    max_steps: int = typer.Option(1, help="Maximum actions to execute in the smoke run."),
+    step_pause: float = typer.Option(0.5, help="Pause between actions during env.step."),
+    action: list[str] = typer.Option([], "--action", help="Literal actions to execute. Defaults to WAIT."),
+    osworld_path: Optional[str] = typer.Option(None, help="Optional OSWorld checkout override."),
+    cache_dir: Optional[str] = typer.Option(None, help="Optional DesktopEnv cache dir."),
+    path_to_vm: Optional[str] = typer.Option(None, help="Optional VM path override."),
+    upstream_python: str = typer.Option("3.12", help="Python version for uv worker subprocess."),
+    cleanup_containers: bool = typer.Option(True, "--cleanup-containers/--no-cleanup-containers", help="Attempt cleanup after smoke runs."),
+    cleanup_scope: str = typer.Option("created", help="Container cleanup scope."),
+    remove_containers: bool = typer.Option(True, "--remove-containers/--keep-containers", help="Remove containers instead of only stopping them."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON instead of a summary."),
+) -> None:
+    """Run a minimal DesktopEnv smoke over custom OSWorld tasks."""
+    from .osworld_custom import harness
+
+    config = harness.HarnessConfig(
+        provider_name=provider,
+        headless=headless,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        osworld_path=Path(osworld_path) if osworld_path else None,
+        cache_dir=Path(cache_dir) if cache_dir else None,
+        path_to_vm=path_to_vm,
+        upstream_python=upstream_python,
+        max_steps=max_steps,
+        step_pause=step_pause,
+        cleanup_containers=cleanup_containers,
+        cleanup_scope=cleanup_scope,
+        remove_containers=remove_containers,
+    )
+    tasks = harness.resolve_env_tasks(taskset=taskset, task_paths=targets, task_id=task_id, limit=limit)
+    summary = harness.run_env_smoke(tasks, config, actions=action or None)
+    if json_output:
+        console.print_json(data=summary)
+        return
+    console.print(f"run_dir: {summary['run_dir']}")
+    console.print(
+        f"episodes: {summary['episodes']}/{summary['task_count']}  "
+        f"passed: {summary['passed']}  failed: {summary['failed']}  "
+        f"validation_errors: {summary['validation_errors']}"
+    )
+    for row in summary.get('results', []):
+        marker = 'OK' if row.get('ok') else 'FAIL'
+        console.print(
+            f"{marker:<5} {row['domain']}/{row['task_id']} "
+            f"eval={row.get('eval_score')} total={row.get('total_reward')} {row.get('env_error') or ''}"
+        )
+    if not summary.get('ok'):
+        raise typer.Exit(1)
 
 
 @osworld_app.command("setup")

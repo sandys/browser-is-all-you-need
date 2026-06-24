@@ -106,6 +106,18 @@ The command logs:
 
 Run records persist MLflow identifiers in `.w8-biayn/osworld/runs/<run_id>/record.json` so `w8-biayn osworld status` can be extended later with IDs if needed.
 
+## Custom OSWorld Tasks
+
+The repo now tracks custom deterministic OSWorld-style tasks under `src/w8_biayn/osworld_custom/tasks/`. Use the dedicated CLI namespace to inspect, validate, and smoke them before RL work:
+
+```bash
+uv run w8-biayn osworld custom list --limit 5
+uv run w8-biayn osworld custom validate src/w8_biayn/osworld_custom/tasks/add_todo_comment
+uv run w8-biayn osworld custom smoke src/w8_biayn/osworld_custom/tasks/add_todo_comment --action WAIT
+```
+
+`validate` checks the task schema and evaluator contract, while `smoke` runs the task through DesktopEnv and saves artifacts under `.w8-biayn/osworld-custom/`.
+
 ## Local ScaleCUA SFT + MLflow
 
 Local ScaleCUA LoRA SFT can report to W&B, MLflow, or both through Hugging Face Trainer callbacks. Install the SFT extra so the local environment includes `mlflow` as well as the vision/training stack.

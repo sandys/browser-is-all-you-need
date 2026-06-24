@@ -943,3 +943,72 @@ def test_cli_eval_cpp_aggregates_records(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert '"best_correct_and_faster": "base"' in result.output
+
+
+
+def test_cli_osworld_custom_list_json():
+    result = CliRunner().invoke(app, ["osworld", "custom", "list", "--limit", "2", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload) == 2
+    assert payload[0]["env_id"] == "osworld_custom"
+
+
+def test_cli_osworld_custom_validate_path():
+    result = CliRunner().invoke(
+        app,
+        ["osworld", "custom", "validate", "src/w8_biayn/osworld_custom/tasks/add_todo_comment"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "validation ok" in result.output
+
+
+def test_cli_osworld_custom_smoke_uses_harness(monkeypatch):
+    from w8_biayn.osworld_custom import harness, registry
+
+    monkeypatch.setattr(
+        harness,
+        "resolve_env_tasks",
+        lambda **kwargs: [registry.load_task("src/w8_biayn/osworld_custom/tasks/add_todo_comment")],
+    )
+    monkeypatch.setattr(
+        harness,
+        "run_env_smoke",
+        lambda tasks, config, actions=None: {
+            "run_dir": ".w8-biayn/osworld-custom/env-runs/test",
+            "task_count": len(tasks),
+            "validation_errors": 0,
+            "episodes": 1,
+            "passed": 1,
+            "failed": 0,
+            "ok": True,
+            "results": [
+                {
+                    "domain": tasks[0].domain,
+                    "task_id": tasks[0].task_id,
+                    "ok": True,
+                    "eval_score": 1.0,
+                    "total_reward": 1.0,
+                    "env_error": None,
+                }
+            ],
+        },
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "osworld",
+            "custom",
+            "smoke",
+            "src/w8_biayn/osworld_custom/tasks/add_todo_comment",
+            "--action",
+            "WAIT",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "episodes: 1/1" in result.output
+    assert "OK    vscode/" in result.output
