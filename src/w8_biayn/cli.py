@@ -60,6 +60,7 @@ from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
 from .mlflow_metrics import DEFAULT_METRIC_KEYS, read_mlflow_api, read_mlflow_metrics
+from .mlflow_tracking import parse_mlflow_tags
 from .run_status import PIPELINES as STATUS_PIPELINES
 from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -1486,11 +1487,36 @@ def osworld_benchmark(
         osworld.DEFAULT_CLIENT_PASSWORD,
         help="Ubuntu VM password used by OSWorld proxy setup for sudo operations.",
     ),
+    mlflow_tracking_uri: Optional[str] = typer.Option(
+        None,
+        "--mlflow-tracking-uri",
+        help="MLflow tracking URI to record benchmark metrics.",
+    ),
+    mlflow_experiment: Optional[str] = typer.Option(
+        None,
+        "--mlflow-experiment",
+        help="MLflow experiment name for the benchmark run.",
+    ),
+    mlflow_run_name: Optional[str] = typer.Option(
+        None,
+        "--mlflow-run-name",
+        help="MLflow run name for this benchmark invocation.",
+    ),
+    mlflow_tag: list[str] = typer.Option(
+        [],
+        "--mlflow-tag",
+        help="MLflow tag in key=value format. Repeatable.",
+    ),
     dry_run: bool = typer.Option(
         False, help="Print the benchmark plan without running domains."
     ),
 ) -> None:
     """Run all or selected OSWorld domains as a benchmark sequence."""
+    try:
+        mlflow_tags = parse_mlflow_tags(mlflow_tag)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
     benchmark_kwargs = dict(
         domains=tuple(domains),
         taskset=taskset,
@@ -1510,6 +1536,10 @@ def osworld_benchmark(
         enable_proxy=enable_proxy,
         proxy_config_file=proxy_config_file,
         client_password=client_password,
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        mlflow_experiment=mlflow_experiment,
+        mlflow_run_name=mlflow_run_name,
+        mlflow_tags=mlflow_tags,
         dry_run=dry_run,
     )
     try:
@@ -1590,7 +1620,15 @@ def osworld_status() -> None:
     """List recorded OSWorld runs."""
     records = osworld.list_run_records()
     table = Table(title="OSWorld runs")
-    for column in ("run_id", "status", "command", "tasks", "created_at"):
+    for column in (
+        "run_id",
+        "status",
+        "command",
+        "tasks",
+        "mlflow_run_id",
+        "mlflow_experiment_name",
+        "created_at",
+    ):
         table.add_column(column)
     for record in records:
         table.add_row(
@@ -1598,6 +1636,8 @@ def osworld_status() -> None:
             str(record.get("status", "")),
             str(record.get("command", "")),
             str(len(record.get("tasks", []))),
+            str(record.get("mlflow_run_id", "")),
+            str(record.get("mlflow_experiment_name", "")),
             str(record.get("created_at", "")),
         )
     console.print(table)
