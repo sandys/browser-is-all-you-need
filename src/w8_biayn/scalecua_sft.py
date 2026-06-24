@@ -9,6 +9,7 @@ import io
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -86,35 +87,42 @@ def filter_rows_with_valid_images(
     image_loader: Callable[[str], None],
     source: Path,
 ) -> list[dict[str, Any]]:
-    kept: list[dict[str, Any]] = []
-    skipped = 0
-    iterator: Iterable[dict[str, Any]]
-    if tqdm is not None:
-        iterator = tqdm(
-            rows,
-            desc=f"Verifying images: {source.name}",
-            unit="row",
-            dynamic_ncols=True,
-            smoothing=0.05,
-        )
-    else:
-        print(f"Verifying images from {source} ({len(rows)} rows)...")
-        iterator = rows
-    for row in iterator:
+    def validate_row(row: dict[str, Any]) -> bool:
         image = row.get("image")
         if not isinstance(image, str) or not image:
-            skipped += 1
-            continue
+            return False
         try:
             image_loader(image)
-        except (FileNotFoundError, OSError, ValueError):
-            skipped += 1
-            continue
-        kept.append(row)
+        except (FileNotFoundError, OSError, ValueError, SyntaxError):
+            return False
+        return True
+
+    if not rows:
+        raise ValueError(f"{source} did not contain any training rows")
+
+    max_workers = min(16, max(1, os.cpu_count() or 1), len(rows))
+    if tqdm is None:
+        print(f"Verifying images from {source} ({len(rows)} rows, workers={max_workers})...")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results_iter = executor.map(validate_row, rows)
+        if tqdm is not None:
+            results_iter = tqdm(
+                results_iter,
+                total=len(rows),
+                desc=f"Verifying images: {source.name}",
+                unit="row",
+                dynamic_ncols=True,
+                smoothing=0.05,
+            )
+        results = list(results_iter)
+
+    kept = [row for row, is_valid in zip(rows, results, strict=False) if is_valid]
+    skipped = len(rows) - len(kept)
     if not kept:
         raise ValueError(f"{source} did not contain any rows with readable images")
     print(
-        f"Verified {len(kept)} usable rows from {source}; skipped {skipped} missing/unreadable rows."
+        f"Verified {len(kept)} usable rows from {source}; skipped {skipped} missing/unreadable rows using {max_workers} workers."
     )
     return kept
 
@@ -255,7 +263,7 @@ class ScaleCuaDataCollator:
                     self.processor.apply_chat_template(messages[:1], tokenize=False, add_generation_prompt=True)
                 )
                 image_inputs, video_inputs = self.process_vision_info(messages)
-            except (FileNotFoundError, OSError, ValueError):
+            except (FileNotFoundError, OSError, ValueError, SyntaxError):
                 skipped_rows += 1
                 continue
             if image_inputs:
