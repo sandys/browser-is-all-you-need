@@ -1,0 +1,81 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e109",
+  "snapshot": "libreoffice_calc",
+  "instruction": "In the spreadsheet, fill the Band column using these rules: Enterprise for ARR 50000 or higher, Growth for ARR 10000 or higher but below 50000, otherwise Starter. Save the spreadsheet.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\np = Path('/home/user/Desktop/revenue_bands.csv')\np.write_text('Account,ARR,RenewalDays,Band\\nNorthwind,85000,120,\\nBluebird,23000,45,\\nLime,9000,15,\\nAtlas,50000,90,\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/revenue_bands.csv"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Calc"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\nimport csv\nrows = list(csv.DictReader(Path('/home/user/Desktop/revenue_bands.csv').open(newline='')))\ngot = {row['Account']: row['Band'].strip() for row in rows}\nexpected = {'Northwind': 'Enterprise', 'Bluebird': 'Growth', 'Lime': 'Starter', 'Atlas': 'Enterprise'}\nprint('Evaluation successful.' if got == expected else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "LibreOffice Calc"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}

@@ -1,0 +1,80 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e104",
+  "snapshot": "vscode",
+  "instruction": "Open the release project on the desktop. Change the package version from 1.4.0 to 1.5.0, and replace the changelog heading ## [Unreleased] with ## [1.5.0] - 2026-06-24. Save both files.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\nimport shutil, json\nroot = Path('/home/user/Desktop/custom_release_notes')\nshutil.rmtree(root, ignore_errors=True)\nroot.mkdir(parents=True)\n(root / 'package.json').write_text(json.dumps({'name': 'release-app', 'version': '1.4.0'}, indent=2) + '\\n')\n(root / 'CHANGELOG.md').write_text('# Changelog\\n\\n## [Unreleased]\\n- Improve exports\\n- Fix dashboard filtering\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_release_notes"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "vscode"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\nimport json\npkg = json.loads(Path('/home/user/Desktop/custom_release_notes/package.json').read_text())\nchangelog = Path('/home/user/Desktop/custom_release_notes/CHANGELOG.md').read_text()\nok = pkg.get('version') == '1.5.0' and '1.4.0' not in Path('/home/user/Desktop/custom_release_notes/package.json').read_text() and '## [1.5.0] - 2026-06-24' in changelog and '## [Unreleased]' not in changelog\nprint('Evaluation successful.' if ok else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}

@@ -1,0 +1,81 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e111",
+  "snapshot": "libreoffice_calc",
+  "instruction": "In the launch tracker spreadsheet, fill the Ready column with Yes only when Status is Done and Owner is not blank, otherwise No. Then sort the rows so Ready = Yes comes first and within each group Workstream is alphabetical. Save the spreadsheet.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\np = Path('/home/user/Desktop/launch_readiness.csv')\np.write_text('Workstream,Owner,Status,Ready\\nBilling,Sam,Done,\\nAPI,,Done,\\nDocs,Nina,In Progress,\\nAnalytics,Zoe,Done,\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/launch_readiness.csv"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Calc"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\nimport csv\nrows = list(csv.DictReader(Path('/home/user/Desktop/launch_readiness.csv').open(newline='')))\nexpected = [('Analytics', 'Zoe', 'Done', 'Yes'), ('Billing', 'Sam', 'Done', 'Yes'), ('API', '', 'Done', 'No'), ('Docs', 'Nina', 'In Progress', 'No')]\ngot = [(row['Workstream'], row['Owner'], row['Status'], row['Ready'].strip()) for row in rows]\nprint('Evaluation successful.' if got == expected else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "LibreOffice Calc"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}

@@ -1,0 +1,80 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e103",
+  "snapshot": "vscode",
+  "instruction": "In the desktop project, rename the pipeline state label Pending Review to Needs Input everywhere it appears in the source file and the docs file. Save your changes.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\nimport shutil\nroot = Path('/home/user/Desktop/custom_pipeline_state')\nshutil.rmtree(root, ignore_errors=True)\n(root / 'src').mkdir(parents=True)\n(root / 'docs').mkdir(parents=True)\n(root / 'src' / 'status.ts').write_text('export const BLOCKED_LABEL = \"Pending Review\";\\nexport const DONE_LABEL = \"Completed\";\\n')\n(root / 'docs' / 'states.md').write_text('| State | Meaning |\\n| --- | --- |\\n| Pending Review | Waiting for another team |\\n| Completed | Work finished |\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_pipeline_state"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "vscode"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\nsrc = Path('/home/user/Desktop/custom_pipeline_state/src/status.ts').read_text()\ndocs = Path('/home/user/Desktop/custom_pipeline_state/docs/states.md').read_text()\nok = 'Pending Review' not in src and 'Pending Review' not in docs and src.count('Needs Input') == 1 and docs.count('Needs Input') == 1\nprint('Evaluation successful.' if ok else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}

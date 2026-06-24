@@ -1,0 +1,80 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e107",
+  "snapshot": "vscode",
+  "instruction": "In the desktop shipping policy project, raise the free shipping threshold from 75 to 100 and the express surcharge from 12 to 15 in both the Python policy file and the docs file. Save the changes.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\nimport shutil\nroot = Path('/home/user/Desktop/custom_shipping_policy')\nshutil.rmtree(root, ignore_errors=True)\n(root / 'rules').mkdir(parents=True)\n(root / 'docs').mkdir(parents=True)\n(root / 'rules' / 'shipping.py').write_text('FREE_SHIPPING_THRESHOLD = 75\\nEXPRESS_SURCHARGE = 12\\n')\n(root / 'docs' / 'policy.txt').write_text('Orders above 75 qualify for free shipping. Express adds 12 dollars.\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_shipping_policy"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "vscode"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\nrules = Path('/home/user/Desktop/custom_shipping_policy/rules/shipping.py').read_text()\ndocs = Path('/home/user/Desktop/custom_shipping_policy/docs/policy.txt').read_text()\nok = 'FREE_SHIPPING_THRESHOLD = 100' in rules and 'EXPRESS_SURCHARGE = 15' in rules and '75' not in docs and '12 dollars' not in docs and '100' in docs and '15 dollars' in docs\nprint('Evaluation successful.' if ok else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}
