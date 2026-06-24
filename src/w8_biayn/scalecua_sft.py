@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import inspect
+import io
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
+
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover - tqdm ships with the SFT stack, but keep a fallback.
+    tqdm = None
 
 
 DEFAULT_TARGET_MODULES = (
@@ -21,6 +30,9 @@ DEFAULT_TARGET_MODULES = (
 )
 DEFAULT_MIN_PIXELS = 256 * 28 * 28
 DEFAULT_MAX_PIXELS = 1024 * 28 * 28
+AUTO_DOCSTRING_NOISE_RE = re.compile(
+    r"^\[ERROR\] `[^`]+` is part of .* signature, but not documented\."
+)
 
 
 @dataclass(frozen=True)
@@ -76,7 +88,19 @@ def filter_rows_with_valid_images(
 ) -> list[dict[str, Any]]:
     kept: list[dict[str, Any]] = []
     skipped = 0
-    for row in rows:
+    iterator: Iterable[dict[str, Any]]
+    if tqdm is not None:
+        iterator = tqdm(
+            rows,
+            desc=f"Verifying images: {source.name}",
+            unit="row",
+            dynamic_ncols=True,
+            smoothing=0.05,
+        )
+    else:
+        print(f"Verifying images from {source} ({len(rows)} rows)...")
+        iterator = rows
+    for row in iterator:
         image = row.get("image")
         if not isinstance(image, str) or not image:
             skipped += 1
@@ -89,8 +113,9 @@ def filter_rows_with_valid_images(
         kept.append(row)
     if not kept:
         raise ValueError(f"{source} did not contain any rows with readable images")
-    if skipped:
-        print(f"Skipped {skipped} rows with missing/unreadable images from {source}.")
+    print(
+        f"Verified {len(kept)} usable rows from {source}; skipped {skipped} missing/unreadable rows."
+    )
     return kept
 
 
@@ -162,6 +187,46 @@ def training_args_eval_kwargs(training_args_cls: Any, *, has_eval: bool, eval_st
     return kwargs
 
 
+def _filtered_import_output(buffer: io.StringIO) -> str:
+    kept_lines = [
+        line
+        for line in buffer.getvalue().splitlines()
+        if not AUTO_DOCSTRING_NOISE_RE.match(line.strip())
+    ]
+    return "\n".join(kept_lines).strip()
+
+
+def import_sft_dependencies() -> dict[str, Any]:
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+        torch = importlib.import_module("torch")
+        peft = importlib.import_module("peft")
+        pil_image = importlib.import_module("PIL.Image")
+        qwen_vl_utils = importlib.import_module("qwen_vl_utils")
+        transformers = importlib.import_module("transformers")
+
+    stdout_text = _filtered_import_output(stdout_buffer)
+    stderr_text = _filtered_import_output(stderr_buffer)
+    if stdout_text:
+        print(stdout_text)
+    if stderr_text:
+        print(stderr_text, file=os.sys.stderr)
+
+    return {
+        "torch": torch,
+        "LoraConfig": peft.LoraConfig,
+        "get_peft_model": peft.get_peft_model,
+        "ImageModule": pil_image,
+        "process_vision_info": qwen_vl_utils.process_vision_info,
+        "Dataset": importlib.import_module("torch.utils.data").Dataset,
+        "AutoProcessor": transformers.AutoProcessor,
+        "Qwen2_5_VLForConditionalGeneration": transformers.Qwen2_5_VLForConditionalGeneration,
+        "Trainer": transformers.Trainer,
+        "TrainingArguments": transformers.TrainingArguments,
+    }
+
+
 class ScaleCuaDataCollator:
     """Create Qwen2.5-VL batches and assistant-only labels from converted JSONL rows."""
 
@@ -225,22 +290,22 @@ def run_sft(config: SftConfig) -> Path:
     """Run single-node Qwen2.5-VL LoRA SFT and return the adapter output path."""
 
     try:
-        import torch
-        from peft import LoraConfig, get_peft_model
-        from PIL import Image
-        from qwen_vl_utils import process_vision_info
-        from torch.utils.data import Dataset
-        from transformers import (
-            AutoProcessor,
-            Qwen2_5_VLForConditionalGeneration,
-            Trainer,
-            TrainingArguments,
-        )
+        deps = import_sft_dependencies()
     except ImportError as exc:
         raise RuntimeError(
             "ScaleCUA SFT dependencies are missing. Install them with `uv sync --extra sft` "
             "or run through `uv run --extra sft w8-biayn scalecua sft ...`."
         ) from exc
+    torch = deps["torch"]
+    LoraConfig = deps["LoraConfig"]
+    get_peft_model = deps["get_peft_model"]
+    ImageModule = deps["ImageModule"]
+    process_vision_info = deps["process_vision_info"]
+    Dataset = deps["Dataset"]
+    AutoProcessor = deps["AutoProcessor"]
+    Qwen2_5_VLForConditionalGeneration = deps["Qwen2_5_VLForConditionalGeneration"]
+    Trainer = deps["Trainer"]
+    TrainingArguments = deps["TrainingArguments"]
 
     class JsonlDataset(Dataset):
         def __init__(self, rows: list[dict[str, Any]]) -> None:
@@ -255,7 +320,7 @@ def run_sft(config: SftConfig) -> Path:
     report_to, run_name = configure_tracking(config)
 
     def verify_image(path: str) -> None:
-        with Image.open(path) as image:
+        with ImageModule.open(path) as image:
             image.load()
 
     rows = filter_rows_with_valid_images(
