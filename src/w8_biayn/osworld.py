@@ -16,6 +16,7 @@ from pathlib import Path
 
 from . import upstreams
 from .constants import UPSTREAMS
+from .mlflow_tracking import ensure_tracker
 from .shell import format_command, run_command
 
 OSWORLD_UPSTREAM_KEY = "osworld"
@@ -924,6 +925,11 @@ def write_run_record(
     action_space: str = DEFAULT_ACTION_SPACE,
     enable_proxy: bool = False,
     proxy_config_file: str | Path | None = None,
+    mlflow_tracking_uri: str | None = None,
+    mlflow_run_id: str | None = None,
+    mlflow_run_name: str | None = None,
+    mlflow_experiment_name: str | None = None,
+    mlflow_enabled: bool | None = None,
     repo_root: str | Path = ".",
 ) -> Path:
     path = run_record_path(run_id, repo_root)
@@ -941,6 +947,11 @@ def write_run_record(
         "enable_proxy": enable_proxy,
         "proxy_config_file": str(proxy_config_file) if proxy_config_file is not None else None,
         "upstream": str(upstream_path(repo_root)),
+        "mlflow_tracking_uri": mlflow_tracking_uri,
+        "mlflow_run_id": mlflow_run_id,
+        "mlflow_run_name": mlflow_run_name,
+        "mlflow_experiment_name": mlflow_experiment_name,
+        "mlflow_enabled": mlflow_enabled,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -1425,6 +1436,10 @@ def run(
     enable_proxy: bool = False,
     proxy_config_file: str | Path | None = None,
     client_password: str = DEFAULT_CLIENT_PASSWORD,
+    mlflow_tracking_uri: str | None = None,
+    mlflow_run_id: str | None = None,
+    mlflow_run_name: str | None = None,
+    mlflow_experiment_name: str | None = None,
     dry_run: bool = False,
     run_id: str | None = None,
     repo_root: str | Path = ".",
@@ -1535,6 +1550,11 @@ def run(
         model=model,
         enable_proxy=enable_proxy,
         proxy_config_file=effective_proxy_config_file,
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        mlflow_run_id=mlflow_run_id,
+        mlflow_run_name=mlflow_run_name,
+        mlflow_experiment_name=mlflow_experiment_name,
+        mlflow_enabled=bool(mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name),
         repo_root=repo_root,
     )
     try:
@@ -1551,6 +1571,11 @@ def run(
             model=model,
             enable_proxy=enable_proxy,
             proxy_config_file=effective_proxy_config_file,
+            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_run_id=mlflow_run_id,
+            mlflow_run_name=mlflow_run_name,
+            mlflow_experiment_name=mlflow_experiment_name,
+            mlflow_enabled=bool(mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name),
             repo_root=repo_root,
         )
         raise
@@ -1566,6 +1591,11 @@ def run(
             model=model,
             enable_proxy=enable_proxy,
             proxy_config_file=effective_proxy_config_file,
+            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_run_id=mlflow_run_id,
+            mlflow_run_name=mlflow_run_name,
+            mlflow_experiment_name=mlflow_experiment_name,
+            mlflow_enabled=bool(mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name),
             repo_root=repo_root,
         )
         raise
@@ -1580,6 +1610,11 @@ def run(
         model=model,
         enable_proxy=enable_proxy,
         proxy_config_file=effective_proxy_config_file,
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        mlflow_run_id=mlflow_run_id,
+        mlflow_run_name=mlflow_run_name,
+        mlflow_experiment_name=mlflow_experiment_name,
+        mlflow_enabled=bool(mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name),
         repo_root=repo_root,
     )
     return metadata, task_keys, run_id
@@ -1709,6 +1744,10 @@ def benchmark(
     dry_run: bool = False,
     progress_callback: Callable[[BenchmarkProgress], None] | None = None,
     progress_poll_seconds: float = 2.0,
+    mlflow_tracking_uri: str | None = None,
+    mlflow_experiment: str | None = None,
+    mlflow_run_name: str | None = None,
+    mlflow_tags: tuple[tuple[str, str], ...] = (),
     repo_root: str | Path = ".",
 ) -> BenchmarkResult | None:
     if dry_run:
@@ -1768,82 +1807,132 @@ def benchmark(
     results: list[BenchmarkDomainResult] = []
     completed_so_far = 0
     emit_progress(completed_tasks=0)
-    for domain, task_keys in task_groups.items():
-        if not task_keys:
-            continue
-        run_id = make_run_id("osworld")
-        result_dir = run_results_path(run_id, repo_root)
-        run_state: dict[str, object] = {}
 
-        def run_domain() -> None:
-            try:
-                run_state["value"] = run(
-                    tasks=task_keys,
-                    provider=provider,
+    with ensure_tracker(
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        mlflow_experiment=mlflow_experiment,
+        mlflow_run_name=mlflow_run_name,
+        mlflow_tags=mlflow_tags,
+    ) as tracker:
+        run_info = tracker.run_info
+        tracker.log_param("model", model)
+        tracker.log_param("observation_type", observation_type)
+        tracker.log_param("max_steps", max_steps)
+        tracker.log_param("max_tokens", max_tokens)
+        tracker.log_param(
+            "task_selection_domains",
+            ",".join(domains) if domains else "all",
+        )
+        tracker.log_param("taskset", taskset or "")
+        tracker.log_param("limit_per_domain", limit_per_domain if limit_per_domain is not None else "")
+        tracker.log_param("smoke_candidates", smoke_candidates)
+        tracker.log_param("provider", provider)
+        tracker.log_param("headless", headless)
+        tracker.log_param("enable_proxy", enable_proxy)
+        tracker.log_param("base_url_mode", "provided" if base_url else "default")
+        tracker.log_param("proxy_config_file", str(proxy_config_file or ""))
+        tracker.log_metric("benchmark/domain_count", len(task_groups))
+
+        for idx, (domain, task_keys) in enumerate(task_groups.items()):
+            if not task_keys:
+                continue
+            run_id = make_run_id("osworld")
+            result_dir = run_results_path(run_id, repo_root)
+            run_state: dict[str, object] = {}
+
+            def run_domain() -> None:
+                try:
+                    run_state["value"] = run(
+                        tasks=task_keys,
+                        provider=provider,
+                        observation_type=observation_type,
+                        model=model,
+                        base_url=base_url,
+                        api_key=api_key,
+                        max_steps=max_steps,
+                        max_tokens=max_tokens,
+                        max_trajectory_length=max_trajectory_length,
+                        a11y_tree_max_items=a11y_tree_max_items,
+                        a11y_iou_threshold=a11y_iou_threshold,
+                        headless=headless,
+                        enable_proxy=enable_proxy,
+                        proxy_config_file=proxy_config_file,
+                        client_password=client_password,
+                        mlflow_tracking_uri=mlflow_tracking_uri,
+                        mlflow_run_id=run_info.run_id,
+                        mlflow_run_name=run_info.run_name or mlflow_run_name,
+                        mlflow_experiment_name=run_info.experiment_name or mlflow_experiment,
+                        dry_run=False,
+                        run_id=run_id,
+                        repo_root=repo_root,
+                    )
+                except BaseException as exc:  # pragma: no cover - propagated after join
+                    run_state["error"] = exc
+
+            worker = threading.Thread(target=run_domain, daemon=True)
+            worker.start()
+            while worker.is_alive():
+                summary = summarize_task_results(
+                    task_keys,
                     observation_type=observation_type,
                     model=model,
-                    base_url=base_url,
-                    api_key=api_key,
-                    max_steps=max_steps,
-                    max_tokens=max_tokens,
-                    max_trajectory_length=max_trajectory_length,
-                    a11y_tree_max_items=a11y_tree_max_items,
-                    a11y_iou_threshold=a11y_iou_threshold,
-                    headless=headless,
-                    enable_proxy=enable_proxy,
-                    proxy_config_file=proxy_config_file,
-                    client_password=client_password,
-                    dry_run=False,
-                    run_id=run_id,
+                    result_dir=result_dir,
                     repo_root=repo_root,
                 )
-            except BaseException as exc:  # pragma: no cover - propagated after join
-                run_state["error"] = exc
-
-        worker = threading.Thread(target=run_domain, daemon=True)
-        worker.start()
-        while worker.is_alive():
+                emit_progress(completed_tasks=completed_so_far + summary.completed, current_domain=domain)
+                worker.join(progress_poll_seconds)
+            worker.join()
+            error = run_state.get("error")
+            if isinstance(error, BaseException):
+                raise error
+            _metadata, run_tasks, finished_run_id = run_state["value"]
+            run_id = finished_run_id
+            if run_id is None:
+                continue
+            record = read_run_record(run_id, repo_root=repo_root)
+            result_dir = Path(record.get("results") or run_results_path(run_id, repo_root))
             summary = summarize_task_results(
-                task_keys,
+                run_tasks,
                 observation_type=observation_type,
                 model=model,
                 result_dir=result_dir,
                 repo_root=repo_root,
             )
-            emit_progress(completed_tasks=completed_so_far + summary.completed, current_domain=domain)
-            worker.join(progress_poll_seconds)
-        worker.join()
-        error = run_state.get("error")
-        if isinstance(error, BaseException):
-            raise error
-        _metadata, run_tasks, finished_run_id = run_state["value"]
-        run_id = finished_run_id
-        if run_id is None:
-            continue
-        record = read_run_record(run_id, repo_root=repo_root)
-        result_dir = Path(record.get("results") or run_results_path(run_id, repo_root))
-        summary = summarize_task_results(
-            run_tasks,
-            observation_type=observation_type,
-            model=model,
-            result_dir=result_dir,
-            repo_root=repo_root,
-        )
-        completed_so_far += summary.completed
-        emit_progress(completed_tasks=completed_so_far, current_domain=domain)
-        results.append(
-            BenchmarkDomainResult(
-                domain=domain,
-                run_id=run_id,
-                tasks=run_tasks,
-                completed=summary.completed,
-                successes=summary.successes,
-                failures=summary.failures,
-                average_score=summary.average_score,
-                results=result_dir,
+            completed_so_far += summary.completed
+            emit_progress(completed_tasks=completed_so_far, current_domain=domain)
+            tracker.log_metric(f"domain/{domain}/completed", summary.completed)
+            tracker.log_metric(f"domain/{domain}/successes", summary.successes)
+            tracker.log_metric(f"domain/{domain}/failures", summary.failures)
+            if summary.average_score is not None:
+                tracker.log_metric(f"domain/{domain}/avg_score", summary.average_score)
+            tracker.log_metric(f"domain/{domain}/task_count", len(run_tasks))
+            tracker.log_metric(f"domain/{domain}/step_index", idx)
+
+            results.append(
+                BenchmarkDomainResult(
+                    domain=domain,
+                    run_id=run_id,
+                    tasks=run_tasks,
+                    completed=summary.completed,
+                    successes=summary.successes,
+                    failures=summary.failures,
+                    average_score=summary.average_score,
+                    results=result_dir,
+                )
             )
-        )
-    emit_progress(completed_tasks=completed_so_far)
+        emit_progress(completed_tasks=completed_so_far)
+        final = BenchmarkResult(tuple(results))
+        tracker.log_metric("benchmark/completed", final.completed)
+        tracker.log_metric("benchmark/successes", final.successes)
+        tracker.log_metric("benchmark/failures", final.failures)
+        tracker.log_metric("benchmark/task_count", final.total_tasks)
+        if final.average_score is not None:
+            tracker.log_metric("benchmark/average_score", final.average_score)
+        tracker.log_param("benchmark/run_id", run_info.run_id or "")
+        tracker.log_param("benchmark/run_name", run_info.run_name or "")
+        tracker.log_param("benchmark/experiment", run_info.experiment_name or "")
+        return final
+
     return BenchmarkResult(tuple(results))
 
 

@@ -78,6 +78,34 @@ The service-account JSON stays local. The CLI uses scoped environment variables 
 
 Generated data, upstream clones, rendered SkyPilot YAML, secrets, logs, and checkpoints are local state and ignored by git.
 
+## OSWorld Benchmark + MLflow Logging
+
+Run OSWorld benchmark sweeps and optionally write a single MLflow tracking run for each `benchmark` invocation.
+
+```bash
+uv run w8-biayn osworld benchmark \
+  --domain os \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --observation-type screenshot \
+  --max-steps 15 \
+  --max-tokens 256 \
+  --mlflow-tracking-uri http://127.0.0.1:5000 \
+  --mlflow-experiment osworld-benchmarks \
+  --mlflow-run-name osworld-quick-bench \
+  --mlflow-tag workflow=smoke \
+  --mlflow-tag owner=you
+```
+
+The command logs:
+
+- `model`, `observation_type`, `max_steps`, `max_tokens`
+- domain/task selection (`domains`, `taskset`, `limit_per_domain`, `smoke_candidates`)
+- proxy and base-url flags
+- per-domain metrics (`completed`, `successes`, `failures`, `avg_score`, `task_count`, `step_index`)
+- aggregate metrics (`completed`, `successes`, `failures`, `average_score`, `task_count`)
+
+Run records persist MLflow identifiers in `.w8-biayn/osworld/runs/<run_id>/record.json` so `w8-biayn osworld status` can be extended later with IDs if needed.
+
 ## Full Official PIE Dataset
 
 Dataset conversion is a deliverable. No one-off notebook, shell-history, or untracked-script munging is allowed.

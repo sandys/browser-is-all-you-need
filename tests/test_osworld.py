@@ -233,6 +233,40 @@ def test_osworld_run_record_round_trip(tmp_path):
     assert osworld.list_run_records(repo_root=tmp_path)[0]["status"] == "completed"
 
 
+def test_osworld_run_record_records_mlflow_metadata(tmp_path, monkeypatch):
+    root = make_osworld_tree(tmp_path)
+    monkeypatch.setattr(osworld, "upstream_path", lambda *_args, **_kwargs: root)
+
+    metadata = tmp_path / "metadata.json"
+    metadata.write_text("{}\n", encoding="utf-8")
+    results = tmp_path / "results"
+
+    path = osworld.write_run_record(
+        run_id="osworld-mlflow",
+        command="run",
+        tasks=("os/e0df059f-28a6-4169-924f-b9623e7184cc",),
+        metadata=metadata,
+        results=results,
+        status="completed",
+        observation_type="screenshot",
+        model="qwen3-vl-2b",
+        mlflow_tracking_uri="file:///tmp/mlruns",
+        mlflow_run_id="mlflow-run-id",
+        mlflow_run_name="mlflow-run-name",
+        mlflow_experiment_name="mlflow-exp",
+        mlflow_enabled=True,
+        repo_root=tmp_path,
+    )
+
+    assert path == osworld.run_record_path("osworld-mlflow", repo_root=tmp_path)
+    record = osworld.read_run_record(repo_root=tmp_path)
+    assert record["mlflow_tracking_uri"] == "file:///tmp/mlruns"
+    assert record["mlflow_run_id"] == "mlflow-run-id"
+    assert record["mlflow_run_name"] == "mlflow-run-name"
+    assert record["mlflow_experiment_name"] == "mlflow-exp"
+    assert record["mlflow_enabled"] is True
+
+
 def test_osworld_summarize_task_results(tmp_path):
     task = osworld.parse_task("os/e0df059f-28a6-4169-924f-b9623e7184cc")
     result_file = osworld.task_result_path(task, repo_root=tmp_path)
@@ -825,6 +859,38 @@ def test_osworld_benchmark_runs_selected_domains(tmp_path, monkeypatch):
     assert "1" == calls[0][calls[0].index("--max_trajectory_length") + 1]
     assert result.total_tasks == 2
     assert result.completed == 0
+
+
+def test_osworld_benchmark_records_mlflow_fields(tmp_path, monkeypatch):
+    root = make_osworld_tree(tmp_path)
+    write_osworld_task(root, "chrome", "chrome-task")
+    monkeypatch.setattr(osworld, "upstream_path", lambda *_args, **_kwargs: root)
+    clear_local_provider_env(monkeypatch)
+
+    monkeypatch.setattr(
+        osworld,
+        "run_upstream_command_with_cleanup",
+        lambda *args, **kwargs: None,
+    )
+
+    result = osworld.benchmark(
+        domains=("os", "chrome"),
+        limit_per_domain=1,
+        model="gpt-4o",
+        mlflow_tracking_uri="http://127.0.0.1:5000",
+        mlflow_experiment="ci-exp",
+        mlflow_run_name="ci-run",
+        repo_root=tmp_path,
+    )
+
+    assert result is not None
+    records = osworld.list_run_records(repo_root=tmp_path)
+    assert len(records) == 2
+    for record in records:
+        assert record["mlflow_tracking_uri"] == "http://127.0.0.1:5000"
+        assert record["mlflow_run_name"] == "ci-run"
+        assert record["mlflow_experiment_name"] == "ci-exp"
+        assert record["mlflow_enabled"] is True
 
 
 def test_osworld_benchmark_reports_progress(tmp_path, monkeypatch):
