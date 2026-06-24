@@ -1796,6 +1796,9 @@ def scalecua_sft(
     limit: Optional[int] = typer.Option(None, help="Optional max JSONL rows to load."),
     wandb_project: Optional[str] = typer.Option(None, help="Weights & Biases project. Enables W&B reporting when set."),
     wandb_run_name: Optional[str] = typer.Option(None, help="Weights & Biases run name."),
+    mlflow_tracking_uri: Optional[str] = typer.Option(None, help="MLflow tracking URI. Prefer sqlite:////abs/path.db for local runs."),
+    mlflow_experiment: Optional[str] = typer.Option(None, help="MLflow experiment name."),
+    mlflow_run_name: Optional[str] = typer.Option(None, help="MLflow run name. Must match --wandb-run-name when both are set."),
 ) -> None:
     """Run Qwen2.5-VL LoRA SFT on converted ScaleCUA OSWorld tool-call rows."""
     from .scalecua_sft import SftConfig, run_sft
@@ -1819,6 +1822,9 @@ def scalecua_sft(
             limit=limit,
             wandb_project=wandb_project,
             wandb_run_name=wandb_run_name,
+            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_experiment=mlflow_experiment,
+            mlflow_run_name=mlflow_run_name,
         )
     )
     console.print(f"adapter: {path}")

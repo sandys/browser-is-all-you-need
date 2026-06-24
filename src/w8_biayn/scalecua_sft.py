@@ -46,6 +46,9 @@ class SftConfig:
     max_pixels: int = DEFAULT_MAX_PIXELS
     wandb_project: str | None = None
     wandb_run_name: str | None = None
+    mlflow_tracking_uri: str | None = None
+    mlflow_experiment: str | None = None
+    mlflow_run_name: str | None = None
 
 
 def load_jsonl(path: Path, *, limit: int | None = None) -> list[dict[str, Any]]:
@@ -126,6 +129,23 @@ def mask_prompt_tokens(labels: Any, prompt_lengths: Iterable[int], pad_token_id:
     if pad_token_id is not None:
         labels[labels == pad_token_id] = -100
     return labels
+
+
+def configure_tracking(config: SftConfig) -> tuple[list[str], str | None]:
+    report_to: list[str] = []
+    run_name = config.wandb_run_name or config.mlflow_run_name
+    if config.wandb_project:
+        os.environ["WANDB_PROJECT"] = config.wandb_project
+        report_to.append("wandb")
+    if config.mlflow_tracking_uri or config.mlflow_experiment or config.mlflow_run_name:
+        if config.wandb_run_name and config.mlflow_run_name and config.wandb_run_name != config.mlflow_run_name:
+            raise ValueError("wandb_run_name and mlflow_run_name must match when both are set")
+        if config.mlflow_tracking_uri:
+            os.environ["MLFLOW_TRACKING_URI"] = config.mlflow_tracking_uri
+        if config.mlflow_experiment:
+            os.environ["MLFLOW_EXPERIMENT_NAME"] = config.mlflow_experiment
+        report_to.append("mlflow")
+    return report_to, run_name
 
 
 def training_args_eval_kwargs(training_args_cls: Any, *, has_eval: bool, eval_steps: int) -> dict[str, Any]:
@@ -232,8 +252,7 @@ def run_sft(config: SftConfig) -> Path:
         def __getitem__(self, index: int) -> dict[str, Any]:
             return self.rows[index]
 
-    if config.wandb_project:
-        os.environ["WANDB_PROJECT"] = config.wandb_project
+    report_to, run_name = configure_tracking(config)
 
     def verify_image(path: str) -> None:
         with Image.open(path) as image:
@@ -291,8 +310,8 @@ def run_sft(config: SftConfig) -> Path:
         save_steps=config.save_steps,
         save_total_limit=2,
         remove_unused_columns=False,
-        report_to=["wandb"] if config.wandb_project else [],
-        run_name=config.wandb_run_name,
+        report_to=report_to,
+        run_name=run_name,
         **eval_kwargs,
     )
     trainer = Trainer(
