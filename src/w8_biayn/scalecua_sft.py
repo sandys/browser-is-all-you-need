@@ -65,6 +65,32 @@ def load_jsonl(path: Path, *, limit: int | None = None) -> list[dict[str, Any]]:
     return rows
 
 
+def filter_rows_with_valid_images(
+    rows: list[dict[str, Any]],
+    *,
+    image_loader: Callable[[str], None],
+    source: Path,
+) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    skipped = 0
+    for row in rows:
+        image = row.get("image")
+        if not isinstance(image, str) or not image:
+            skipped += 1
+            continue
+        try:
+            image_loader(image)
+        except (FileNotFoundError, OSError, ValueError):
+            skipped += 1
+            continue
+        kept.append(row)
+    if not kept:
+        raise ValueError(f"{source} did not contain any rows with readable images")
+    if skipped:
+        print(f"Skipped {skipped} rows with missing/unreadable images from {source}.")
+    return kept
+
+
 def _message_content(row: dict[str, Any], role: str) -> str:
     for message in row.get("messages") or []:
         if message.get("role") == role and isinstance(message.get("content"), str):
@@ -133,19 +159,27 @@ class ScaleCuaDataCollator:
         prompt_texts: list[str] = []
         images: list[Any] = []
         videos: list[Any] = []
+        skipped_rows = 0
         for row in rows:
-            messages = qwen_messages_from_row(row)
-            full_texts.append(
-                self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-            )
-            prompt_texts.append(
-                self.processor.apply_chat_template(messages[:1], tokenize=False, add_generation_prompt=True)
-            )
-            image_inputs, video_inputs = self.process_vision_info(messages)
+            try:
+                messages = qwen_messages_from_row(row)
+                full_texts.append(
+                    self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                )
+                prompt_texts.append(
+                    self.processor.apply_chat_template(messages[:1], tokenize=False, add_generation_prompt=True)
+                )
+                image_inputs, video_inputs = self.process_vision_info(messages)
+            except (FileNotFoundError, OSError, ValueError):
+                skipped_rows += 1
+                continue
             if image_inputs:
                 images.extend(image_inputs)
             if video_inputs:
                 videos.extend(video_inputs)
+
+        if not full_texts:
+            raise ValueError("All rows in the batch had missing or unreadable images")
 
         batch = self.processor(
             text=full_texts,
@@ -173,6 +207,7 @@ def run_sft(config: SftConfig) -> Path:
     try:
         import torch
         from peft import LoraConfig, get_peft_model
+        from PIL import Image
         from qwen_vl_utils import process_vision_info
         from torch.utils.data import Dataset
         from transformers import (
@@ -200,8 +235,22 @@ def run_sft(config: SftConfig) -> Path:
     if config.wandb_project:
         os.environ["WANDB_PROJECT"] = config.wandb_project
 
-    rows = load_jsonl(config.train, limit=config.limit)
-    eval_rows = load_jsonl(config.eval) if config.eval else None
+    def verify_image(path: str) -> None:
+        with Image.open(path) as image:
+            image.load()
+
+    rows = filter_rows_with_valid_images(
+        load_jsonl(config.train, limit=config.limit),
+        image_loader=verify_image,
+        source=config.train,
+    )
+    eval_rows = None
+    if config.eval:
+        eval_rows = filter_rows_with_valid_images(
+            load_jsonl(config.eval),
+            image_loader=verify_image,
+            source=config.eval,
+        )
     processor = AutoProcessor.from_pretrained(
         config.model,
         min_pixels=config.min_pixels,
