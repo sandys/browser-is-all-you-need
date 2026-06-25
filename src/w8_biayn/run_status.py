@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .cpp_perf.eval import compare_eval_summaries
 from .mlflow_metrics import read_mlflow_api, read_mlflow_metrics
 
 PIPELINES = ("cpp-sft", "cpp-grpo", "cpp-eval")
@@ -83,6 +84,7 @@ CHECKPOINT_DIR_RE = re.compile(r"/global_step_(\d+)/?$")
 RANK_RE = re.compile(r"/(model|optim|extra_state)_world_size_(\d+)_rank_(\d+)\.pt$")
 EVAL_RECORD_RE = re.compile(r"/([^/]+)\.records\.jsonl$")
 EVAL_SUMMARY_RE = re.compile(r"/([^/]+)\.summary\.json$")
+EVAL_UPLIFT_SUMMARY_RE = re.compile(r"/uplift-summary\.json$")
 GSUTIL_OBJECT_RE = re.compile(r"^\s*(\d+)\s+(\S+)\s+(gs://\S+)$")
 GSUTIL_TOTAL_RE = re.compile(r"^TOTAL:\s+(\d+)\s+objects?,\s+(\d+)\s+bytes")
 MODEL_WEIGHT_SUFFIXES = (".safetensors", ".bin")
@@ -720,7 +722,25 @@ def _artifact_status(
             retries=retries,
             dry_run=dry_run,
         )
-        payload["eval_outputs"] = _eval_output_detail(run_gcs_prefix, eval_listing)
+        eval_outputs = _eval_output_detail(run_gcs_prefix, eval_listing)
+        if eval_outputs.get("uplift_summary_uri"):
+            summary_text, summary_check = _storage_cat(
+                str(eval_outputs["uplift_summary_uri"]),
+                env=env,
+                timeout_s=timeout_s,
+                retries=retries,
+                dry_run=dry_run,
+            )
+            summary = _parse_json_payload(summary_text) if summary_text else None
+            if isinstance(summary, dict):
+                if not isinstance(summary.get("uplift_gate"), dict):
+                    summaries = summary.get("summaries")
+                    if isinstance(summaries, list):
+                        summary = compare_eval_summaries([item for item in summaries if isinstance(item, dict)])
+                eval_outputs["uplift_summary"] = summary
+                eval_outputs["uplift_gate"] = summary.get("uplift_gate") if isinstance(summary, dict) else None
+            payload["checks"].append(summary_check)
+        payload["eval_outputs"] = eval_outputs
         payload["checks"].append(eval_check)
     return payload
 
@@ -975,11 +995,14 @@ def _eval_output_detail(prefix: str, listing: str) -> dict[str, Any]:
     objects = _gs_uris(listing)
     records = []
     summaries = []
+    uplift_summary_uri = None
     for uri in objects:
         if record_match := EVAL_RECORD_RE.search(uri):
             records.append({"label": record_match.group(1), "uri": uri})
         if summary_match := EVAL_SUMMARY_RE.search(uri):
             summaries.append({"label": summary_match.group(1), "uri": uri})
+        if EVAL_UPLIFT_SUMMARY_RE.search(uri):
+            uplift_summary_uri = uri
     record_labels = {item["label"] for item in records}
     summary_labels = {item["label"] for item in summaries}
     return {
@@ -989,6 +1012,9 @@ def _eval_output_detail(prefix: str, listing: str) -> dict[str, Any]:
         "summaries": summaries,
         "labels": sorted(record_labels | summary_labels),
         "complete_labels": sorted(record_labels & summary_labels),
+        "uplift_summary_uri": uplift_summary_uri,
+        "uplift_summary": None,
+        "uplift_gate": None,
     }
 
 
@@ -2128,6 +2154,9 @@ def _run_summary(
     else:
         state = "mixed"
     progress = current.get("progress") if isinstance(current.get("progress"), dict) else {}
+    evaluation_progress = progress.get("evaluation")
+    if not evaluation_progress:
+        evaluation_progress = _run_eval_progress(pipelines)
     current_resources = current.get("resources") if isinstance(current.get("resources"), dict) else None
     return {
         "state": state,
@@ -2139,6 +2168,7 @@ def _run_summary(
             "primary": progress.get("primary"),
             "training": progress.get("training"),
             "trajectory": progress.get("trajectory"),
+            "evaluation": evaluation_progress,
             "throughput": progress.get("throughput"),
             "training_health": progress.get("training_health"),
             "learning_signal": progress.get("learning_signal"),
@@ -2153,6 +2183,17 @@ def _run_summary(
         "resources": current_resources or _resource_summary(instances=instances, node_health=None),
         "cleanup_safe": cleanup.get("safe_to_cleanup"),
     }
+
+
+def _run_eval_progress(pipelines: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for pipeline in pipelines:
+        if pipeline.get("pipeline") != "cpp-eval":
+            continue
+        progress = pipeline.get("progress") if isinstance(pipeline.get("progress"), dict) else {}
+        evaluation = progress.get("evaluation")
+        if isinstance(evaluation, dict):
+            return evaluation
+    return None
 
 
 def _select_job(queue: dict[str, Any], *, job_id: str | None) -> dict[str, Any] | None:
@@ -2379,6 +2420,8 @@ def _progress_summary(
         recent_durations_s=timings.get("generate_durations_s"),
     )
     evaluation = _augment_progress(log_signals.get("evaluation_progress"), unit="eval_batch")
+    if pipeline == "cpp-eval":
+        evaluation = _eval_progress_summary(evaluation=evaluation, artifacts=artifacts)
     batch_num_seq = _to_float(metrics.get("batch_num_seq"))
     if training and batch_num_seq:
         training.setdefault("throughput", {})
@@ -2446,6 +2489,31 @@ def _progress_summary(
         "bottleneck": _bottleneck_summary(metrics=metrics, timings=timings),
         "throughput": throughput,
     }
+
+
+def _eval_progress_summary(*, evaluation: dict[str, Any] | None, artifacts: dict[str, Any]) -> dict[str, Any] | None:
+    outputs = artifacts.get("eval_outputs") if isinstance(artifacts.get("eval_outputs"), dict) else None
+    if not outputs:
+        return evaluation
+    progress = dict(evaluation or {})
+    progress["available"] = True
+    progress["outputs"] = {
+        "labels": outputs.get("labels", []),
+        "complete_labels": outputs.get("complete_labels", []),
+        "record_count": len(outputs.get("records", [])) if isinstance(outputs.get("records"), list) else 0,
+        "summary_count": len(outputs.get("summaries", [])) if isinstance(outputs.get("summaries"), list) else 0,
+        "uplift_summary_uri": outputs.get("uplift_summary_uri"),
+    }
+    gate = outputs.get("uplift_gate")
+    if isinstance(gate, dict):
+        progress["uplift_gate"] = gate
+        progress["formal_uplift_passed"] = gate.get("passed")
+        progress["uplift_verdict"] = gate.get("verdict")
+    else:
+        progress["uplift_gate"] = None
+        progress["formal_uplift_passed"] = None
+        progress["uplift_verdict"] = "uplift_summary_unavailable"
+    return progress
 
 
 def _sft_config_summary(config: dict[str, Any]) -> dict[str, Any]:

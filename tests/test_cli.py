@@ -943,3 +943,107 @@ def test_cli_eval_cpp_aggregates_records(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert '"best_correct_and_faster": "base"' in result.output
+    assert '"uplift_gate"' in result.output
+    assert '"verdict": "insufficient_labels"' in result.output
+
+
+def test_cli_eval_raw_report_writes_markdown_assets_and_curves(tmp_path):
+    run_id = "rtest"
+    run_root = tmp_path / "runs" / run_id
+    eval_dir = run_root / "eval"
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "base.records.jsonl").write_text(
+        '{"task_id":"t1","problem_id":"p1","reward":-1.0,"reason":"invalid_format",'
+        '"all_tests_pass":false,"compile_error":false,"sanitizer_error":false,"timeout":false,'
+        '"runtime_cpu_ns":null,"reference_runtime_cpu_ns":null,"tests_passed":0,"tests_total":0}\n',
+        encoding="utf-8",
+    )
+    (eval_dir / "sft.records.jsonl").write_text(
+        '{"task_id":"t1","problem_id":"p1","reward":0.2,"reason":"recoverable_format_missing_runtime",'
+        '"all_tests_pass":true,"compile_error":false,"sanitizer_error":false,"timeout":false,'
+        '"runtime_cpu_ns":null,"reference_runtime_cpu_ns":null,"tests_passed":2,"tests_total":2}\n',
+        encoding="utf-8",
+    )
+    (eval_dir / "grpo.records.jsonl").write_text(
+        '{"task_id":"t1","problem_id":"p1","reward":1.5,"reason":"correct",'
+        '"all_tests_pass":true,"compile_error":false,"sanitizer_error":false,"timeout":false,'
+        '"runtime_cpu_ns":50,"reference_runtime_cpu_ns":100,"tests_passed":2,"tests_total":2}\n',
+        encoding="utf-8",
+    )
+    (run_root / "metrics.api.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "w8-mlflow-metrics-v1",
+                "metrics": {
+                    "backend": "mlflow_api",
+                    "tracking_state": "metrics_available",
+                    "latest_step": 2,
+                    "metric_count": 2,
+                    "metric_row_count": 4,
+                    "series": {
+                        "loss/avg_final_rewards": [
+                            {"step": 1, "timestamp_ms": 1000, "value": 0.1},
+                            {"step": 2, "timestamp_ms": 2000, "value": 0.5},
+                        ],
+                        "policy/grad_norm": [
+                            {"step": 1, "timestamp_ms": 1000, "value": 0.2},
+                            {"step": 2, "timestamp_ms": 2000, "value": 0.1},
+                        ],
+                    },
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_root / "status.json").write_text(
+        json.dumps(
+            {
+                "dataset": {"gcs_prefix": "gs://bucket/datasets/cpp-perf/cpp-perf-v1/full-official/rdata/skyrl"},
+                "pipelines": [
+                    {
+                        "pipeline": "cpp-grpo",
+                        "artifacts": {
+                            "checkpoint": {
+                                "latest": {"prefix": "gs://bucket/runs/cpp-perf/rtest/cpp-grpo/ckpts/global_step_1"}
+                            }
+                        },
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "raw.md"
+    assets = tmp_path / "raw_assets"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "eval",
+            "raw-report",
+            "--run-id",
+            run_id,
+            "--run-root",
+            str(run_root),
+            "--out",
+            str(out),
+            "--assets-dir",
+            str(assets),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    text = out.read_text(encoding="utf-8")
+    assert "Raw Run Evidence: `rtest`" in text
+    assert "uplift_gate" in text
+    assert "Held-out eval outcome rates" in text
+    assert (assets / "uplift-summary-recomputed.json").exists()
+    assert (assets / "eval_summary.csv").exists()
+    assert (assets / "missing_runtime_tasks.csv").read_text(encoding="utf-8").count("t1") == 1
+    assert "<svg" in (assets / "eval_outcome_rates.svg").read_text(encoding="utf-8")
+    assert "<svg" in (assets / "train_reward_pass.svg").read_text(encoding="utf-8")
+    summary = json.loads((assets / "uplift-summary-recomputed.json").read_text(encoding="utf-8"))
+    assert summary["uplift_gate"]["verdict"] == "held_out_lift_but_gate_failed"

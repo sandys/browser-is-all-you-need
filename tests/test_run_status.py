@@ -984,6 +984,72 @@ def test_artifact_status_reports_eval_output_files(monkeypatch):
     ]
 
 
+def test_artifact_status_reports_eval_uplift_gate(monkeypatch):
+    summary_uri = "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/uplift-summary.json"
+
+    def fake_ls(uri: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        assert uri == "gs://bucket/runs/cpp-perf/run/cpp-eval/**"
+        return (
+            "\n".join(
+                [
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/base.records.jsonl",
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/base.summary.json",
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/sft.records.jsonl",
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/sft.summary.json",
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/grpo.records.jsonl",
+                    "gs://bucket/runs/cpp-perf/run/cpp-eval/w8-cpp-eval-run/grpo.summary.json",
+                    summary_uri,
+                ]
+            ),
+            {"name": f"ls:{uri}", "ok": True},
+        )
+
+    def fake_cat(uri: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        assert uri == summary_uri
+        return (
+            """
+            {
+              "best_correct_and_faster": "grpo",
+              "best_mean_reward": "grpo",
+              "summaries": [
+                {"label": "base", "correct_and_faster_rate": 0.0, "mean_best_reward": -0.9, "missing_runtime_count": 0, "missing_runtime_rate": 0.0},
+                {"label": "sft", "correct_and_faster_rate": 0.17, "mean_best_reward": -0.47, "missing_runtime_count": 2, "missing_runtime_rate": 0.0019, "missing_runtime_task_ids": ["pie_cpp_validation_001331"]},
+                {"label": "grpo", "correct_and_faster_rate": 0.25, "mean_best_reward": 0.24, "missing_runtime_count": 7, "missing_runtime_rate": 0.0068, "missing_runtime_task_ids": ["pie_cpp_test_002495"]}
+              ]
+            }
+            """,
+            {"name": f"cat:{uri}", "ok": True},
+        )
+
+    monkeypatch.setattr(run_status, "_storage_ls", fake_ls)
+    monkeypatch.setattr(run_status, "_storage_cat", fake_cat)
+
+    status = run_status._artifact_status(
+        pipeline="cpp-eval",
+        run_gcs_prefix="gs://bucket/runs/cpp-perf/run/cpp-eval",
+        env={},
+        expected_world_size=8,
+        expected_final_step=None,
+        timeout_s=1,
+        retries=0,
+        dry_run=False,
+    )
+
+    outputs = status["eval_outputs"]
+    assert outputs["uplift_summary_uri"] == summary_uri
+    assert outputs["uplift_gate"]["passed"] is False
+    assert outputs["uplift_gate"]["verdict"] == "held_out_lift_but_gate_failed"
+    assert outputs["uplift_gate"]["label_status"]["grpo"]["missing_runtime_count"] == 7
+
+    progress = run_status._progress_summary(
+        pipeline="cpp-eval",
+        log_signals={"timings": {}, "config": {}, "metrics": {}},
+        artifacts=status,
+    )
+    assert progress["evaluation"]["formal_uplift_passed"] is False
+    assert progress["evaluation"]["uplift_verdict"] == "held_out_lift_but_gate_failed"
+
+
 def test_pipeline_state_reports_provisioning_before_checkpointed():
     state = run_status._derive_pipeline_state(
         queue={"jobs": []},

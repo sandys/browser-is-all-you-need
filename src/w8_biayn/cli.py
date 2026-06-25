@@ -60,6 +60,7 @@ from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
 from .mlflow_metrics import DEFAULT_METRIC_KEYS, read_mlflow_api, read_mlflow_metrics
+from .reporting import build_raw_run_report
 from .run_status import PIPELINES as STATUS_PIPELINES
 from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -1287,6 +1288,69 @@ def eval_cpp(
         console.print(out)
     else:
         console.print_json(data=comparison)
+
+
+@eval_app.command("raw-report")
+def eval_raw_report(
+    run_id: str = typer.Option(..., "--run-id", help="Run id to report on."),
+    run_root: Optional[str] = typer.Option(None, "--run-root", help="Local run artifact root. Defaults to .w8-biayn/runs/RUN_ID."),
+    records: Optional[list[str]] = typer.Option(
+        None,
+        "--records",
+        help="Optional eval records as LABEL=path.jsonl. Repeat to override run-root defaults.",
+    ),
+    metrics_json: Optional[str] = typer.Option(
+        None,
+        "--metrics-json",
+        help="Optional MLflow metrics JSON. Defaults to RUN_ROOT/metrics.api.json when present.",
+    ),
+    status_json: Optional[str] = typer.Option(
+        None,
+        "--status-json",
+        help="Optional run-status JSON. Defaults to RUN_ROOT/status.json when present.",
+    ),
+    out: Optional[str] = typer.Option(
+        None,
+        "--out",
+        help="Markdown report path. Defaults to RUN_REPORT_RAW_RUN_ID.md.",
+    ),
+    assets_dir: Optional[str] = typer.Option(
+        None,
+        "--assets-dir",
+        help="Directory for CSV/JSON/SVG assets. Defaults to RUN_REPORT_RAW_RUN_ID_assets.",
+    ),
+    companion_report: Optional[str] = typer.Option(
+        None,
+        "--companion-report",
+        help="Optional interpretation report to link from the raw report.",
+    ),
+) -> None:
+    """Create a raw Markdown report with CSV/JSON assets and SVG curves for one run."""
+
+    record_map = _parse_label_paths(records or [], option_name="--records") if records else None
+    result = build_raw_run_report(
+        run_id=run_id,
+        run_root=run_root,
+        output=out,
+        assets_dir=assets_dir,
+        records=record_map,
+        metrics_json=metrics_json,
+        status_json=status_json,
+        companion_report=companion_report,
+    )
+    console.print_json(data=result.as_dict())
+
+
+def _parse_label_paths(items: list[str], *, option_name: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for item in items:
+        if "=" not in item:
+            raise typer.BadParameter(f"{option_name} must use LABEL=path")
+        label, path = item.split("=", 1)
+        if not label:
+            raise typer.BadParameter(f"{option_name} label must not be empty")
+        parsed[label] = path
+    return parsed
 
 
 @gcp_app.command("cleanup")
