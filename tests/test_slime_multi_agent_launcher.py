@@ -17,7 +17,7 @@ def test_multi_agent_launcher_uses_text_only_default() -> None:
     assert "--use-rollout-logprobs" in text
     assert "SLIME_WANDB_PROJECT" in text
     assert "SLIME_WANDB_RUN_ID" in text
-    assert "SLIME_MAX_TOKENS_PER_GPU:-}" in text
+    assert "SLIME_MAX_TOKENS_PER_GPU:-2048}" in text
     assert "WANDB_ALREADY_LOGGED_IN" in text
     assert "${HOME}/.netrc" in text
     assert "${HOME}/.config/wandb/settings" in text

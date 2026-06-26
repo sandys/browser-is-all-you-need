@@ -620,6 +620,7 @@ SLIME_N_SAMPLES_PER_PROMPT=2 \
 SLIME_GLOBAL_BATCH_SIZE=2 \
 SLIME_MAX_RESPONSE_LEN=512 \
 SLIME_MAX_CONTEXT_LEN=2048 \
+SLIME_MAX_TOKENS_PER_GPU=2048 \
 bash examples/slime/multi_agent/run_multi_agent_text.sh
 ```
 
@@ -632,7 +633,7 @@ SLIME_WANDB_RUN_ID=qwen3-4b-dapo-32 \
 bash examples/slime/multi_agent/run_multi_agent_text.sh
 ```
 
-`SLIME_MAX_TOKENS_PER_GPU` is optional. Leave it unset to use SLIME's default dynamic batching behavior; set it to a conservative cap such as `2048` only when debugging memory pressure.
+`SLIME_MAX_TOKENS_PER_GPU` is required because the launcher uses SLIME dynamic batching. Keep `2048` for smoke runs; tune upward only after memory is stable.
 
 ## Repository Map
 
