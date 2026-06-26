@@ -546,6 +546,7 @@ Pinned upstream clones live under `.cache/upstreams/`:
 - `rllm`
 - `pie-perf`
 - `LearningOpt-pie`
+- `slime`
 
 Use:
 
@@ -555,6 +556,84 @@ uv run w8-biayn upstreams status
 ```
 
 Do not vendor upstream repos, CodeNet, PIE archives, generated tests, gem5 outputs, datasets, checkpoints, or credentials.
+
+## SLIME Sidecar Setup
+
+SLIME is integrated as a pinned upstream sidecar under `.cache/upstreams/slime`. It is cloneable and inspectable from this repo, but it does not replace the default C++ performance-RL path through SkyRL/rLLM. Keep SLIME source and generated runtime state out of git.
+
+Clone or refresh the pinned checkout:
+
+```bash
+uv run w8-biayn upstreams clone slime
+```
+
+Validate the local SLIME checkout:
+
+```bash
+uv run w8-biayn slime doctor
+```
+
+Generate the Docker-first quick-start launcher plus the in-container bootstrap helper:
+
+```bash
+uv run w8-biayn slime setup
+.w8-biayn/slime/run-container.sh
+```
+
+`slime setup` refreshes the pinned upstream, writes `.w8-biayn/slime/run-container.sh`, and writes `.w8-biayn/slime/bootstrap-inside-container.sh`. The launcher now follows the upstream quick-start Docker flow end-to-end: it does `docker pull`, starts the container with this repo mounted at `/workspace/<repo-name>`, mounts `/var/run/docker.sock` for the Docker sandbox backend, and then runs the in-container bootstrap (`export PYTHONPATH=/root/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}} && cd /root/slime && git pull && pip install -e . --no-deps && python train.py --help`). That `PYTHONPATH` export is required because the image contains `/root/Megatron-LM` but does not expose it by default, and `slime/train.py` imports `megatron.training`. The bootstrap script is still written separately so it can be rerun manually inside the container if needed.
+
+The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
+
+### SLIME Multi-Agent Text Example
+
+For a text-only SLIME RL bring-up, use the repo-owned multi-agent wrapper under `examples/slime/multi_agent/`. This avoids the VLM memory/config path and validates the core SLIME loop: DAPO-Math data, Ray, SGLang rollout, reward/logprob processing, and Megatron actor training.
+
+Prepare a tiny slice:
+
+```bash
+uv run python scripts/prepare_dapo_math_dataset.py \
+  --out .w8-biayn/slime/dapo-math-17k \
+  --limit 32
+```
+
+Or prepare the full split:
+
+```bash
+uv run python scripts/prepare_dapo_math_dataset.py \
+  --out .w8-biayn/slime/dapo-math-17k
+```
+
+Start the SLIME container:
+
+```bash
+.w8-biayn/slime/run-container.sh
+```
+
+Then launch the repo-owned wrapper inside the container:
+
+```bash
+cd /workspace/<repo-name>
+
+SLIME_NUM_ROLLOUT=16 \
+SLIME_ROLLOUT_BATCH_SIZE=1 \
+SLIME_N_SAMPLES_PER_PROMPT=2 \
+SLIME_GLOBAL_BATCH_SIZE=2 \
+SLIME_MAX_RESPONSE_LEN=512 \
+SLIME_MAX_CONTEXT_LEN=2048 \
+SLIME_MAX_TOKENS_PER_GPU=2048 \
+bash examples/slime/multi_agent/run_multi_agent_text.sh
+```
+
+Optional W&B logging is enabled automatically if `wandb login` has already been run inside the container. You can also pass a key explicitly with `WANDB_API_KEY`.
+
+```bash
+SLIME_WANDB_PROJECT=slime-multi-agent \
+SLIME_WANDB_GROUP=qwen3-4b-dapo-smoke \
+SLIME_WANDB_RUN_ID=qwen3-4b-dapo-32 \
+bash examples/slime/multi_agent/run_multi_agent_text.sh
+```
+
+`SLIME_MAX_TOKENS_PER_GPU` is required because the launcher uses SLIME dynamic batching. Keep `2048` for smoke runs; tune upward only after memory is stable.
 
 ## Repository Map
 

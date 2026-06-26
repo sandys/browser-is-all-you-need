@@ -16,6 +16,8 @@ from rich.console import Console
 from rich.table import Table
 
 from . import benchmarks, upstreams
+from .slime_integration.doctor import run_slime_doctor
+from .slime_integration.setup import DEFAULT_SLIME_IMAGE, build_slime_setup_plan, write_slime_setup_files
 from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
@@ -76,6 +78,7 @@ from .sky_config import (
 
 app = typer.Typer(help="Command and control for C++ performance RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
+slime_app = typer.Typer(help="Inspect and operate the pinned SLIME upstream sidecar.")
 data_app = typer.Typer(help="Download, convert, validate, and cache training datasets.")
 data_pie_app = typer.Typer(help="Prepare PIE C++ data.")
 data_supercoder_app = typer.Typer(help="Download and inspect SuperCoder reference data.")
@@ -92,6 +95,7 @@ ops_app = typer.Typer(help="Inspect and manage cloud runs without calling the ba
 eval_app = typer.Typer(help="Aggregate C++ performance-RL evaluation outputs.")
 
 app.add_typer(upstreams_app, name="upstreams")
+app.add_typer(slime_app, name="slime")
 app.add_typer(data_app, name="data")
 data_app.add_typer(data_pie_app, name="pie")
 data_app.add_typer(data_supercoder_app, name="supercoder")
@@ -438,6 +442,79 @@ def upstreams_status() -> None:
     for row in upstreams.status():
         table.add_row(row["key"], row["state"], row["head"], row["pin"], row["path"])
     console.print(table)
+
+
+@slime_app.command("setup")
+def slime_setup(
+    repo_root: Path = typer.Option(
+        Path("."),
+        "--repo-root",
+        help="Repository root containing .cache/upstreams/slime.",
+    ),
+    image: str = typer.Option(
+        DEFAULT_SLIME_IMAGE,
+        "--image",
+        help="Docker image to use for the SLIME quick-start container.",
+    ),
+    container_name: str = typer.Option(
+        "w8-slime",
+        "--container-name",
+        help="Container name for the generated Docker launcher.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite generated launcher/bootstrap scripts if they already exist.",
+    ),
+) -> None:
+    """Generate Docker-first SLIME quick-start scripts for this repo checkout."""
+
+    upstreams.clone_or_update("slime", repo_root=repo_root)
+    plan = build_slime_setup_plan(repo_root, image=image, container_name=container_name)
+    launcher_path, bootstrap_path = write_slime_setup_files(plan, force=force)
+
+    report = run_slime_doctor(repo_root)
+    if not report.ok:
+        console.print("slime_clone_status: missing_or_incomplete")
+        if report.next_action:
+            console.print(f"next_action: {report.next_action}")
+        raise typer.Exit(1)
+
+    console.print("SLIME setup files generated")
+    console.print(f"slime_root: {report.root}")
+    console.print(f"docker_image: {plan.image}")
+    console.print(f"repo_mount: {plan.repo_mount}")
+    console.print(f"launcher: {launcher_path}")
+    console.print(f"bootstrap: {bootstrap_path}")
+    console.print("next_steps:")
+    console.print(f"  1. run {launcher_path}")
+    console.print("     this does docker pull + docker run + in-container bootstrap")
+    console.print(f"  2. optional manual in-container rerun: {plan.bootstrap_command}")
+
+
+@slime_app.command("doctor")
+def slime_doctor(
+    repo_root: Path = typer.Option(
+        Path("."),
+        "--repo-root",
+        help="Repository root containing .cache/upstreams/slime.",
+    ),
+) -> None:
+    """Validate the pinned SLIME upstream clone and top-level layout."""
+
+    report = run_slime_doctor(repo_root)
+    table = Table(title="SLIME upstream doctor")
+    table.add_column("Path")
+    table.add_column("Status")
+    table.add_column("Detail")
+    for check in report.checks:
+        table.add_row(check.path, check.status, check.detail)
+    console.print(table)
+    console.print(f"slime_root: {report.root}")
+    if not report.ok:
+        if report.next_action:
+            console.print(f"next_action: {report.next_action}")
+        raise typer.Exit(1)
 
 
 @data_app.command("doctor")
