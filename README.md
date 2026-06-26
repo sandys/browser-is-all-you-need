@@ -106,6 +106,88 @@ The command logs:
 
 Run records persist MLflow identifiers in `.w8-biayn/osworld/runs/<run_id>/record.json` so `w8-biayn osworld status` can be extended later with IDs if needed.
 
+### Qwen2.5-VL-7B OSWorld Baseline
+
+The pre-ScaleCUA baseline completed on the remote `pipeshift` server on June 25, 2026. The run used screenshot-only input and enabled proxy support for proxy-required OSWorld tasks.
+
+Model and serving settings:
+
+- Model: `Qwen/Qwen2.5-VL-7B-Instruct`
+- Server: `vllm`
+- vLLM URL: `http://127.0.0.1:8001/v1`
+- API key: `EMPTY`
+- vLLM workaround: `VLLM_USE_FLASHINFER_SAMPLER=0`
+- MLflow tracking URI: `file:///home/pipeshift/browser-is-all-you-need-fork/.w8-biayn/mlruns`
+- MLflow experiment: `osworld-benchmarks`
+- MLflow run name: `qwen25vl7b-baseline-full`
+
+Benchmark settings:
+
+- Benchmark: OSWorld full benchmark
+- Observation type: `screenshot`
+- Accessibility tree: not used
+- Action space: OSWorld `pyautogui`
+- Provider: OSWorld `docker`
+- Proxy: enabled with `--enable-proxy`
+- Max steps: repo default, `15`
+- Max tokens: repo default, `256`
+- Max trajectory length: repo default, `1`
+
+Server command:
+
+```bash
+cd ~/browser-is-all-you-need-fork
+source .venv/bin/activate
+VLLM_USE_FLASHINFER_SAMPLER=0 vllm serve "Qwen/Qwen2.5-VL-7B-Instruct" \
+  --host 0.0.0.0 \
+  --port 8001
+```
+
+Benchmark command:
+
+```bash
+cd ~/browser-is-all-you-need-fork
+source .venv/bin/activate
+MLFLOW_ALLOW_FILE_STORE=true uv run --with mlflow w8-biayn osworld benchmark \
+  --model "Qwen/Qwen2.5-VL-7B-Instruct" \
+  --base-url http://127.0.0.1:8001/v1 \
+  --api-key EMPTY \
+  --observation-type screenshot \
+  --enable-proxy \
+  --mlflow-tracking-uri file:///home/pipeshift/browser-is-all-you-need-fork/.w8-biayn/mlruns \
+  --mlflow-experiment osworld-benchmarks \
+  --mlflow-run-name qwen25vl7b-baseline-full \
+  --mlflow-tag model=Qwen2.5-VL-7B-Instruct \
+  --mlflow-tag benchmark=osworld \
+  --mlflow-tag observation=screenshot
+```
+
+Final aggregate result:
+
+- Domains: `10`
+- Tasks: `369`
+- Completed: `361`
+- Successes: `12`
+- Failures: `349`
+- Average score: `0.036`
+
+Per-domain result:
+
+| Domain | Run ID | Tasks | Completed | Successes | Failures | Average |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `chrome` | `osworld-20260624-131310-533608` | 46 | 46 | 4 | 42 | 0.087 |
+| `gimp` | `osworld-20260624-150814-818640` | 26 | 26 | 0 | 26 | 0.000 |
+| `libreoffice_calc` | `osworld-20260624-161522-103820` | 47 | 47 | 0 | 47 | 0.000 |
+| `libreoffice_impress` | `osworld-20260624-180322-101621` | 47 | 47 | 0 | 47 | 0.000 |
+| `libreoffice_writer` | `osworld-20260624-195440-299329` | 23 | 23 | 1 | 22 | 0.043 |
+| `multi_apps` | `osworld-20260624-204928-653291` | 101 | 93 | 1 | 92 | 0.020 |
+| `os` | `osworld-20260625-010615-650358` | 24 | 24 | 3 | 21 | 0.125 |
+| `thunderbird` | `osworld-20260625-020358-693358` | 15 | 15 | 1 | 14 | 0.067 |
+| `vlc` | `osworld-20260625-024322-796493` | 17 | 17 | 1 | 16 | 0.059 |
+| `vs_code` | `osworld-20260625-033643-969524` | 23 | 23 | 1 | 22 | 0.043 |
+
+The final domain record is `.w8-biayn/osworld/runs/osworld-20260625-033643-969524/record.json`; earlier domain records are under their corresponding `.w8-biayn/osworld/runs/<run_id>/record.json` directories. Future ScaleCUA SFT or RL comparisons should keep the same OSWorld benchmark command and screenshot-only setting unless the experiment intentionally changes the observation space.
+
 ## Custom OSWorld Tasks
 
 The repo now tracks custom deterministic OSWorld-style tasks under `src/w8_biayn/osworld_custom/tasks/`. Use the dedicated CLI namespace to inspect, validate, and smoke them before RL work:
