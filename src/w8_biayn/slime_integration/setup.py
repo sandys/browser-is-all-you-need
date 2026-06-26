@@ -72,7 +72,7 @@ exec docker run --rm --gpus all --ipc=host --shm-size=16g \\
   -v {repo_root}:{repo_mount} \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -e HOST_REPO_ROOT={repo_mount} \\
-  -it {image} /bin/bash -lc "echo repo_mount={repo_mount}; echo bootstrap={bootstrap_target}; bash {bootstrap_target}"
+  -it {image} /bin/bash -lc "echo repo_mount={repo_mount}; echo bootstrap={bootstrap_target}; bash {bootstrap_target}; exec /bin/bash"
 """
 
 

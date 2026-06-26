@@ -584,6 +584,57 @@ uv run w8-biayn slime setup
 
 The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
 
+### SLIME Multi-Agent Text Example
+
+For a text-only SLIME RL bring-up, use the repo-owned multi-agent wrapper under `examples/slime/multi_agent/`. This avoids the VLM memory/config path and validates the core SLIME loop: DAPO-Math data, Ray, SGLang rollout, reward/logprob processing, and Megatron actor training.
+
+Prepare a tiny slice:
+
+```bash
+uv run python scripts/prepare_dapo_math_dataset.py \
+  --out .w8-biayn/slime/dapo-math-17k \
+  --limit 32
+```
+
+Or prepare the full split:
+
+```bash
+uv run python scripts/prepare_dapo_math_dataset.py \
+  --out .w8-biayn/slime/dapo-math-17k
+```
+
+Start the SLIME container:
+
+```bash
+.w8-biayn/slime/run-container.sh
+```
+
+Then launch the repo-owned wrapper inside the container:
+
+```bash
+cd /workspace/<repo-name>
+
+SLIME_NUM_ROLLOUT=16 \
+SLIME_ROLLOUT_BATCH_SIZE=1 \
+SLIME_N_SAMPLES_PER_PROMPT=2 \
+SLIME_GLOBAL_BATCH_SIZE=2 \
+SLIME_MAX_RESPONSE_LEN=512 \
+SLIME_MAX_CONTEXT_LEN=2048 \
+bash examples/slime/multi_agent/run_multi_agent_text.sh
+```
+
+Optional W&B logging is enabled by passing a key:
+
+```bash
+WANDB_API_KEY=... \
+SLIME_WANDB_PROJECT=slime-multi-agent \
+SLIME_WANDB_GROUP=qwen3-4b-dapo-smoke \
+SLIME_WANDB_RUN_ID=qwen3-4b-dapo-32 \
+bash examples/slime/multi_agent/run_multi_agent_text.sh
+```
+
+`SLIME_MAX_TOKENS_PER_GPU` is optional. Leave it unset to use SLIME's default dynamic batching behavior; set it to a conservative cap such as `2048` only when debugging memory pressure.
+
 ## Repository Map
 
 ```text
