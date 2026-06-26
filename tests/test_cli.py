@@ -1071,3 +1071,23 @@ def test_cli_slime_doctor_accepts_expected_layout(tmp_path):
     assert result.exit_code == 0, result.output
     assert "SLIME upstream doctor" in result.output
     assert "train_async.py" in result.output
+
+
+def test_cli_slime_setup_generates_launcher_and_bootstrap(tmp_path, monkeypatch):
+    root = tmp_path / ".cache" / "upstreams" / "slime"
+    root.mkdir(parents=True)
+    for filename in ("README.md", "train.py", "train_async.py"):
+        (root / filename).write_text("placeholder\n", encoding="utf-8")
+    for dirname in ("slime", "examples", "docs"):
+        (root / dirname).mkdir()
+
+    monkeypatch.setattr("w8_biayn.cli.upstreams.clone_or_update", lambda name, repo_root='.', dry_run=False: root)
+
+    result = CliRunner().invoke(app, ["slime", "setup", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "SLIME setup files generated" in result.output
+    assert "run-container.sh" in result.output
+    assert "bootstrap-inside-container.sh" in result.output
+    assert (tmp_path / ".w8-biayn" / "slime" / "run-container.sh").exists()
+    assert (tmp_path / ".w8-biayn" / "slime" / "bootstrap-inside-container.sh").exists()
