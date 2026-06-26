@@ -487,8 +487,9 @@ def slime_setup(
     console.print(f"launcher: {launcher_path}")
     console.print(f"bootstrap: {bootstrap_path}")
     console.print("next_steps:")
-    console.print(f"  1. {launcher_path}")
-    console.print(f"  2. {plan.bootstrap_command}")
+    console.print(f"  1. run {launcher_path}")
+    console.print("     this does docker pull + docker run + in-container bootstrap")
+    console.print(f"  2. optional manual in-container rerun: {plan.bootstrap_command}")
 
 
 @slime_app.command("doctor")

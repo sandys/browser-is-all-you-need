@@ -578,10 +578,9 @@ Generate the Docker-first quick-start launcher plus the in-container bootstrap h
 ```bash
 uv run w8-biayn slime setup
 .w8-biayn/slime/run-container.sh
-bash /workspace/$(basename "$PWD")/.w8-biayn/slime/bootstrap-inside-container.sh
 ```
 
-`slime setup` refreshes the pinned upstream, writes `.w8-biayn/slime/run-container.sh`, and writes `.w8-biayn/slime/bootstrap-inside-container.sh`. The launcher follows the upstream quick-start container flow, mounts this repo into `/workspace/<repo-name>`, mounts `/var/run/docker.sock` for the Docker sandbox backend, and leaves the final `git pull && pip install -e . --no-deps && python train.py --help` bootstrap as an explicit in-container step.
+`slime setup` refreshes the pinned upstream, writes `.w8-biayn/slime/run-container.sh`, and writes `.w8-biayn/slime/bootstrap-inside-container.sh`. The launcher now follows the upstream quick-start Docker flow end-to-end: it does `docker pull`, starts the container with this repo mounted at `/workspace/<repo-name>`, mounts `/var/run/docker.sock` for the Docker sandbox backend, and then runs the in-container bootstrap (`export PYTHONPATH=/root/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}} && cd /root/slime && git pull && pip install -e . --no-deps && python train.py --help`). That `PYTHONPATH` export is required because the image contains `/root/Megatron-LM` but does not expose it by default, and `slime/train.py` imports `megatron.training`. The bootstrap script is still written separately so it can be rerun manually inside the container if needed.
 
 The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
 

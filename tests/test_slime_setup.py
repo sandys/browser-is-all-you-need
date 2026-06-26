@@ -31,6 +31,8 @@ def test_write_slime_setup_files_creates_docker_launcher_and_bootstrap(tmp_path:
     assert "--name slime-test" in launcher
     assert "-v /var/run/docker.sock:/var/run/docker.sock" in launcher
     assert f"-v {repo_root}:{plan.repo_mount}" in launcher
+    assert "bash /workspace/pipe-slime/.w8-biayn/slime/bootstrap-inside-container.sh" in launcher
+    assert "export PYTHONPATH=/root/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}}" in bootstrap
     assert "cd /root/slime" in bootstrap
     assert "pip install -e . --no-deps" in bootstrap
     assert "python train.py --help >/tmp/slime-train-help.txt" in bootstrap
