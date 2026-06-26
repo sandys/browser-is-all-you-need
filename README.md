@@ -546,6 +546,7 @@ Pinned upstream clones live under `.cache/upstreams/`:
 - `rllm`
 - `pie-perf`
 - `LearningOpt-pie`
+- `slime`
 
 Use:
 
@@ -555,6 +556,24 @@ uv run w8-biayn upstreams status
 ```
 
 Do not vendor upstream repos, CodeNet, PIE archives, generated tests, gem5 outputs, datasets, checkpoints, or credentials.
+
+## SLIME Sidecar Setup
+
+SLIME is integrated as a pinned upstream sidecar under `.cache/upstreams/slime`. It is cloneable and inspectable from this repo, but it does not replace the default C++ performance-RL path through SkyRL/rLLM. Keep SLIME source and generated runtime state out of git.
+
+Clone or refresh the pinned checkout:
+
+```bash
+uv run w8-biayn upstreams clone slime
+```
+
+Validate the local SLIME checkout:
+
+```bash
+uv run w8-biayn slime doctor
+```
+
+The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`. Example-specific setup should be added separately after the base SLIME checkout is healthy.
 
 ## Repository Map
 
