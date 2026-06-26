@@ -176,14 +176,20 @@ OPTIMIZER_ARGS=(
 
 WANDB_ARGS=()
 WANDB_KEY="${WANDB_API_KEY:-${WANDB_KEY:-}}"
-if [ -n "${WANDB_KEY}" ]; then
+WANDB_ALREADY_LOGGED_IN=0
+if [ -f "${HOME}/.netrc" ] || [ -f "${HOME}/.config/wandb/settings" ]; then
+  WANDB_ALREADY_LOGGED_IN=1
+fi
+if [ -n "${WANDB_KEY}" ] || [ "${WANDB_ALREADY_LOGGED_IN}" = "1" ] || [ -n "${SLIME_WANDB_PROJECT:-}" ]; then
   WANDB_ARGS=(
     --use-wandb
     --wandb-project "${SLIME_WANDB_PROJECT:-slime-multi-agent}"
     --wandb-group "${SLIME_WANDB_GROUP:-${MODEL_NAME}-multi-agent}"
-    --wandb-key "${WANDB_KEY}"
     --disable-wandb-random-suffix
   )
+  if [ -n "${WANDB_KEY}" ]; then
+    WANDB_ARGS+=(--wandb-key "${WANDB_KEY}")
+  fi
   if [ -n "${SLIME_WANDB_RUN_ID:-}" ]; then
     WANDB_ARGS+=(--wandb-run-id "${SLIME_WANDB_RUN_ID}")
   fi

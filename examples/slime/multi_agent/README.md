@@ -42,10 +42,9 @@ SLIME_MAX_CONTEXT_LEN=2048 \
 bash examples/slime/multi_agent/run_multi_agent_text.sh
 ```
 
-Optional W&B logging:
+Optional W&B logging, assuming `wandb login` was already run inside the container:
 
 ```bash
-WANDB_API_KEY=... \
 SLIME_WANDB_PROJECT=slime-multi-agent \
 SLIME_WANDB_GROUP=qwen3-4b-dapo-smoke \
 SLIME_WANDB_RUN_ID=qwen3-4b-dapo-32 \

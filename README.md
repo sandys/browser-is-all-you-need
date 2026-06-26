@@ -623,10 +623,9 @@ SLIME_MAX_CONTEXT_LEN=2048 \
 bash examples/slime/multi_agent/run_multi_agent_text.sh
 ```
 
-Optional W&B logging is enabled by passing a key:
+Optional W&B logging is enabled automatically if `wandb login` has already been run inside the container. You can also pass a key explicitly with `WANDB_API_KEY`.
 
 ```bash
-WANDB_API_KEY=... \
 SLIME_WANDB_PROJECT=slime-multi-agent \
 SLIME_WANDB_GROUP=qwen3-4b-dapo-smoke \
 SLIME_WANDB_RUN_ID=qwen3-4b-dapo-32 \
