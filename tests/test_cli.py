@@ -23,6 +23,7 @@ def test_cli_help_exposes_new_surface_only():
     assert "gcp" in result.output
     assert "ops" in result.output
     assert "eval" in result.output
+    assert "slime" in result.output
     assert "domdiff" not in result.output
     assert "harbor" not in result.output
     assert "miniwob" not in result.output
@@ -1047,3 +1048,26 @@ def test_cli_eval_raw_report_writes_markdown_assets_and_curves(tmp_path):
     assert "<svg" in (assets / "train_reward_pass.svg").read_text(encoding="utf-8")
     summary = json.loads((assets / "uplift-summary-recomputed.json").read_text(encoding="utf-8"))
     assert summary["uplift_gate"]["verdict"] == "held_out_lift_but_gate_failed"
+
+
+def test_cli_slime_doctor_reports_missing_clone(tmp_path):
+    result = CliRunner().invoke(app, ["slime", "doctor", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "SLIME upstream clone is absent" in result.output
+    assert "uv run w8-biayn upstreams clone slime" in result.output
+
+
+def test_cli_slime_doctor_accepts_expected_layout(tmp_path):
+    root = tmp_path / ".cache" / "upstreams" / "slime"
+    root.mkdir(parents=True)
+    for filename in ("README.md", "train.py", "train_async.py"):
+        (root / filename).write_text("placeholder\n", encoding="utf-8")
+    for dirname in ("slime", "examples", "docs"):
+        (root / dirname).mkdir()
+
+    result = CliRunner().invoke(app, ["slime", "doctor", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "SLIME upstream doctor" in result.output
+    assert "train_async.py" in result.output

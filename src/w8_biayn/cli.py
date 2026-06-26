@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import benchmarks, upstreams
+from .slime_integration.doctor import run_slime_doctor
 from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
@@ -76,6 +77,7 @@ from .sky_config import (
 
 app = typer.Typer(help="Command and control for C++ performance RL on rLLM, SkyRL, and GCP.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
+slime_app = typer.Typer(help="Inspect and operate the pinned SLIME upstream sidecar.")
 data_app = typer.Typer(help="Download, convert, validate, and cache training datasets.")
 data_pie_app = typer.Typer(help="Prepare PIE C++ data.")
 data_supercoder_app = typer.Typer(help="Download and inspect SuperCoder reference data.")
@@ -92,6 +94,7 @@ ops_app = typer.Typer(help="Inspect and manage cloud runs without calling the ba
 eval_app = typer.Typer(help="Aggregate C++ performance-RL evaluation outputs.")
 
 app.add_typer(upstreams_app, name="upstreams")
+app.add_typer(slime_app, name="slime")
 app.add_typer(data_app, name="data")
 data_app.add_typer(data_pie_app, name="pie")
 data_app.add_typer(data_supercoder_app, name="supercoder")
@@ -438,6 +441,31 @@ def upstreams_status() -> None:
     for row in upstreams.status():
         table.add_row(row["key"], row["state"], row["head"], row["pin"], row["path"])
     console.print(table)
+
+
+@slime_app.command("doctor")
+def slime_doctor(
+    repo_root: Path = typer.Option(
+        Path("."),
+        "--repo-root",
+        help="Repository root containing .cache/upstreams/slime.",
+    ),
+) -> None:
+    """Validate the pinned SLIME upstream clone and top-level layout."""
+
+    report = run_slime_doctor(repo_root)
+    table = Table(title="SLIME upstream doctor")
+    table.add_column("Path")
+    table.add_column("Status")
+    table.add_column("Detail")
+    for check in report.checks:
+        table.add_row(check.path, check.status, check.detail)
+    console.print(table)
+    console.print(f"slime_root: {report.root}")
+    if not report.ok:
+        if report.next_action:
+            console.print(f"next_action: {report.next_action}")
+        raise typer.Exit(1)
 
 
 @data_app.command("doctor")
