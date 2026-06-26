@@ -573,7 +573,17 @@ Validate the local SLIME checkout:
 uv run w8-biayn slime doctor
 ```
 
-The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`. Example-specific setup should be added separately after the base SLIME checkout is healthy.
+Generate the Docker-first quick-start launcher plus the in-container bootstrap helper:
+
+```bash
+uv run w8-biayn slime setup
+.w8-biayn/slime/run-container.sh
+bash /workspace/$(basename "$PWD")/.w8-biayn/slime/bootstrap-inside-container.sh
+```
+
+`slime setup` refreshes the pinned upstream, writes `.w8-biayn/slime/run-container.sh`, and writes `.w8-biayn/slime/bootstrap-inside-container.sh`. The launcher follows the upstream quick-start container flow, mounts this repo into `/workspace/<repo-name>`, mounts `/var/run/docker.sock` for the Docker sandbox backend, and leaves the final `git pull && pip install -e . --no-deps && python train.py --help` bootstrap as an explicit in-container step.
+
+The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
 
 ## Repository Map
 
