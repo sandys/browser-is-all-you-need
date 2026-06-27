@@ -1,0 +1,4 @@
+{"prompt":"What is 17 + 28? Return only the final integer after a short reasoning step.","label":"45"}
+{"prompt":"A box has 6 rows of 7 bolts. How many bolts are in the box?","label":"42"}
+{"prompt":"Solve for x: 3x + 5 = 26. Return the integer value of x.","label":"7"}
+{"prompt":"If a train travels 60 miles in 2 hours, what is its average speed in miles per hour?","label":"30"}

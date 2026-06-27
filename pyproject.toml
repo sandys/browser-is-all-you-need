@@ -18,6 +18,8 @@ dependencies = [
     "rich>=13.7",
     "tomli>=2.0 ; python_version < '3.11'",
     "typer>=0.12",
+    "sentencepiece",
+    "tiktoken",
 ]
 
 [project.optional-dependencies]
