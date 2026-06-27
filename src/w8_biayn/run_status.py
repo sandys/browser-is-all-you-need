@@ -1,0 +1,3752 @@
+"""Machine-readable run status snapshots for C++ performance-RL operations."""
+
+from __future__ import annotations
+
+import json
+import re
+import socket
+import subprocess
+import tempfile
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .cpp_perf.eval import compare_eval_summaries
+from .mlflow_metrics import read_mlflow_api, read_mlflow_metrics
+
+PIPELINES = ("cpp-sft", "cpp-grpo", "cpp-eval")
+CHECKPOINT_PIPELINES = {"cpp-sft", "cpp-grpo"}
+DEFAULT_COMMAND_TIMEOUT_S = 180
+RENDERED_CONFIG_DIR = Path(".w8-biayn/rendered")
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+STEP_RE = re.compile(r"Step\s+(\d+):")
+LOSS_RE = re.compile(r"Step\s+(\d+):\s+loss=([0-9.eE+-]+)")
+EVAL_LOSS_RE = re.compile(r"Step\s+(\d+):\s+eval_loss=([0-9.eE+-]+)")
+PROGRESS_RE = re.compile(r"(Generating Trajectories|Evaluation Progress):\s+(\d+)%.*?\|\s*(\d+)/(\d+)")
+TRAIN_BATCH_PROGRESS_RE = re.compile(r"Training Batches Processed:\s+(\d+)%.*?\|\s*(\d+)/(\d+)")
+TQDM_TIMING_RE = re.compile(r"\[([^<\]]+)<([^,\]]+)(?:,\s*([^\]]+))?\]")
+STEP_FINISHED_RE = re.compile(r"Finished: 'step', time cost:\s+([0-9.]+)s")
+GENERATE_FINISHED_RE = re.compile(r"Finished: 'generate', time cost:\s+([0-9.]+)s")
+SYNC_FINISHED_RE = re.compile(r"Finished: 'sync_weights', time cost:\s+([0-9.]+)s")
+SAVE_START_RE = re.compile(r"Saving checkpoint at step\s+(\d+)\s+to\s+(\S+)")
+SAVE_DONE_RE = re.compile(r"Checkpoint saved for global_step_(\d+)")
+SAVE_FINISHED_RE = re.compile(r"Finished: 'save_checkpoint'.*time cost:\s+([0-9.]+)s")
+HF_EXPORT_RE = re.compile(
+    r"(Saving final HF model|Saved HF model weights|save_hf_model|HF export)",
+    re.IGNORECASE,
+)
+W8_SETUP_STAGE_RE = re.compile(r"W8_SETUP_STAGE\s+(\{.*\})")
+STAGE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("host_preflight", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"host_preflight"', re.IGNORECASE)),
+    ("container_pull", re.compile(r"(docker pull|Pulling from|Pull complete|Download complete)", re.IGNORECASE)),
+    ("container_start", re.compile(r"\bdocker run\b", re.IGNORECASE)),
+    ("data_restore", re.compile(r"gcloud storage cp --recursive .*datasets/.*/skyrl", re.IGNORECASE)),
+    ("model_stage", re.compile(r"gcloud storage cp --recursive .*runs/.*/exports/.*/policy", re.IGNORECASE)),
+    ("dependency_setup", re.compile(r"(uv sync|pip install|Resolved \d+ packages|Installed \d+ packages|huggingface-hub==)", re.IGNORECASE)),
+    ("mlflow_setup", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"mlflow_setup"', re.IGNORECASE)),
+    ("ray_cluster", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"ray_cluster"', re.IGNORECASE)),
+    ("ray_worker_join", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"ray_worker_join"', re.IGNORECASE)),
+    ("skyrl_entrypoint", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"skyrl_entrypoint"', re.IGNORECASE)),
+    ("worker_init", re.compile(r"(Started a local Ray instance|Initializing process group|Initialized process group|Mesh Ranks)", re.IGNORECASE)),
+    ("ref_model_init", re.compile(r"(FSDPRefWorkerBase\.init_model|\"stage\":\s*\"ref_model_init\")", re.IGNORECASE)),
+    ("policy_model_init", re.compile(r"(FSDPPolicyWorkerBase\.init_model|\"stage\":\s*\"policy_model_init\")", re.IGNORECASE)),
+    ("critic_model_init", re.compile(r"(FSDPCriticWorkerBase\.init_model|\"stage\":\s*\"critic_model_init\")", re.IGNORECASE)),
+    ("model_init", re.compile(r"(Initializing new inference client|init policy/ref/critic models done|create_inference_servers)", re.IGNORECASE)),
+    ("weight_sync", re.compile(r"(init_weight_sync_state|sync_weights|Initialized weight sync state)", re.IGNORECASE)),
+    ("checkpoint_load", re.compile(r"(load_checkpoint|Loading checkpoint|Loaded checkpoint|restore checkpoint)", re.IGNORECASE)),
+    ("checkpoint_stage", re.compile(r"(Started: 'save_checkpoint'|Saving checkpoint at step|Checkpoint saved for global_step_|Finished: 'save_checkpoint')", re.IGNORECASE)),
+    ("eval_generation", re.compile(r"W8 eval generation (start|complete)", re.IGNORECASE)),
+    ("eval_scoring", re.compile(r"W8 eval scoring (start|progress|complete)", re.IGNORECASE)),
+    ("trajectory_generation", re.compile(r"(Generating Trajectories:|Started: 'generate'|Finished: 'generate'|Capping concurrency for generation)", re.IGNORECASE)),
+    ("training", re.compile(r"(Training Batches Processed:|Started: 'step'|Finished: 'step')", re.IGNORECASE)),
+    ("evaluation", re.compile(r"Evaluation Progress:", re.IGNORECASE)),
+    ("hf_export", re.compile(r"(Saving final HF model|save_hf_model|HF export)", re.IGNORECASE)),
+    ("hf_export_done", re.compile(r"Saved HF model weights", re.IGNORECASE)),
+    ("artifact_upload", re.compile(r"gcloud storage cp --recursive (\"?\$W8_ARTIFACT_DIR/exports|/[^ ]+/exports)(\s|\"|$)", re.IGNORECASE)),
+    ("job_complete", re.compile(r"Job finished|SUCCEEDED", re.IGNORECASE)),
+)
+ERROR_RE = re.compile(
+    r"(Traceback \(most recent call last\)|\|\s*ERROR\b|\bERROR:|\b[A-Za-z]*(?:Error|Exception):|\bfailed\b|No space|out of memory|\bkilled\b|CUDA out|ClusterNotUpError|nccl.*(error|failed|timeout)|collective operation timeout|process group watchdog)",
+    re.IGNORECASE,
+)
+BENIGN_ERROR_RE = re.compile(
+    r"(warning: Failed to hardlink files|Downloading nvidia-nccl|Downloaded nvidia-nccl|[+-]\s+nvidia-nccl|weight_sync_backend:\s*nccl|SKYRL_WORKER_NCCL_TIMEOUT_IN_S|Unclosed client session|Unclosed connector|FutureWarning: Tip:.*error message|job will not be killed|echo\s+['\"].*\bfailed\b.*['\"]|(?:^|\)\s*)\s*except\s+Exception:\s*$|Failed to establish connection to the (event\+metrics exporter|metrics exporter) agent|Failed to connect to GCS at address .* within \d+ seconds|Failed to get cluster ID from GCS server: TimedOut|Running out of retries to initialize the metrics agent|cleanup_old_checkpoints.*Failed to remove old checkpoint.*(404|notFound|specified key does not exist)|VINFO scripts\.py:\d+ -- Killed `ray::IDLE)",
+    re.IGNORECASE,
+)
+DISTRIBUTED_STATE_FAILURE_RE = re.compile(
+    r"(NCCL|CUDA|CUBLAS|process group|collective|FSDP|fsdp2_load_full_state_dict|distribute_tensor|scatter|unhandled cuda error)",
+    re.IGNORECASE,
+)
+EXPORT_RECOVERY_STAGES = {"hf_export", "artifact_upload", "export_entrypoint"}
+CHECKPOINT_DIR_RE = re.compile(r"/global_step_(\d+)/?$")
+RANK_RE = re.compile(r"/(model|optim|extra_state)_world_size_(\d+)_rank_(\d+)\.pt$")
+EVAL_RECORD_RE = re.compile(r"/([^/]+)\.records\.jsonl$")
+EVAL_SUMMARY_RE = re.compile(r"/([^/]+)\.summary\.json$")
+EVAL_UPLIFT_SUMMARY_RE = re.compile(r"/uplift-summary\.json$")
+GSUTIL_OBJECT_RE = re.compile(r"^\s*(\d+)\s+(\S+)\s+(gs://\S+)$")
+GSUTIL_TOTAL_RE = re.compile(r"^TOTAL:\s+(\d+)\s+objects?,\s+(\d+)\s+bytes")
+MODEL_WEIGHT_SUFFIXES = (".safetensors", ".bin")
+ACTIVE_JOB_STATUSES = {"RUNNING", "PENDING", "SETTING_UP", "STARTING"}
+TERMINAL_UNHEALTHY_JOB_STATUSES = {"FAILED", "CANCELLED"}
+ACTIVE_INSTANCE_STATUSES = {"RUNNING", "PROVISIONING", "STAGING", "REPAIRING"}
+PROVISIONING_INSTANCE_STATUSES = {"PROVISIONING", "STAGING", "REPAIRING"}
+WORKING_PIPELINE_STATES = {"provisioning", "running", "checkpointing"}
+STAGE_GROUPS = {
+    "host_preflight": "setup",
+    "container_pull": "setup",
+    "container_start": "setup",
+    "data_restore": "setup",
+    "model_stage": "setup",
+    "dependency_setup": "setup",
+    "mlflow_setup": "setup",
+    "ray_cluster": "startup",
+    "ray_worker_join": "startup",
+    "skyrl_entrypoint": "startup",
+    "worker_init": "startup",
+    "ref_model_init": "startup",
+    "policy_model_init": "startup",
+    "critic_model_init": "startup",
+    "model_init": "startup",
+    "checkpoint_load": "startup",
+    "weight_sync": "synchronization",
+    "trajectory_generation": "rollout",
+    "rollout_inference": "rollout",
+    "eval_generation": "evaluation",
+    "eval_scoring": "evaluation",
+    "reward_compile": "reward",
+    "reward_benchmark": "reward",
+    "docker_runtime": "reward",
+    "training": "training",
+    "policy_update": "training",
+    "policy_forward": "training",
+    "evaluation": "evaluation",
+    "checkpoint_stage": "checkpoint",
+    "hf_export": "export",
+    "hf_export_done": "export",
+    "export_entrypoint": "export",
+    "artifact_upload": "artifact",
+    "job_complete": "complete",
+    "failed": "failed",
+}
+STAGE_PRIORITY = {
+    "job_complete": 100,
+    "failed": 95,
+    "hf_export_done": 90,
+    "hf_export": 85,
+    "artifact_upload": 80,
+    "checkpoint_stage": 75,
+    "checkpoint_load": 70,
+    "training": 65,
+    "policy_update": 65,
+    "trajectory_generation": 60,
+    "rollout_inference": 60,
+    "eval_scoring": 58,
+    "eval_generation": 57,
+    "evaluation": 55,
+    "weight_sync": 50,
+    "ref_model_init": 49,
+    "policy_model_init": 49,
+    "critic_model_init": 49,
+    "model_init": 45,
+    "skyrl_entrypoint": 43,
+    "worker_init": 40,
+    "ray_cluster": 39,
+    "ray_worker_join": 39,
+    "dependency_setup": 35,
+    "mlflow_setup": 34,
+    "model_stage": 30,
+    "data_restore": 25,
+    "host_preflight": 23,
+    "container_start": 20,
+    "container_pull": 15,
+}
+STARTUP_LONG_RUNNING_THRESHOLDS_S = {
+    "ref_model_init": 900,
+    "policy_model_init": 900,
+    "critic_model_init": 900,
+    "model_init": 900,
+    "skyrl_entrypoint": 1200,
+}
+DEFAULT_STARTUP_LONG_RUNNING_THRESHOLD_S = 1800
+CONFIG_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("trainer.ckpt_interval", re.compile(r"trainer\.ckpt_interval=([0-9-]+)")),
+    ("trainer.hf_save_interval", re.compile(r"trainer\.hf_save_interval=([0-9-]+)")),
+    ("trainer.max_ckpts_to_keep", re.compile(r"trainer\.max_ckpts_to_keep=([0-9-]+)")),
+    ("trainer.train_batch_size", re.compile(r"trainer\.train_batch_size=([0-9]+)")),
+    ("trainer.micro_train_batch_size_per_gpu", re.compile(r"trainer\.micro_train_batch_size_per_gpu=([0-9]+)")),
+    ("trainer.algorithm.use_kl_loss", re.compile(r"trainer\.algorithm\.use_kl_loss=(true|false)", re.IGNORECASE)),
+    ("trainer.algorithm.kl_loss_coef", re.compile(r"trainer\.algorithm\.kl_loss_coef=([0-9.eE+-]+)")),
+    (
+        "trainer.algorithm.use_entropy_loss",
+        re.compile(r"trainer\.algorithm\.use_entropy_loss=(true|false)", re.IGNORECASE),
+    ),
+    ("trainer.algorithm.entropy_loss_coef", re.compile(r"trainer\.algorithm\.entropy_loss_coef=([0-9.eE+-]+)")),
+    ("trainer.epochs", re.compile(r"trainer\.epochs=([0-9]+)")),
+    ("trainer.placement.policy_num_nodes", re.compile(r"trainer\.placement\.policy_num_nodes=([0-9]+)")),
+    ("trainer.placement.policy_num_gpus_per_node", re.compile(r"trainer\.placement\.policy_num_gpus_per_node=([0-9]+)")),
+    ("trainer.policy.fsdp_config.fsdp_size", re.compile(r"trainer\.policy\.fsdp_config\.fsdp_size=([0-9-]+)")),
+    ("trainer.ref.fsdp_config.fsdp_size", re.compile(r"trainer\.ref\.fsdp_config\.fsdp_size=([0-9-]+)")),
+    ("sft.ckpt_interval", re.compile(r"(?<![\w.])ckpt_interval=([0-9-]+)")),
+    ("sft.hf_save_interval", re.compile(r"(?<![\w.])hf_save_interval=([0-9-]+)")),
+    ("sft.max_ckpts_to_keep", re.compile(r"(?<![\w.])max_ckpts_to_keep=([0-9-]+)")),
+    ("sft.batch_size", re.compile(r"(?<![\w.])batch_size=([0-9]+)")),
+    ("sft.micro_train_batch_size_per_gpu", re.compile(r"(?<![\w.])micro_train_batch_size_per_gpu=([0-9]+)")),
+    ("sft.num_epochs", re.compile(r"(?<![\w.])num_epochs=([0-9]+)")),
+    ("sft.placement.num_nodes", re.compile(r"placement\.num_nodes=([0-9]+)")),
+    ("sft.placement.num_gpus_per_node", re.compile(r"placement\.num_gpus_per_node=([0-9]+)")),
+    ("skyrl.ray_pg_timeout_s", re.compile(r"SKYRL_RAY_PG_TIMEOUT_IN_S(?:=|:-)([0-9]+)")),
+    ("skyrl.worker_nccl_timeout_s", re.compile(r"SKYRL_WORKER_NCCL_TIMEOUT_IN_S(?:=|:-)([0-9]+)")),
+    ("environment.skyrl_gym.max_env_workers", re.compile(r"environment\.skyrl_gym\.max_env_workers=([0-9]+)")),
+    ("generator.n_samples_per_prompt", re.compile(r"generator\.n_samples_per_prompt=([0-9]+)")),
+    ("generator.inference_engine.num_engines", re.compile(r"generator\.inference_engine\.num_engines=([0-9]+)")),
+    (
+        "generator.inference_engine.gpu_memory_utilization",
+        re.compile(r"generator\.inference_engine\.gpu_memory_utilization=([0-9.eE+-]+)"),
+    ),
+)
+METRIC_RE = re.compile(
+    r"['\"]?([A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+|batch_num_seq|batch_padded_seq_len)['\"]?\s*:\s*['\"]?([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+)
+TRAINER_POLICY_METRIC_RE = re.compile(
+    r"['\"](policy_entropy|grad_norm|policy_loss|response_length)['\"]\s*:\s*"
+    r"([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+)
+W8_GRPO_HEALTH_RE = re.compile(r"W8_GRPO_HEALTH\s+({.*})")
+TRAINER_POLICY_METRIC_KEYS = {
+    "policy_entropy": "policy/policy_entropy",
+    "grad_norm": "policy/grad_norm",
+    "policy_loss": "policy/policy_loss",
+    "response_length": "policy/response_length",
+}
+NODE_HEALTH_CMD = (
+    "set +e; "
+    "echo __W8_GPU__; "
+    "nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total "
+    "--format=csv,noheader,nounits; "
+    "echo __W8_DF__; "
+    "df -P -k / /tmp /home/gcpuser; "
+    "echo __W8_PS__; "
+    "ps -eo pid,etimes,pcpu,pmem,cmd --sort=-pcpu | head -20"
+)
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    command: list[str]
+    returncode: int | None
+    stdout: str
+    stderr: str
+    skipped: bool = False
+    timed_out: bool = False
+    attempt_count: int = 1
+
+    @property
+    def ok(self) -> bool | None:
+        if self.skipped:
+            return None
+        return self.returncode == 0
+
+    def check(self, name: str, *, include_stdout: bool = False) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": name,
+            "command": self.command,
+            "ok": self.ok,
+            "returncode": self.returncode,
+            "skipped": self.skipped,
+            "timed_out": self.timed_out,
+            "attempt_count": self.attempt_count,
+        }
+        if include_stdout and self.stdout:
+            payload["stdout_tail"] = _tail(_strip_ansi(self.stdout), 4000)
+        if self.stderr:
+            payload["stderr_tail"] = _tail(_strip_ansi(self.stderr), 2000)
+        return payload
+
+
+def build_run_status(
+    *,
+    run_id: str,
+    project_id: str,
+    artifact_bucket: str,
+    env: dict[str, str],
+    credentials_path: str = ".gcp-service-account.json",
+    dataset_gcs_prefix: str | None = None,
+    pipelines: list[str] | None = None,
+    owner: str = "sss",
+    log_tail: int = 800,
+    job_id: str | None = None,
+    expected_world_size: int = 8,
+    expected_sft_final_step: int | None = None,
+    expected_grpo_final_step: int | None = None,
+    include_node_health: bool = False,
+    baseline_statuses: list[dict[str, Any]] | None = None,
+    command_timeout_s: int = DEFAULT_COMMAND_TIMEOUT_S,
+    command_retries: int = 0,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Build one JSON-serializable status snapshot for a run."""
+
+    selected_pipelines = pipelines or list(PIPELINES)
+    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    instances, instance_check = _gcp_instances(
+        project_id=project_id,
+        run_id=run_id,
+        owner=owner,
+        env=env,
+        timeout_s=command_timeout_s,
+        retries=command_retries,
+        dry_run=dry_run,
+    )
+    dataset = _dataset_stage(
+        dataset_gcs_prefix,
+        env=env,
+        timeout_s=command_timeout_s,
+        retries=command_retries,
+        dry_run=dry_run,
+    )
+    pipeline_payloads = []
+    for pipeline in selected_pipelines:
+        pipeline_payloads.append(
+            _pipeline_status(
+                pipeline=pipeline,
+                run_id=run_id,
+                project_id=project_id,
+                artifact_bucket=artifact_bucket,
+                env=env,
+                instances=[item for item in instances if item.get("labels", {}).get("pipeline") == pipeline],
+                log_tail=log_tail,
+                job_id=job_id,
+                expected_world_size=expected_world_size,
+                expected_final_step=_expected_final_step(
+                    pipeline,
+                    sft=expected_sft_final_step,
+                    grpo=expected_grpo_final_step,
+                ),
+                include_node_health=include_node_health,
+                baseline_statuses=baseline_statuses or [],
+                timeout_s=command_timeout_s,
+                retries=command_retries,
+                dry_run=dry_run,
+            )
+        )
+    active_instances = [item for item in instances if item.get("status") in ACTIVE_INSTANCE_STATUSES]
+    provisioning_instances = [item for item in instances if item.get("status") in PROVISIONING_INSTANCE_STATUSES]
+    active_jobs = [
+        job
+        for pipeline in pipeline_payloads
+        for job in pipeline.get("backend", {}).get("queue", {}).get("jobs", [])
+        if str(job.get("status")).upper() in ACTIVE_JOB_STATUSES
+    ]
+    working_pipelines = [
+        pipeline
+        for pipeline in pipeline_payloads
+        if pipeline.get("state") in WORKING_PIPELINE_STATES
+    ]
+    cleanup = {
+        "safe_to_cleanup": not active_jobs and not provisioning_instances and not working_pipelines,
+        "active_job_count": len(active_jobs),
+        "active_instance_count": len(active_instances),
+        "provisioning_instance_count": len(provisioning_instances),
+        "working_pipeline_count": len(working_pipelines),
+        "commands": {
+            "dry_run": [
+                "uv",
+                "run",
+                "w8-biayn",
+                "gcp",
+                "cleanup",
+                "--run-id",
+                run_id,
+                "--credentials",
+                credentials_path,
+                "--dry-run",
+            ],
+            "execute": [
+                "uv",
+                "run",
+                "w8-biayn",
+                "gcp",
+                "cleanup",
+                "--run-id",
+                run_id,
+                "--credentials",
+                credentials_path,
+                "--execute",
+            ],
+        },
+    }
+    return {
+        "schema_version": "w8-run-status-v1",
+        "generated_at_utc": generated_at,
+        "run_id": run_id,
+        "project_id": project_id,
+        "artifact_bucket": artifact_bucket,
+        "summary": _run_summary(
+            pipelines=pipeline_payloads,
+            dataset=dataset,
+            instances=instances,
+            cleanup=cleanup,
+        ),
+        "dataset": dataset,
+        "pipelines": pipeline_payloads,
+        "gcp": {
+            "instances": instances,
+            "active_instance_count": len(active_instances),
+            "checks": [instance_check],
+        },
+        "cleanup": cleanup,
+    }
+
+
+def _pipeline_status(
+    *,
+    pipeline: str,
+    run_id: str,
+    project_id: str | None = None,
+    artifact_bucket: str,
+    env: dict[str, str],
+    instances: list[dict[str, Any]],
+    log_tail: int,
+    job_id: str | None,
+    expected_world_size: int,
+    expected_final_step: int | None,
+    include_node_health: bool,
+    baseline_statuses: list[dict[str, Any]],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    cluster = f"w8-biayn-{pipeline}-{run_id}"
+    run_gcs_prefix = f"{artifact_bucket}/runs/cpp-perf/{run_id}/{pipeline}"
+    queue, queue_check = _sky_queue(cluster, env=env, timeout_s=timeout_s, retries=retries, dry_run=dry_run)
+    active_job = _select_job(queue, job_id=job_id)
+    selected_log_job_id = job_id
+    if selected_log_job_id is None and isinstance(active_job, dict) and active_job.get("job_id") is not None:
+        selected_log_job_id = str(active_job["job_id"])
+    log_signals, log_check = _log_signals(
+        cluster,
+        job_id=selected_log_job_id,
+        tail=log_tail,
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    log_signals = _with_rendered_config_fallback(pipeline=pipeline, log_signals=log_signals)
+    artifacts = _artifact_status(
+        pipeline=pipeline,
+        run_gcs_prefix=run_gcs_prefix,
+        env=env,
+        expected_world_size=expected_world_size,
+        expected_final_step=expected_final_step,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    tracking = _tracking_status(
+        cluster=cluster,
+        pipeline=pipeline,
+        active_job=active_job,
+        run_gcs_prefix=run_gcs_prefix,
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    log_signals = _with_tracking_metrics(log_signals=log_signals, tracking=tracking)
+    node_health = None
+    progress = _progress_summary(
+        pipeline=pipeline,
+        log_signals=log_signals,
+        artifacts=artifacts,
+        expected_final_step=expected_final_step,
+    )
+    pipeline_state = _derive_pipeline_state(
+        queue=queue,
+        artifacts=artifacts,
+        log_signals=log_signals,
+        instances=instances,
+        tracking=tracking,
+    )
+    progress["startup"] = _startup_progress_summary(
+        node_health=None,
+        tracking=tracking,
+        pipeline_state=pipeline_state,
+        active_job=active_job,
+        instances=instances,
+    )
+    commands = _pipeline_commands(cluster=cluster, job=active_job)
+    payload = {
+        "pipeline": pipeline,
+        "cluster": cluster,
+        "state": pipeline_state,
+        "run_gcs_prefix": run_gcs_prefix,
+        "active_job": active_job,
+        "backend": {
+            "instances": instances,
+            "queue": queue,
+        },
+        "artifacts": artifacts,
+        "tracking": tracking,
+        "logs": log_signals,
+        "phase": _phase_summary(
+            log_signals=log_signals,
+            node_health=None,
+            artifacts=artifacts,
+            active_job=active_job,
+            pipeline_state=pipeline_state,
+            startup=progress.get("startup"),
+        ),
+        "progress": progress,
+        "speed_comparison": _speed_comparison(
+            pipeline=pipeline,
+            current_progress=progress,
+            current_resources=(active_job or {}).get("resources") if isinstance(active_job, dict) else None,
+            baseline_statuses=baseline_statuses,
+        ),
+        "resources": _resource_summary(instances=instances, node_health=None),
+        "commands": commands,
+        "recovery": _recovery_summary(
+            pipeline=pipeline,
+            pipeline_state=pipeline_state,
+            cluster=cluster,
+            active_job=active_job,
+            artifacts=artifacts,
+            log_signals=log_signals,
+            commands=commands,
+        ),
+        "checks": [queue_check, log_check] + list(tracking.get("checks", [])),
+    }
+    if include_node_health:
+        node_health = _node_health(
+            cluster,
+            project_id=project_id,
+            instances=instances,
+            env=env,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+            enabled=bool(instances),
+        )
+        payload["node_health"] = node_health
+        payload["checks"].extend(node_health.pop("checks", []))
+        payload["progress"]["startup"] = _startup_progress_summary(
+            node_health=node_health,
+            tracking=tracking,
+            pipeline_state=pipeline_state,
+            active_job=active_job,
+            instances=instances,
+        )
+        payload["phase"] = _phase_summary(
+            log_signals=log_signals,
+            node_health=node_health,
+            artifacts=artifacts,
+            active_job=active_job,
+            pipeline_state=pipeline_state,
+            startup=payload["progress"].get("startup"),
+        )
+        payload["resources"] = _resource_summary(instances=instances, node_health=node_health)
+    return payload
+
+
+def _dataset_stage(
+    prefix: str | None,
+    *,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    if not prefix:
+        return {
+            "state": "not_configured",
+            "gcs_prefix": None,
+            "manifest": None,
+            "checks": [],
+        }
+    manifest_uri = f"{prefix.rstrip('/')}/_w8_data_manifest.json"
+    manifest_text, manifest_check = _storage_cat(
+        manifest_uri,
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    manifest = _parse_json_payload(manifest_text) if manifest_text else None
+    files = manifest.get("files", []) if isinstance(manifest, dict) else []
+    split_files = {
+        "sft_train": _file_entry(files, "sft/train.jsonl"),
+        "sft_validation": _file_entry(files, "sft/validation.jsonl"),
+        "grpo_train": _file_entry(files, "grpo/train.parquet"),
+        "grpo_validation": _file_entry(files, "grpo/validation.parquet"),
+    }
+    task_counts = {
+        "train": sum(1 for item in files if _manifest_path(item).startswith("tasks/train/")),
+        "validation": sum(1 for item in files if _manifest_path(item).startswith("tasks/validation/")),
+        "test": sum(1 for item in files if _manifest_path(item).startswith("tasks/test/")),
+    }
+    required_present = bool(manifest) and all(split_files.values()) and task_counts["train"] > 0
+    return {
+        "state": "available" if required_present else "missing" if not dry_run else "unknown",
+        "gcs_prefix": prefix.rstrip("/"),
+        "manifest_uri": manifest_uri,
+        "schema_version": manifest.get("schema_version") if isinstance(manifest, dict) else None,
+        "file_count": len(files),
+        "task_counts": task_counts,
+        "split_files": split_files,
+        "checks": [manifest_check],
+    }
+
+
+def _artifact_status(
+    *,
+    pipeline: str,
+    run_gcs_prefix: str,
+    env: dict[str, str],
+    expected_world_size: int,
+    expected_final_step: int | None,
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"run_gcs_prefix": run_gcs_prefix, "checks": []}
+    if pipeline in CHECKPOINT_PIPELINES:
+        ckpt_prefix = f"{run_gcs_prefix}/ckpts"
+        marker_text, marker_check = _storage_cat(
+            f"{ckpt_prefix}/latest_ckpt_global_step.txt",
+            env=env,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+        )
+        checkpoint_listing, checkpoint_check = _storage_ls(
+            f"{ckpt_prefix}/",
+            env=env,
+            long=False,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+        )
+        marker = _parse_marker(marker_text)
+        checkpoint_steps = sorted(
+            {int(match.group(1)) for line in checkpoint_listing.splitlines() if (match := CHECKPOINT_DIR_RE.search(line))}
+        )
+        highest_step = checkpoint_steps[-1] if checkpoint_steps else None
+        latest_checkpoint = None
+        highest_checkpoint = None
+        in_progress_checkpoint = None
+        if marker is not None:
+            latest_checkpoint = _checkpoint_detail(
+                f"{ckpt_prefix}/global_step_{marker}",
+                env=env,
+                expected_world_size=expected_world_size,
+                timeout_s=timeout_s,
+                retries=retries,
+                dry_run=dry_run,
+            )
+            payload["checks"].extend(latest_checkpoint.pop("checks", []))
+            latest_checkpoint["step"] = marker
+            latest_checkpoint["promoted"] = True
+        if highest_step is not None:
+            if highest_step == marker and latest_checkpoint:
+                highest_checkpoint = dict(latest_checkpoint)
+            else:
+                highest_checkpoint = _checkpoint_detail(
+                    f"{ckpt_prefix}/global_step_{highest_step}",
+                    env=env,
+                    expected_world_size=expected_world_size,
+                    timeout_s=timeout_s,
+                    retries=retries,
+                    dry_run=dry_run,
+                )
+                payload["checks"].extend(highest_checkpoint.pop("checks", []))
+                highest_checkpoint["step"] = highest_step
+                highest_checkpoint["promoted"] = highest_step == marker
+            if highest_step != marker:
+                in_progress_checkpoint = highest_checkpoint
+        payload["checkpoint"] = {
+            "prefix": ckpt_prefix,
+            "latest_marker": marker,
+            "steps": checkpoint_steps,
+            "latest": latest_checkpoint,
+            "highest": highest_checkpoint,
+            "in_progress": in_progress_checkpoint,
+        }
+        payload["checks"].extend([marker_check, checkpoint_check])
+    if pipeline in CHECKPOINT_PIPELINES:
+        export_prefix = f"{run_gcs_prefix}/exports"
+        export_listing, export_check = _storage_ls(
+            f"{export_prefix}/",
+            env=env,
+            long=False,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+        )
+        export_steps = sorted(
+            {int(match.group(1)) for line in export_listing.splitlines() if (match := CHECKPOINT_DIR_RE.search(line))}
+        )
+        final_export_step = expected_final_step if expected_final_step is not None else (export_steps[-1] if export_steps else None)
+        final_export_prefix = f"{export_prefix}/global_step_{final_export_step}/policy" if final_export_step else None
+        final_export_exists = False
+        final_export_detail = None
+        if final_export_prefix:
+            final_export_detail = _export_detail(
+                final_export_prefix,
+                env=env,
+                timeout_s=timeout_s,
+                retries=retries,
+                dry_run=dry_run,
+            )
+            final_export_exists = final_export_detail["complete"]
+        payload["export"] = {
+            "prefix": export_prefix,
+            "steps": export_steps,
+            "expected_final_step": expected_final_step,
+            "final_export_step": final_export_step,
+            "final_export_prefix": final_export_prefix,
+            "final_export_exists": final_export_exists,
+            "final_export": final_export_detail,
+        }
+        payload["checks"].append(export_check)
+        if final_export_detail:
+            payload["checks"].extend(final_export_detail.pop("checks", []))
+    if pipeline == "cpp-eval":
+        eval_listing, eval_check = _storage_ls(
+            f"{run_gcs_prefix}/**",
+            env=env,
+            long=False,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+        )
+        eval_outputs = _eval_output_detail(run_gcs_prefix, eval_listing)
+        if eval_outputs.get("uplift_summary_uri"):
+            summary_text, summary_check = _storage_cat(
+                str(eval_outputs["uplift_summary_uri"]),
+                env=env,
+                timeout_s=timeout_s,
+                retries=retries,
+                dry_run=dry_run,
+            )
+            summary = _parse_json_payload(summary_text) if summary_text else None
+            if isinstance(summary, dict):
+                if not isinstance(summary.get("uplift_gate"), dict):
+                    summaries = summary.get("summaries")
+                    if isinstance(summaries, list):
+                        summary = compare_eval_summaries([item for item in summaries if isinstance(item, dict)])
+                eval_outputs["uplift_summary"] = summary
+                eval_outputs["uplift_gate"] = summary.get("uplift_gate") if isinstance(summary, dict) else None
+            payload["checks"].append(summary_check)
+        payload["eval_outputs"] = eval_outputs
+        payload["checks"].append(eval_check)
+    return payload
+
+
+def _tracking_status(
+    *,
+    cluster: str,
+    pipeline: str,
+    active_job: dict[str, Any] | None,
+    run_gcs_prefix: str,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    if pipeline not in CHECKPOINT_PIPELINES:
+        return {
+            "available": False,
+            "reason": "pipeline_has_no_training_tracking",
+            "backend": "mlflow_tracking_server",
+            "mlflow": {"available": False, "reason": "pipeline_has_no_training_tracking"},
+            "checks": [],
+        }
+    db_uri = f"{run_gcs_prefix}/tracking/mlflow/mlflow.db"
+    checks: list[dict[str, Any]] = []
+    if not dry_run and str((active_job or {}).get("status") or "").upper() in ACTIVE_JOB_STATUSES:
+        api_mlflow, api_checks = _read_tracking_via_tunnel(cluster=cluster, env=env, timeout_s=min(timeout_s, 30))
+        checks.extend(api_checks)
+        if api_mlflow.get("available") is True:
+            return {
+                "available": True,
+                "reason": api_mlflow.get("reason"),
+                "backend": "mlflow_tracking_server",
+                "mlflow": api_mlflow,
+                "checks": checks,
+            }
+    with tempfile.TemporaryDirectory(prefix="w8-mlflow-") as tempdir:
+        local_db = Path(tempdir) / "mlflow.db"
+        result = _run(
+            ["gcloud", "storage", "cp", db_uri, str(local_db)],
+            env=env,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+        )
+        if result.ok is True:
+            mlflow = read_mlflow_metrics(local_db, last=100)
+        else:
+            mlflow = {
+                "available": False,
+                "reason": "mlflow_db_unavailable" if not dry_run else "dry_run",
+                "backend": "mlflow",
+                "source": {"path": str(local_db), "size_bytes": None, "gcs_uri": db_uri},
+                "latest_step": None,
+                "metric_count": 0,
+                "available_keys": [],
+                "selected_keys": [],
+                "latest": {},
+                "series": {},
+            }
+        source = mlflow.get("source") if isinstance(mlflow.get("source"), dict) else {}
+        source["gcs_uri"] = db_uri
+        mlflow["source"] = source
+    checks.append(result.check(f"gcloud_storage_cp:{db_uri}", include_stdout=False))
+    return {
+        "available": mlflow.get("available") is True,
+        "reason": mlflow.get("reason"),
+        "backend": "mlflow_tracking_server",
+        "mlflow": mlflow,
+        "checks": checks,
+    }
+
+
+def _read_tracking_via_tunnel(*, cluster: str, env: dict[str, str], timeout_s: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    local_port = _free_local_port()
+    command = [
+        "ssh",
+        "-N",
+        "-L",
+        f"127.0.0.1:{local_port}:127.0.0.1:5000",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=30",
+        cluster,
+    ]
+    check: dict[str, Any] = {
+        "name": "ssh_tunnel:mlflow_api",
+        "command": command,
+        "ok": False,
+        "returncode": None,
+        "skipped": False,
+        "timed_out": False,
+        "attempt_count": 1,
+    }
+    base_url = f"http://127.0.0.1:{local_port}"
+    payload: dict[str, Any] = {
+        "available": False,
+        "reason": "mlflow_api_unavailable",
+        "backend": "mlflow_api",
+        "tracking_state": "mlflow_api_unavailable",
+        "source": {"base_url": base_url},
+        "latest_step": None,
+        "metric_row_count": 0,
+        "metric_count": 0,
+        "available_keys": [],
+        "selected_keys": [],
+        "latest": {},
+        "series": {},
+    }
+    proc = subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + timeout_s
+    try:
+        while time.monotonic() < deadline:
+            returncode = proc.poll()
+            if returncode is not None:
+                check["returncode"] = returncode
+                _, stderr = proc.communicate(timeout=1)
+                if stderr:
+                    check["stderr_tail"] = stderr[-2000:]
+                payload["reason"] = f"ssh_tunnel_failed:{returncode}"
+                payload["tracking_state"] = payload["reason"]
+                return payload, [check]
+            payload = read_mlflow_api(base_url, last=100, timeout_s=3.0)
+            if payload.get("available") is True:
+                check["ok"] = True
+                return payload, [check]
+            time.sleep(0.5)
+        check["timed_out"] = True
+        payload["reason"] = "mlflow_api_tunnel_timeout"
+        payload["tracking_state"] = "mlflow_api_tunnel_timeout"
+        return payload, [check]
+    finally:
+        _stop_process(proc)
+
+
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _stop_process(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
+
+
+def _with_tracking_metrics(*, log_signals: dict[str, Any], tracking: dict[str, Any]) -> dict[str, Any]:
+    mlflow = tracking.get("mlflow") if isinstance(tracking.get("mlflow"), dict) else {}
+    if mlflow.get("available") is not True:
+        return log_signals
+    payload = dict(log_signals)
+    params = mlflow.get("params") if isinstance(mlflow.get("params"), dict) else {}
+    compact_params = {
+        "count": params.get("count"),
+        "selected": params.get("selected") if isinstance(params.get("selected"), dict) else {},
+    }
+    payload["tracking"] = {
+        "backend": tracking.get("backend"),
+        "available": True,
+        "mlflow": {
+            "available": True,
+            "tracking_state": mlflow.get("tracking_state"),
+            "latest_step": mlflow.get("latest_step"),
+            "run": mlflow.get("run"),
+            "params": compact_params,
+            "metric_count": mlflow.get("metric_count"),
+            "metric_row_count": mlflow.get("metric_row_count"),
+            "selected_keys": mlflow.get("selected_keys"),
+            "source": mlflow.get("source"),
+        },
+    }
+    mlflow_config = _mlflow_params_config(compact_params.get("selected"))
+    if mlflow_config:
+        config = dict(payload.get("config") if isinstance(payload.get("config"), dict) else {})
+        config.update(mlflow_config)
+        payload["config"] = config
+        sources = list(payload.get("config_sources") if isinstance(payload.get("config_sources"), list) else [])
+        if "mlflow_params" not in sources:
+            sources.append("mlflow_params")
+        payload["config_sources"] = sources
+    metrics = dict(payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {})
+    latest = mlflow.get("latest") if isinstance(mlflow.get("latest"), dict) else {}
+    for key, item in latest.items():
+        if not isinstance(item, dict):
+            continue
+        value = _to_float(item.get("value"))
+        if value is not None:
+            _record_metric(metrics, str(key), value)
+    payload["metrics"] = metrics
+    payload["metrics_source"] = "logs+mlflow" if log_signals.get("metrics") else "mlflow"
+
+    series = mlflow.get("series") if isinstance(mlflow.get("series"), dict) else {}
+    tracking_events = _grpo_health_events_from_mlflow_series(series)
+    if tracking_events:
+        existing = payload.get("grpo_health_events") if isinstance(payload.get("grpo_health_events"), list) else []
+        payload["grpo_health_events"] = (existing + tracking_events)[-100:]
+        existing_policy = (
+            payload.get("policy_health_events") if isinstance(payload.get("policy_health_events"), list) else []
+        )
+        policy_events = [
+            policy_event
+            for event in tracking_events
+            if (policy_event := _policy_event_from_canonical_metrics(event.get("metrics", {})))
+        ]
+        payload["policy_health_events"] = (existing_policy + policy_events)[-100:]
+    return payload
+
+
+def _mlflow_params_config(selected_params: Any) -> dict[str, Any]:
+    if not isinstance(selected_params, dict):
+        return {}
+    config: dict[str, Any] = {}
+    for key, value in selected_params.items():
+        if not isinstance(key, str) or "/" not in key:
+            continue
+        config[key.replace("/", ".")] = value
+    return config
+
+
+def _grpo_health_events_from_mlflow_series(series: dict[str, Any]) -> list[dict[str, Any]]:
+    by_step: dict[int, dict[str, float]] = {}
+    for key, points in series.items():
+        if not isinstance(points, list):
+            continue
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            step = _to_int(point.get("step"))
+            value = _to_float(point.get("value"))
+            if step is None or value is None:
+                continue
+            by_step.setdefault(step, {})[str(key)] = value
+    return [
+        {
+            "schema_version": "w8-grpo-health-v1",
+            "step": step,
+            "metrics": metrics,
+            "source": "mlflow",
+        }
+        for step, metrics in sorted(by_step.items())
+    ]
+
+
+def _eval_output_detail(prefix: str, listing: str) -> dict[str, Any]:
+    objects = _gs_uris(listing)
+    records = []
+    summaries = []
+    uplift_summary_uri = None
+    for uri in objects:
+        if record_match := EVAL_RECORD_RE.search(uri):
+            records.append({"label": record_match.group(1), "uri": uri})
+        if summary_match := EVAL_SUMMARY_RE.search(uri):
+            summaries.append({"label": summary_match.group(1), "uri": uri})
+        if EVAL_UPLIFT_SUMMARY_RE.search(uri):
+            uplift_summary_uri = uri
+    record_labels = {item["label"] for item in records}
+    summary_labels = {item["label"] for item in summaries}
+    return {
+        "prefix": prefix,
+        "objects": objects,
+        "records": records,
+        "summaries": summaries,
+        "labels": sorted(record_labels | summary_labels),
+        "complete_labels": sorted(record_labels & summary_labels),
+        "uplift_summary_uri": uplift_summary_uri,
+        "uplift_summary": None,
+        "uplift_gate": None,
+    }
+
+
+def _export_detail(
+    export_prefix: str,
+    *,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    listing, listing_check = _storage_ls(
+        f"{export_prefix}/",
+        env=env,
+        long=True,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    objects = _gsutil_objects(listing)
+    names = {_basename(item["uri"]) for item in objects}
+    weight_objects = [
+        item
+        for item in objects
+        if isinstance(item.get("uri"), str) and item["uri"].endswith(MODEL_WEIGHT_SUFFIXES)
+    ]
+    total_match = next((GSUTIL_TOTAL_RE.search(line) for line in listing.splitlines() if GSUTIL_TOTAL_RE.search(line)), None)
+    total_objects = int(total_match.group(1)) if total_match else len(objects)
+    total_bytes = int(total_match.group(2)) if total_match else sum(int(item["bytes"]) for item in objects)
+    has_config = "config.json" in names
+    has_tokenizer = "tokenizer.json" in names or "tokenizer.model" in names
+    has_weights = bool(weight_objects)
+    return {
+        "prefix": export_prefix,
+        "object_count": total_objects,
+        "total_bytes": total_bytes,
+        "has_config": has_config,
+        "has_tokenizer": has_tokenizer,
+        "weight_object_count": len(weight_objects),
+        "weight_bytes": sum(int(item["bytes"]) for item in weight_objects),
+        "sample_objects": objects[:20],
+        "complete": listing_check.get("ok") is True and has_config and has_weights,
+        "checks": [listing_check],
+    }
+
+
+def _checkpoint_detail(
+    checkpoint_prefix: str,
+    *,
+    env: dict[str, str],
+    expected_world_size: int,
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    trainer_listing, trainer_check = _storage_ls(
+        f"{checkpoint_prefix}/trainer_state.pt",
+        env=env,
+        long=True,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    policy_listing, policy_check = _storage_ls(
+        f"{checkpoint_prefix}/policy/",
+        env=env,
+        long=True,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    rank_counts = {"model": 0, "optim": 0, "extra_state": 0}
+    world_sizes: dict[str, set[int]] = {"model": set(), "optim": set(), "extra_state": set()}
+    ranks: dict[str, set[int]] = {"model": set(), "optim": set(), "extra_state": set()}
+    total_objects = 0
+    total_bytes = 0
+    for line in policy_listing.splitlines():
+        if total_match := GSUTIL_TOTAL_RE.search(line):
+            total_objects = int(total_match.group(1))
+            total_bytes = int(total_match.group(2))
+        if match := RANK_RE.search(line):
+            kind = match.group(1)
+            world_sizes[kind].add(int(match.group(2)))
+            ranks[kind].add(int(match.group(3)))
+            rank_counts[kind] += 1
+    trainer_present = "trainer_state.pt" in trainer_listing and trainer_check.get("ok") is True
+    model_complete = len(ranks["model"]) >= expected_world_size
+    optim_complete = len(ranks["optim"]) >= expected_world_size
+    return {
+        "prefix": checkpoint_prefix,
+        "trainer_state_present": trainer_present,
+        "expected_world_size": expected_world_size,
+        "rank_counts": rank_counts,
+        "world_sizes": {key: sorted(value) for key, value in world_sizes.items()},
+        "ranks": {key: sorted(value) for key, value in ranks.items()},
+        "total_objects": total_objects,
+        "total_bytes": total_bytes,
+        "resumable": trainer_present and model_complete and optim_complete,
+        "checks": [trainer_check, policy_check],
+    }
+
+
+def _sky_queue(
+    cluster: str,
+    *,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    result = _run(
+        ["sky", "queue", "--output", "json", cluster],
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    parsed = _parse_json_payload(result.stdout)
+    jobs = []
+    if isinstance(parsed, dict):
+        jobs = parsed.get(cluster) or []
+    return (
+        {
+            "cluster": cluster,
+            "jobs": jobs if isinstance(jobs, list) else [],
+            "available": result.ok is True,
+            "error": None if result.ok is True else _tail(result.stderr or result.stdout, 2000),
+        },
+        result.check("sky_queue", include_stdout=False),
+    )
+
+
+def _log_signals(
+    cluster: str,
+    *,
+    job_id: str | None,
+    tail: int,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    args = ["sky", "logs", "--tail", str(tail), "--no-follow", cluster]
+    if job_id is not None:
+        args.append(job_id)
+    result = _run(args, env=env, timeout_s=timeout_s, retries=retries, dry_run=dry_run)
+    lines = [_strip_ansi(line) for line in result.stdout.splitlines()]
+    signals = _extract_log_signals(lines)
+    signals["tail_lines_scanned"] = len(lines)
+    signals["tail_lines_requested"] = tail
+    signals["tail_may_be_truncated"] = result.ok is True and tail > 0 and len(lines) >= tail
+    signals["available"] = result.ok is True
+    signals["error"] = None if result.ok is True else _tail(result.stderr or result.stdout, 2000)
+    return signals, result.check("sky_logs", include_stdout=False)
+
+
+def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
+    last_step = None
+    last_loss = None
+    last_eval_loss = None
+    checkpoint_events: list[dict[str, Any]] = []
+    export_events: list[str] = []
+    errors: list[str] = []
+    stage = None
+    stage_events: list[dict[str, Any]] = []
+    setup_events: list[dict[str, Any]] = []
+    trajectory_progress = None
+    evaluation_progress = None
+    training_progress = None
+    timings: dict[str, Any] = {
+        "step_durations_s": [],
+        "generate_durations_s": [],
+        "sync_weights_durations_s": [],
+        "checkpoint_durations_s": [],
+    }
+    config: dict[str, Any] = {}
+    metrics: dict[str, Any] = {}
+    policy_health_events: list[dict[str, float]] = []
+    grpo_health_events: list[dict[str, Any]] = []
+    for line in lines:
+        if setup_event := _parse_setup_stage_event(line):
+            setup_events.append(setup_event)
+            event_stage = setup_event.get("stage")
+            if isinstance(event_stage, str) and event_stage:
+                stage = event_stage
+                stage_events.append({"stage": event_stage, "line": line, "event": setup_event})
+        stage_matches = _stage_matches(line)
+        if stage_matches:
+            stage = _select_stage(stage_matches)
+            stage_events.append({"stage": stage, "line": line, "matched_stages": stage_matches})
+        _record_config_matches(config, line)
+        if grpo_health_event := _parse_grpo_health_event(line):
+            grpo_health_events.append(grpo_health_event)
+            event_metrics = grpo_health_event.get("metrics")
+            if isinstance(event_metrics, dict):
+                for metric_name, metric_value in event_metrics.items():
+                    numeric = _to_float(metric_value)
+                    if numeric is not None:
+                        _record_metric(metrics, str(metric_name), numeric)
+                if policy_event := _policy_event_from_canonical_metrics(event_metrics):
+                    policy_health_events.append(policy_event)
+        for metric_match in METRIC_RE.finditer(line):
+            _record_metric(metrics, metric_match.group(1), float(metric_match.group(2)))
+        if policy_health_event := _parse_policy_health_event(line):
+            policy_health_events.append(policy_health_event)
+        if step_match := STEP_RE.search(line):
+            last_step = int(step_match.group(1))
+        if loss_match := LOSS_RE.search(line):
+            last_loss = {"step": int(loss_match.group(1)), "loss": float(loss_match.group(2))}
+        if eval_match := EVAL_LOSS_RE.search(line):
+            last_eval_loss = {"step": int(eval_match.group(1)), "eval_loss": float(eval_match.group(2))}
+        if progress_match := PROGRESS_RE.search(line):
+            progress = {
+                "completed": int(progress_match.group(3)),
+                "total": int(progress_match.group(4)),
+                "percent": int(progress_match.group(2)),
+                "line": line,
+            }
+            if progress_match.group(1).lower().startswith("generating"):
+                trajectory_progress = progress
+            else:
+                evaluation_progress = progress
+        if train_progress_match := TRAIN_BATCH_PROGRESS_RE.search(line):
+            training_progress = {
+                "completed": int(train_progress_match.group(2)),
+                "total": int(train_progress_match.group(3)),
+                "percent": int(train_progress_match.group(1)),
+                "line": line,
+            }
+        if save_start := SAVE_START_RE.search(line):
+            checkpoint_events.append(
+                {
+                    "event": "save_started",
+                    "step": int(save_start.group(1)),
+                    "target": save_start.group(2),
+                    "line": line,
+                }
+            )
+        elif save_done := SAVE_DONE_RE.search(line):
+            checkpoint_events.append({"event": "save_completed", "step": int(save_done.group(1)), "line": line})
+        elif save_finished := SAVE_FINISHED_RE.search(line):
+            duration_s = float(save_finished.group(1))
+            timings["last_checkpoint_duration_s"] = duration_s
+            timings["checkpoint_durations_s"].append(duration_s)
+            checkpoint_events.append({"event": "save_finished", "duration_s": duration_s, "line": line})
+        if step_finished := STEP_FINISHED_RE.search(line):
+            duration_s = float(step_finished.group(1))
+            timings["last_step_duration_s"] = duration_s
+            timings["step_durations_s"].append(duration_s)
+        if generate_finished := GENERATE_FINISHED_RE.search(line):
+            duration_s = float(generate_finished.group(1))
+            timings["last_generate_duration_s"] = duration_s
+            timings["generate_durations_s"].append(duration_s)
+        if sync_finished := SYNC_FINISHED_RE.search(line):
+            duration_s = float(sync_finished.group(1))
+            timings["last_sync_weights_duration_s"] = duration_s
+            timings["sync_weights_durations_s"].append(duration_s)
+        if HF_EXPORT_RE.search(line):
+            export_events.append(line)
+        if ERROR_RE.search(line) and not BENIGN_ERROR_RE.search(line):
+            errors.append(line)
+    for key, value in list(timings.items()):
+        if isinstance(value, list):
+            timings[key] = value[-20:]
+    if policy_health_events:
+        for key, value in policy_health_events[-1].items():
+            canonical = TRAINER_POLICY_METRIC_KEYS.get(key)
+            if canonical:
+                metrics[canonical] = int(value) if value.is_integer() else value
+    return {
+        "stage": "failed" if errors else stage,
+        "stage_events": stage_events[-20:],
+        "last_step": last_step,
+        "last_loss": last_loss,
+        "last_eval_loss": last_eval_loss,
+        "trajectory_progress": trajectory_progress,
+        "evaluation_progress": evaluation_progress,
+        "training_progress": training_progress,
+        "checkpoint_events": checkpoint_events[-20:],
+        "export_events": export_events[-20:],
+        "timings": timings,
+        "config": config,
+        "metrics": metrics,
+        "setup_events": setup_events[-50:],
+        "policy_health_events": policy_health_events[-20:],
+        "grpo_health_events": grpo_health_events[-20:],
+        "errors": errors[-20:],
+    }
+
+
+def _parse_setup_stage_event(line: str) -> dict[str, Any] | None:
+    match = W8_SETUP_STAGE_RE.search(line)
+    if match is None:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    stage = payload.get("stage")
+    event = payload.get("event")
+    if not isinstance(stage, str) or not isinstance(event, str):
+        return None
+    if stage == "%s" or event == "%s":
+        return None
+    return payload
+
+
+def _parse_grpo_health_event(line: str) -> dict[str, Any] | None:
+    match = W8_GRPO_HEALTH_RE.search(line)
+    if match is None:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or payload.get("schema_version") != "w8-grpo-health-v1":
+        return None
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        metrics = {}
+    clean_metrics: dict[str, int | float] = {}
+    for key, value in metrics.items():
+        numeric = _to_float(value)
+        if numeric is not None:
+            clean_metrics[str(key)] = int(numeric) if numeric.is_integer() else numeric
+    return {
+        "schema_version": "w8-grpo-health-v1",
+        "step": _to_int(payload.get("step")),
+        "metrics": clean_metrics,
+    }
+
+
+def _policy_event_from_canonical_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+    mapping = {
+        "policy_entropy": "policy/policy_entropy",
+        "grad_norm": "policy/grad_norm",
+        "policy_loss": "policy/policy_loss",
+        "response_length": "policy/response_length",
+    }
+    event: dict[str, float] = {}
+    for event_key, metric_key in mapping.items():
+        numeric = _to_float(metrics.get(metric_key))
+        if numeric is not None:
+            event[event_key] = numeric
+    return event
+
+
+def _with_rendered_config_fallback(*, pipeline: str, log_signals: dict[str, Any]) -> dict[str, Any]:
+    rendered_config, rendered_path = _rendered_config(pipeline)
+    log_config = log_signals.get("config") if isinstance(log_signals.get("config"), dict) else {}
+    sources = []
+    if rendered_config:
+        sources.append("rendered_yaml")
+    if log_config:
+        sources.append("logs")
+    if not rendered_config:
+        if sources:
+            log_signals["config_sources"] = sources
+        return log_signals
+    merged = {**rendered_config, **log_config}
+    payload = dict(log_signals)
+    payload["config"] = merged
+    payload["config_sources"] = sources
+    payload["rendered_config_path"] = str(rendered_path)
+    return payload
+
+
+def _rendered_config(pipeline: str) -> tuple[dict[str, Any], Path | None]:
+    path = RENDERED_CONFIG_DIR / f"{pipeline}.sky.yaml"
+    if not path.exists():
+        return {}, None
+    config: dict[str, Any] = {}
+    try:
+        text = path.read_text()
+    except OSError:
+        return {}, path
+    for line in text.splitlines():
+        _record_config_matches(config, line)
+    return config, path
+
+
+def _record_config_matches(config: dict[str, Any], line: str) -> None:
+    for key, pattern in CONFIG_PATTERNS:
+        if config_match := pattern.search(line):
+            config[key] = _parse_config_value(config_match.group(1))
+
+
+def _parse_policy_health_event(line: str) -> dict[str, float]:
+    event: dict[str, float] = {}
+    for match in TRAINER_POLICY_METRIC_RE.finditer(line):
+        event[match.group(1)] = float(match.group(2))
+    if "policy_entropy" not in event and "grad_norm" not in event and "policy_loss" not in event:
+        return {}
+    return event
+
+
+def _parse_config_value(value: str) -> int | float | bool | str:
+    normalized = value.strip()
+    if normalized.lower() == "true":
+        return True
+    if normalized.lower() == "false":
+        return False
+    try:
+        parsed_float = float(normalized)
+    except ValueError:
+        return normalized
+    if parsed_float.is_integer() and not re.search(r"[.eE]", normalized):
+        return int(parsed_float)
+    return parsed_float
+
+
+def _stage_matches(line: str) -> list[str]:
+    return [stage_name for stage_name, pattern in STAGE_PATTERNS if pattern.search(line)]
+
+
+def _select_stage(matches: list[str]) -> str:
+    return max(matches, key=lambda stage_name: STAGE_PRIORITY.get(stage_name, 0))
+
+
+def _node_health(
+    cluster: str,
+    *,
+    project_id: str | None = None,
+    instances: list[dict[str, Any]] | None = None,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+    enabled: bool,
+) -> dict[str, Any]:
+    if not enabled:
+        check = CommandResult(
+            command=["ssh", cluster, NODE_HEALTH_CMD],
+            returncode=None,
+            stdout="",
+            stderr="",
+            skipped=True,
+        ).check("node_health")
+        return {
+            "available": False,
+            "skipped": True,
+            "reason": "no running instance",
+            "sample_scope": "none",
+            "nodes": [],
+            "checks": [check],
+        }
+    active_instances = [
+        instance
+        for instance in instances or []
+        if instance.get("status") in ACTIVE_INSTANCE_STATUSES and instance.get("name") and instance.get("zone")
+    ]
+    if active_instances and project_id:
+        nodes: list[dict[str, Any]] = []
+        checks: list[dict[str, Any]] = []
+        aggregate_gpus: list[dict[str, Any]] = []
+        aggregate_filesystems: list[dict[str, Any]] = []
+        aggregate_processes: list[dict[str, Any]] = []
+        errors: list[str] = []
+        global_gpu_index = 0
+        for instance in sorted(active_instances, key=lambda item: (_instance_role(item) != "head", str(item.get("name")))):
+            name = str(instance["name"])
+            role = _instance_role(instance)
+            result = _run(
+                [
+                    "gcloud",
+                    "compute",
+                    "ssh",
+                    name,
+                    "--project",
+                    project_id,
+                    "--zone",
+                    str(instance["zone"]),
+                    "--command",
+                    NODE_HEALTH_CMD,
+                ],
+                env=env,
+                timeout_s=timeout_s,
+                retries=retries,
+                dry_run=dry_run,
+            )
+            checks.append(result.check(f"node_health:{name}", include_stdout=False))
+            health = _parse_node_health(result.stdout) if result.ok is True else {
+                "gpus": [],
+                "filesystems": [],
+                "processes": [],
+                "activity": None,
+            }
+            for gpu in health.get("gpus", []):
+                enriched_gpu = {
+                    **gpu,
+                    "global_index": global_gpu_index,
+                    "node_name": name,
+                    "role": role,
+                }
+                aggregate_gpus.append(enriched_gpu)
+                global_gpu_index += 1
+            for filesystem in health.get("filesystems", []):
+                aggregate_filesystems.append({**filesystem, "node_name": name, "role": role})
+            for process in health.get("processes", []):
+                aggregate_processes.append({**process, "node_name": name, "role": role})
+            if result.ok is not True and not result.skipped:
+                errors.append(f"{name}: {_tail(result.stderr or result.stdout, 1000)}")
+            nodes.append(
+                {
+                    "name": name,
+                    "zone": instance.get("zone"),
+                    "role": role,
+                    "sampled": result.ok is True,
+                    "skipped": result.skipped,
+                    "error": None if result.ok is True else _tail(result.stderr or result.stdout, 2000),
+                    "activity": health.get("activity"),
+                    "gpus": health.get("gpus", []),
+                    "filesystems": health.get("filesystems", []),
+                    "processes": health.get("processes", []),
+                    "startup": health.get("startup"),
+                }
+            )
+        sampled_count = sum(1 for node in nodes if node.get("sampled"))
+        sample_scope = (
+            "none"
+            if sampled_count == 0
+            else "all_active"
+            if sampled_count == len(active_instances)
+            else "partial"
+        )
+        return {
+            "available": sampled_count > 0,
+            "skipped": all(node.get("skipped") for node in nodes) if nodes else True,
+            "error": "\n".join(errors) if errors else None,
+            "sample_scope": sample_scope,
+            "sample_note": (
+                "Health is sampled from every active pipeline VM found by labels; "
+                "failed probes remain visible in nodes[] and checks[]."
+            ),
+            "expected_node_count": len(active_instances),
+            "sampled_node_count": sampled_count,
+            "failed_node_count": len(active_instances) - sampled_count,
+            "gpus": aggregate_gpus,
+            "filesystems": aggregate_filesystems,
+            "processes": aggregate_processes,
+            "startup": _startup_summary_from_processes(aggregate_processes),
+            "activity": _select_node_activity([node.get("activity") for node in nodes]),
+            "nodes": nodes,
+            "checks": checks,
+        }
+    result = _run(
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=15",
+            cluster,
+            NODE_HEALTH_CMD,
+        ],
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    health = _parse_node_health(result.stdout)
+    health.update(
+        {
+            "available": result.ok is True,
+            "skipped": result.skipped,
+            "error": None if result.ok is True else _tail(result.stderr or result.stdout, 2000),
+            "sample_scope": "head",
+            "sample_note": "Health is sampled from the cluster SSH entrypoint; worker nodes are not individually probed.",
+            "checks": [result.check("node_health", include_stdout=False)],
+        }
+    )
+    health["nodes"] = [
+        {
+            "role": "head",
+            "sampled": result.ok is True,
+            "activity": health.get("activity"),
+            "gpus": health.get("gpus", []),
+            "filesystems": health.get("filesystems", []),
+            "processes": health.get("processes", []),
+            "startup": health.get("startup"),
+        }
+    ]
+    return health
+
+
+def _instance_role(instance: dict[str, Any]) -> str:
+    labels = instance.get("labels") if isinstance(instance.get("labels"), dict) else {}
+    ray_role = str(labels.get("ray-node-type") or "").lower()
+    if ray_role in {"head", "worker"}:
+        return ray_role
+    skypilot_head = str(labels.get("skypilot-head-node") or "").lower()
+    if skypilot_head == "1":
+        return "head"
+    if skypilot_head == "0":
+        return "worker"
+    name = str(instance.get("name") or "").lower()
+    if "head" in name:
+        return "head"
+    if "worker" in name:
+        return "worker"
+    return "node"
+
+
+def _select_node_activity(activities: list[Any]) -> str | None:
+    stages = [str(activity) for activity in activities if activity]
+    if not stages:
+        return None
+    return max(stages, key=lambda stage_name: STAGE_PRIORITY.get(stage_name, 0))
+
+
+def _parse_node_health(text: str) -> dict[str, Any]:
+    sections = _split_health_sections(text)
+    processes = _parse_process_health(sections.get("__W8_PS__", ""))
+    return {
+        "gpus": _parse_gpu_health(sections.get("__W8_GPU__", "")),
+        "filesystems": _parse_df_health(sections.get("__W8_DF__", "")),
+        "processes": processes,
+        "activity": _derive_node_activity(processes),
+        "startup": _startup_summary_from_processes(processes),
+    }
+
+
+def _split_health_sections(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current = None
+    for line in text.splitlines():
+        stripped = _strip_ansi(line).strip()
+        if stripped in {"__W8_GPU__", "__W8_DF__", "__W8_PS__"}:
+            current = stripped
+            sections[current] = []
+        elif current:
+            sections[current].append(stripped)
+    return {key: "\n".join(value) for key, value in sections.items()}
+
+
+def _parse_gpu_health(text: str) -> list[dict[str, int | None]]:
+    gpus = []
+    for line in text.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 4:
+            continue
+        gpus.append(
+            {
+                "index": _to_int(parts[0]),
+                "utilization_gpu_percent": _to_int(parts[1]),
+                "memory_used_mib": _to_int(parts[2]),
+                "memory_total_mib": _to_int(parts[3]),
+            }
+        )
+    return gpus
+
+
+def _parse_df_health(text: str) -> list[dict[str, Any]]:
+    filesystems = []
+    for line in text.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+        filesystems.append(
+            {
+                "filesystem": parts[0],
+                "blocks_kb": _to_int(parts[1]),
+                "used_kb": _to_int(parts[2]),
+                "available_kb": _to_int(parts[3]),
+                "capacity": parts[4],
+                "mount": parts[5],
+            }
+        )
+    return filesystems
+
+
+def _parse_process_health(text: str) -> list[dict[str, Any]]:
+    processes = []
+    for line in text.splitlines()[1:]:
+        parts = line.split(maxsplit=4)
+        if len(parts) < 5:
+            continue
+        processes.append(
+            {
+                "pid": _to_int(parts[0]),
+                "elapsed_s": _to_int(parts[1]),
+                "cpu_percent": _to_float(parts[2]),
+                "mem_percent": _to_float(parts[3]),
+                "cmd": parts[4],
+            }
+        )
+    return processes
+
+
+def _derive_node_activity(processes: list[dict[str, Any]]) -> str | None:
+    commands = "\n".join(str(process.get("cmd", "")) for process in processes).lower()
+    if "gcloud.py storage cp" in commands and "data/skyrl" in commands:
+        return "data_restore"
+    if "gcloud.py storage cp" in commands and (
+        "models" in commands or "/model" in commands or "/exports" in commands
+    ):
+        return "model_stage"
+    if "gcloud storage rsync" in commands:
+        return "checkpoint_stage"
+    if "save_checkpoint" in commands:
+        return "checkpoint_stage"
+    if "init_model" in commands:
+        return "model_init"
+    if "load_checkpoint" in commands:
+        return "checkpoint_load"
+    if "save_hf_model" in commands:
+        return "hf_export"
+    if "skyrl_sft_export_checkpoint_main" in commands:
+        return "export_entrypoint"
+    if "cc1plus" in commands and ("candidate.cpp" in commands or "reference.cpp" in commands):
+        return "reward_compile"
+    if "./candidate" in commands:
+        return "reward_benchmark"
+    if "w8_runtime_bench.py" in commands:
+        return "reward_benchmark"
+    if "fsdppolicyworkerbase.forward_backward" in commands:
+        return "policy_update"
+    if "fsdppolicyworkerbase.forward" in commands:
+        return "policy_forward"
+    if "vllm::enginecore" in commands:
+        return "rollout_inference"
+    if "cpp_eval_main" in commands:
+        return "evaluation"
+    if "skyrl_cpp_perf_main" in commands or "skyrl_entrypoint" in commands:
+        return "skyrl_startup"
+    if "unpigz" in commands:
+        return "container_pull"
+    if any(
+        "dockerd" in str(process.get("cmd", "")).lower()
+        and float(process.get("cpu_percent") or 0) >= 10.0
+        for process in processes
+    ):
+        return "docker_runtime"
+    return None
+
+
+def _startup_process_stage(command: str) -> str | None:
+    cmd = command.lower()
+    if "fsdprefworkerbase.init_model" in cmd:
+        return "ref_model_init"
+    if "fsdppolicyworkerbase.init_model" in cmd:
+        return "policy_model_init"
+    if "fsdpcriticworkerbase.init_model" in cmd:
+        return "critic_model_init"
+    if "vllm::enginecore" in cmd:
+        return "vllm_engine"
+    if "vllmserveractor" in cmd:
+        return "vllm_actor"
+    if "fsdprefworkerbase" in cmd:
+        return "ref_model_worker"
+    if "fsdppolicyworkerbase" in cmd:
+        return "policy_model_worker"
+    if "skyrl_cpp_perf_main" in cmd or "skyrl_entrypoint" in cmd:
+        return "skyrl_entrypoint"
+    if "ray start --head" in cmd:
+        return "ray_cluster"
+    if "ray start --address" in cmd:
+        return "ray_worker_join"
+    if "uv sync" in cmd or "pip install" in cmd:
+        return "dependency_setup"
+    if "gcloud.py storage cp" in cmd and ("data/skyrl" in cmd or "/model" in cmd or "/exports" in cmd):
+        return _derive_node_activity([{"cmd": command}])
+    return None
+
+
+def _startup_summary_from_processes(processes: list[dict[str, Any]]) -> dict[str, Any]:
+    groups: dict[str, dict[str, Any]] = {}
+    for process in processes:
+        stage = _startup_process_stage(str(process.get("cmd", "")))
+        if not stage:
+            continue
+        group = groups.setdefault(
+            stage,
+            {
+                "stage": stage,
+                "process_count": 0,
+                "max_elapsed_s": None,
+                "avg_elapsed_s": None,
+                "max_cpu_percent": None,
+                "avg_cpu_percent": None,
+                "nodes": set(),
+                "roles": set(),
+                "sample_pids": [],
+            },
+        )
+        group["process_count"] += 1
+        elapsed = _to_float(process.get("elapsed_s"))
+        cpu = _to_float(process.get("cpu_percent"))
+        if elapsed is not None:
+            group.setdefault("_elapsed_values", []).append(elapsed)
+        if cpu is not None:
+            group.setdefault("_cpu_values", []).append(cpu)
+        if elapsed is not None:
+            current_max = _to_float(group.get("max_elapsed_s"))
+            group["max_elapsed_s"] = int(elapsed) if current_max is None else int(max(current_max, elapsed))
+        if cpu is not None:
+            current_max_cpu = _to_float(group.get("max_cpu_percent"))
+            group["max_cpu_percent"] = round(cpu, 3) if current_max_cpu is None else round(max(current_max_cpu, cpu), 3)
+        if process.get("node_name"):
+            group["nodes"].add(str(process["node_name"]))
+        if process.get("role"):
+            group["roles"].add(str(process["role"]))
+        if len(group["sample_pids"]) < 20 and process.get("pid") is not None:
+            group["sample_pids"].append(process.get("pid"))
+
+    normalized_groups = []
+    for group in groups.values():
+        elapsed_values = group.pop("_elapsed_values", [])
+        cpu_values = group.pop("_cpu_values", [])
+        if elapsed_values:
+            group["avg_elapsed_s"] = round(sum(elapsed_values) / len(elapsed_values), 3)
+        if cpu_values:
+            group["avg_cpu_percent"] = round(sum(cpu_values) / len(cpu_values), 3)
+        group["nodes"] = sorted(group["nodes"])
+        group["roles"] = sorted(group["roles"])
+        normalized_groups.append(group)
+
+    normalized_groups.sort(key=lambda item: (STAGE_PRIORITY.get(str(item["stage"]), 0), item["max_elapsed_s"] or 0), reverse=True)
+    active_stage = str(normalized_groups[0]["stage"]) if normalized_groups else None
+    max_elapsed = max(
+        (_to_int(group.get("max_elapsed_s")) or 0 for group in normalized_groups),
+        default=None,
+    )
+    active_elapsed = _to_int(normalized_groups[0].get("max_elapsed_s")) if normalized_groups else None
+    long_running_threshold_s = STARTUP_LONG_RUNNING_THRESHOLDS_S.get(
+        active_stage or "",
+        DEFAULT_STARTUP_LONG_RUNNING_THRESHOLD_S,
+    )
+    return {
+        "available": bool(normalized_groups),
+        "active_stage": active_stage,
+        "active_stage_group": STAGE_GROUPS.get(active_stage, "startup") if active_stage else None,
+        "long_running": bool(active_elapsed is not None and active_elapsed >= long_running_threshold_s),
+        "long_running_threshold_s": long_running_threshold_s if normalized_groups else None,
+        "max_elapsed_s": max_elapsed,
+        "groups": normalized_groups,
+    }
+
+
+def _startup_progress_summary(
+    *,
+    node_health: dict[str, Any] | None,
+    tracking: dict[str, Any] | None,
+    pipeline_state: str | None = None,
+    active_job: dict[str, Any] | None = None,
+    instances: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    startup = (
+        dict(node_health.get("startup"))
+        if isinstance(node_health, dict) and isinstance(node_health.get("startup"), dict)
+        else {"available": False, "reason": "node_health_not_requested_or_unavailable"}
+    )
+    mlflow = tracking.get("mlflow") if isinstance(tracking, dict) and isinstance(tracking.get("mlflow"), dict) else {}
+    metric_count = _to_int(mlflow.get("metric_count")) or 0
+    metric_row_count = _to_int(mlflow.get("metric_row_count")) or 0
+    tracking_state = mlflow.get("tracking_state")
+    scalar_metrics_available = metric_count > 0 or metric_row_count > 0
+    startup["tracking_state"] = tracking_state
+    startup["scalar_metrics_available"] = scalar_metrics_available
+    startup["metric_count"] = metric_count
+    startup["metric_row_count"] = metric_row_count
+    active_stage = startup.get("active_stage")
+    live_backend = _has_live_pipeline_backend(
+        pipeline_state=pipeline_state,
+        active_job=active_job,
+        instances=instances or [],
+    )
+    if startup.get("available") and not scalar_metrics_available:
+        startup["message"] = (
+            f"SkyRL startup is still in {active_stage}; first scalar metric has not been logged."
+            if active_stage
+            else "SkyRL startup activity is visible, but first scalar metric has not been logged."
+        )
+        if startup.get("long_running"):
+            startup["severity"] = "warning"
+            startup["recommended_action"] = "inspect_startup_stage"
+    elif not startup.get("available") and tracking_state == "run_active_no_metrics":
+        if live_backend:
+            startup["message"] = "MLflow run is active with params but no scalar metrics; enable --node-health to identify setup activity."
+            startup["severity"] = "warning"
+            startup["recommended_action"] = "poll_with_node_health"
+        else:
+            startup["message"] = (
+                "MLflow has a run with params but no scalar metrics, and no live backend resources remain; "
+                "the job stopped before the first training metric or logs are unavailable after teardown."
+            )
+            startup["severity"] = "error"
+            startup["recommended_action"] = "inspect_failed_startup_or_relaunch"
+    elif scalar_metrics_available:
+        startup["message"] = "Training has logged scalar metrics; use learning_signal and phase_timing for progress."
+        startup["severity"] = "info"
+    return startup
+
+
+def _tracking_state(tracking: dict[str, Any] | None) -> str | None:
+    mlflow = tracking.get("mlflow") if isinstance(tracking, dict) and isinstance(tracking.get("mlflow"), dict) else {}
+    state = mlflow.get("tracking_state")
+    return str(state) if state is not None else None
+
+
+def _has_live_pipeline_backend(
+    *,
+    pipeline_state: str | None,
+    active_job: dict[str, Any] | None,
+    instances: list[dict[str, Any]],
+) -> bool:
+    job_status = str((active_job or {}).get("status") or "").upper()
+    if job_status in ACTIVE_JOB_STATUSES:
+        return True
+    if pipeline_state in WORKING_PIPELINE_STATES or pipeline_state == "cluster_up":
+        return True
+    return any(str(instance.get("status") or "").upper() in ACTIVE_INSTANCE_STATUSES for instance in instances)
+
+
+def _gcp_instances(
+    *,
+    project_id: str,
+    run_id: str,
+    owner: str,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    label_filter = (
+        "labels.project=w8-biayn AND labels.phase=cpp-perf-rl "
+        f"AND labels.run_id={run_id.lower()} AND labels.owner={owner.lower()}"
+    )
+    result = _run(
+        [
+            "gcloud",
+            "compute",
+            "instances",
+            "list",
+            "--project",
+            project_id,
+            "--filter",
+            label_filter,
+            "--format",
+            "json(name,zone,status,machineType,creationTimestamp,disks[].diskSizeGb,guestAccelerators,labels)",
+        ],
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    parsed = _parse_json_payload(result.stdout)
+    instances = [_normalize_instance(item) for item in parsed] if isinstance(parsed, list) else []
+    return instances, result.check("gcloud_compute_instances", include_stdout=False)
+
+
+def _normalize_instance(item: dict[str, Any]) -> dict[str, Any]:
+    disks = item.get("disks") if isinstance(item.get("disks"), list) else []
+    boot_disk = disks[0] if disks else {}
+    accelerators = item.get("guestAccelerators") if isinstance(item.get("guestAccelerators"), list) else []
+    return {
+        "name": item.get("name"),
+        "zone": _basename(item.get("zone")),
+        "status": item.get("status"),
+        "machine_type": _basename(item.get("machineType")),
+        "disk_size_gb": _to_int(boot_disk.get("diskSizeGb")),
+        "accelerators": [
+            {
+                "type": _basename(accelerator.get("acceleratorType")),
+                "count": _to_int(accelerator.get("acceleratorCount")),
+            }
+            for accelerator in accelerators
+            if isinstance(accelerator, dict)
+        ],
+        "labels": item.get("labels") if isinstance(item.get("labels"), dict) else {},
+        "creation_timestamp": item.get("creationTimestamp"),
+    }
+
+
+def _storage_cat(
+    uri: str,
+    *,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> tuple[str, dict[str, Any]]:
+    result = _run(
+        ["gcloud", "storage", "cat", uri],
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    return result.stdout if result.ok else "", result.check(f"gcloud_storage_cat:{uri}")
+
+
+def _storage_ls(
+    uri: str,
+    *,
+    env: dict[str, str],
+    long: bool,
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> tuple[str, dict[str, Any]]:
+    args = ["gcloud", "storage", "ls", "--format=gsutil"]
+    if long:
+        args.append("-l")
+    args.append(uri)
+    result = _run(args, env=env, timeout_s=timeout_s, retries=retries, dry_run=dry_run)
+    return result.stdout if result.ok else "", result.check(f"gcloud_storage_ls:{uri}", include_stdout=False)
+
+
+def _run(
+    args: list[str],
+    *,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> CommandResult:
+    if dry_run:
+        return CommandResult(command=args, returncode=None, stdout="", stderr="", skipped=True)
+    attempts = max(1, retries + 1)
+    last_timeout: CommandResult | None = None
+    last_result: CommandResult | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            proc = subprocess.run(args, env=env, check=False, capture_output=True, text=True, timeout=timeout_s)
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+            stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+            stderr = stderr + f"\ncommand timed out after {timeout_s}s"
+            last_timeout = CommandResult(
+                command=args,
+                returncode=-1,
+                stdout=stdout,
+                stderr=stderr,
+                timed_out=True,
+                attempt_count=attempt,
+            )
+            continue
+        except OSError as exc:
+            return CommandResult(
+                command=args,
+                returncode=-1,
+                stdout="",
+                stderr=str(exc),
+                attempt_count=attempt,
+            )
+        last_result = CommandResult(
+            command=args,
+            returncode=proc.returncode,
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            attempt_count=attempt,
+        )
+        if proc.returncode == 0 or attempt == attempts:
+            return last_result
+    return last_result or last_timeout or CommandResult(
+        command=args,
+        returncode=-1,
+        stdout="",
+        stderr=f"command timed out after {timeout_s}s",
+        timed_out=True,
+        attempt_count=attempts,
+    )
+
+
+def _derive_pipeline_state(
+    *,
+    queue: dict[str, Any],
+    artifacts: dict[str, Any],
+    log_signals: dict[str, Any],
+    instances: list[dict[str, Any]],
+    tracking: dict[str, Any] | None = None,
+) -> str:
+    jobs = queue.get("jobs") if isinstance(queue.get("jobs"), list) else []
+    statuses = {str(job.get("status")).upper() for job in jobs if isinstance(job, dict)}
+    latest_status = str(jobs[0].get("status")).upper() if jobs and isinstance(jobs[0], dict) else ""
+    instance_statuses = {str(item.get("status")).upper() for item in instances}
+    if instance_statuses & PROVISIONING_INSTANCE_STATUSES:
+        return "provisioning"
+    if statuses & ACTIVE_JOB_STATUSES:
+        return "running"
+    if latest_status in {"FAILED", "CANCELLED"}:
+        return "failed"
+    if log_signals.get("errors"):
+        return "failed"
+    export = artifacts.get("export") if isinstance(artifacts.get("export"), dict) else {}
+    if export.get("final_export_exists"):
+        return "complete"
+    checkpoint = artifacts.get("checkpoint") if isinstance(artifacts.get("checkpoint"), dict) else {}
+    latest_marker = checkpoint.get("latest_marker")
+    checkpoint_events = log_signals.get("checkpoint_events") if isinstance(log_signals.get("checkpoint_events"), list) else []
+    last_checkpoint_event = checkpoint_events[-1] if checkpoint_events else {}
+    if last_checkpoint_event.get("event") == "save_started" and last_checkpoint_event.get("step") != latest_marker:
+        return "checkpointing"
+    if any(item.get("status") == "RUNNING" for item in instances):
+        return "cluster_up"
+    if latest_marker:
+        return "checkpointed"
+    if _tracking_state(tracking) == "run_active_no_metrics" and not (instance_statuses & ACTIVE_INSTANCE_STATUSES):
+        return "failed"
+    if latest_status == "SUCCEEDED":
+        return "succeeded"
+    return "not_started"
+
+
+def _run_summary(
+    *,
+    pipelines: list[dict[str, Any]],
+    dataset: dict[str, Any],
+    instances: list[dict[str, Any]],
+    cleanup: dict[str, Any],
+) -> dict[str, Any]:
+    active = [
+        pipeline
+        for pipeline in pipelines
+        if pipeline.get("state") in WORKING_PIPELINE_STATES
+        or str((pipeline.get("active_job") or {}).get("status", "")).upper() in ACTIVE_JOB_STATUSES
+    ]
+    failed = [
+        pipeline
+        for pipeline in pipelines
+        if pipeline.get("state") == "failed"
+        or str((pipeline.get("active_job") or {}).get("status", "")).upper() in TERMINAL_UNHEALTHY_JOB_STATUSES
+    ]
+    current = active[0] if active else failed[0] if failed else pipelines[0] if pipelines else {}
+    pipeline_states = {str(pipeline.get("state")) for pipeline in pipelines if pipeline.get("state")}
+    if any(state == "failed" for state in pipeline_states):
+        state = "failed"
+    elif active:
+        state = "running"
+    elif pipelines and all(state in {"complete", "succeeded", "checkpointed"} for state in pipeline_states):
+        state = "complete"
+    elif not pipelines:
+        state = "unknown"
+    else:
+        state = "mixed"
+    progress = current.get("progress") if isinstance(current.get("progress"), dict) else {}
+    evaluation_progress = progress.get("evaluation")
+    if not evaluation_progress:
+        evaluation_progress = _run_eval_progress(pipelines)
+    current_resources = current.get("resources") if isinstance(current.get("resources"), dict) else None
+    return {
+        "state": state,
+        "dataset_state": dataset.get("state"),
+        "current_pipeline": current.get("pipeline"),
+        "current_cluster": current.get("cluster"),
+        "current_phase": current.get("phase"),
+        "current_progress": {
+            "primary": progress.get("primary"),
+            "training": progress.get("training"),
+            "trajectory": progress.get("trajectory"),
+            "evaluation": evaluation_progress,
+            "throughput": progress.get("throughput"),
+            "training_health": progress.get("training_health"),
+            "learning_signal": progress.get("learning_signal"),
+            "phase_timing": progress.get("phase_timing"),
+            "tracking": progress.get("tracking"),
+            "startup": progress.get("startup"),
+        },
+        "training_health": progress.get("training_health"),
+        "learning_signal": progress.get("learning_signal"),
+        "speed_comparison": current.get("speed_comparison"),
+        "recovery": current.get("recovery"),
+        "resources": current_resources or _resource_summary(instances=instances, node_health=None),
+        "cleanup_safe": cleanup.get("safe_to_cleanup"),
+    }
+
+
+def _run_eval_progress(pipelines: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for pipeline in pipelines:
+        if pipeline.get("pipeline") != "cpp-eval":
+            continue
+        progress = pipeline.get("progress") if isinstance(pipeline.get("progress"), dict) else {}
+        evaluation = progress.get("evaluation")
+        if isinstance(evaluation, dict):
+            return evaluation
+    return None
+
+
+def _select_job(queue: dict[str, Any], *, job_id: str | None) -> dict[str, Any] | None:
+    jobs = queue.get("jobs") if isinstance(queue.get("jobs"), list) else []
+    selected = None
+    if job_id is not None:
+        selected = next((job for job in jobs if str(job.get("job_id")) == str(job_id)), None)
+    if selected is None:
+        selected = next((job for job in jobs if str(job.get("status")).upper() in ACTIVE_JOB_STATUSES), None)
+    if selected is None and jobs:
+        selected = jobs[0]
+    if not isinstance(selected, dict):
+        return None
+    start_at = _to_float(selected.get("start_at"))
+    end_at = _to_float(selected.get("end_at"))
+    duration_s = None
+    if start_at is not None:
+        duration_s = max(0.0, (end_at if end_at is not None else datetime.now(timezone.utc).timestamp()) - start_at)
+    return {
+        "job_id": selected.get("job_id"),
+        "status": selected.get("status"),
+        "resources": selected.get("resources"),
+        "log_path": selected.get("log_path"),
+        "start_at": selected.get("start_at"),
+        "end_at": selected.get("end_at"),
+        "duration_s": round(duration_s, 3) if duration_s is not None else None,
+        "job_name": selected.get("job_name"),
+    }
+
+
+def _phase_summary(
+    *,
+    log_signals: dict[str, Any],
+    node_health: dict[str, Any] | None,
+    artifacts: dict[str, Any] | None = None,
+    active_job: dict[str, Any] | None = None,
+    pipeline_state: str | None = None,
+    startup: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    log_stage = log_signals.get("stage")
+    node_activity = node_health.get("activity") if isinstance(node_health, dict) else None
+    artifact_activity = _artifact_activity(artifacts=artifacts, active_job=active_job)
+    errors = log_signals.get("errors") if isinstance(log_signals.get("errors"), list) else []
+    terminal_job_failed = str((active_job or {}).get("status") or "").upper() in TERMINAL_UNHEALTHY_JOB_STATUSES
+    startup_failed = (
+        pipeline_state == "failed"
+        and isinstance(startup, dict)
+        and startup.get("recommended_action") == "inspect_failed_startup_or_relaunch"
+    )
+    current = "failed" if errors or terminal_job_failed or startup_failed else node_activity or artifact_activity or log_stage
+    group = STAGE_GROUPS.get(str(current), "unknown") if current else "unknown"
+    source = "logs"
+    if node_activity and not errors:
+        source = "node_health"
+    elif artifact_activity and not errors:
+        source = "artifacts"
+    elif terminal_job_failed and not errors:
+        source = "queue"
+    elif startup_failed and not errors:
+        source = "tracking"
+    elif not current:
+        source = "none"
+    message = _phase_message(current, group)
+    if startup_failed and not errors:
+        message = "MLflow registered the run but no scalar training metrics were recorded before backend resources disappeared."
+    return {
+        "current": current,
+        "group": group,
+        "source": source,
+        "log_stage": log_stage,
+        "node_activity": node_activity,
+        "artifact_activity": artifact_activity,
+        "failed": bool(errors or terminal_job_failed or startup_failed),
+        "message": message,
+    }
+
+
+def _artifact_activity(*, artifacts: dict[str, Any] | None, active_job: dict[str, Any] | None) -> str | None:
+    if not isinstance(active_job, dict) or str(active_job.get("status", "")).upper() not in ACTIVE_JOB_STATUSES:
+        return None
+    if not isinstance(artifacts, dict):
+        return None
+    checkpoint = artifacts.get("checkpoint") if isinstance(artifacts.get("checkpoint"), dict) else {}
+    in_progress = checkpoint.get("in_progress") if isinstance(checkpoint.get("in_progress"), dict) else None
+    if in_progress:
+        return "checkpoint_stage"
+    return None
+
+
+def _phase_message(current: Any, group: str) -> str:
+    if current == "failed":
+        return "A failure signature was found in the scanned logs."
+    if current:
+        return f"Current observable activity is {current} ({group})."
+    return "No active stage was found in the scanned logs."
+
+
+def _recovery_summary(
+    *,
+    pipeline: str,
+    pipeline_state: str,
+    cluster: str,
+    active_job: dict[str, Any] | None,
+    artifacts: dict[str, Any],
+    log_signals: dict[str, Any],
+    commands: dict[str, list[str]],
+) -> dict[str, Any]:
+    if pipeline not in CHECKPOINT_PIPELINES:
+        return {"available": False, "reason": "pipeline_has_no_training_checkpoints"}
+
+    checkpoint = artifacts.get("checkpoint") if isinstance(artifacts.get("checkpoint"), dict) else {}
+    latest = checkpoint.get("latest") if isinstance(checkpoint.get("latest"), dict) else {}
+    latest_step = latest.get("step") or checkpoint.get("latest_marker")
+    latest_resumable = bool(latest.get("resumable"))
+    job_status = str((active_job or {}).get("status") or "").upper()
+    unhealthy_terminal = pipeline_state == "failed" or job_status in TERMINAL_UNHEALTHY_JOB_STATUSES
+    has_errors = bool(log_signals.get("errors"))
+
+    if not unhealthy_terminal and not has_errors:
+        return {
+            "available": False,
+            "reason": "pipeline_not_failed",
+            "checkpoint_resumable": latest_resumable,
+            "resume_checkpoint_step": latest_step,
+        }
+
+    signals = _recovery_signals(log_signals=log_signals)
+    command_hints = {
+        "down": commands.get("down"),
+        "logs": commands.get("logs"),
+    }
+    if latest_resumable and ("distributed_state_failure" in signals or "hf_export_interrupted" in signals):
+        return {
+            "available": True,
+            "recommended_action": "fresh_cluster_resume",
+            "fresh_cluster_recommended": True,
+            "requires_down_before_resume": True,
+            "reason": "resumable_checkpoint_after_distributed_or_export_failure",
+            "signals": signals,
+            "checkpoint_resumable": True,
+            "resume_from": "latest",
+            "resume_checkpoint_step": latest_step,
+            "message": (
+                "Latest checkpoint is resumable, but the failed job shows distributed-state or HF-export "
+                "interruption signals. Tear down the cluster, then relaunch the same w8-biayn launch command "
+                "with --resume-from latest and the same checkpoint/export paths."
+            ),
+            "commands": command_hints,
+        }
+    if latest_resumable:
+        return {
+            "available": True,
+            "recommended_action": "resume_latest",
+            "fresh_cluster_recommended": False,
+            "requires_down_before_resume": False,
+            "reason": "resumable_checkpoint_after_failed_job",
+            "signals": signals,
+            "checkpoint_resumable": True,
+            "resume_from": "latest",
+            "resume_checkpoint_step": latest_step,
+            "message": "Latest checkpoint is resumable. Relaunch with --resume-from latest and the same checkpoint/export paths.",
+            "commands": command_hints,
+        }
+    return {
+        "available": True,
+        "recommended_action": "inspect_artifacts",
+        "fresh_cluster_recommended": False,
+        "requires_down_before_resume": False,
+        "reason": "failed_job_without_resumable_checkpoint",
+        "signals": signals,
+        "checkpoint_resumable": False,
+        "resume_from": None,
+        "resume_checkpoint_step": latest_step,
+        "message": "No promoted resumable checkpoint is available; inspect logs and artifacts before relaunching.",
+        "commands": command_hints,
+    }
+
+
+def _recovery_signals(*, log_signals: dict[str, Any]) -> list[str]:
+    signals: list[str] = []
+    errors = [str(item) for item in log_signals.get("errors", []) if item]
+    if DISTRIBUTED_STATE_FAILURE_RE.search("\n".join(errors)):
+        signals.append("distributed_state_failure")
+    stage = log_signals.get("stage")
+    stage_events = log_signals.get("stage_events") if isinstance(log_signals.get("stage_events"), list) else []
+    saw_export_stage = stage in EXPORT_RECOVERY_STAGES or any(
+        isinstance(item, dict) and item.get("stage") in EXPORT_RECOVERY_STAGES for item in stage_events
+    )
+    export_events = log_signals.get("export_events") if isinstance(log_signals.get("export_events"), list) else []
+    if saw_export_stage or export_events:
+        signals.append("hf_export_interrupted")
+    return signals
+
+
+def _progress_summary(
+    *,
+    pipeline: str,
+    log_signals: dict[str, Any],
+    artifacts: dict[str, Any],
+    expected_final_step: int | None = None,
+) -> dict[str, Any]:
+    timings = log_signals.get("timings") if isinstance(log_signals.get("timings"), dict) else {}
+    config = log_signals.get("config") if isinstance(log_signals.get("config"), dict) else {}
+    metrics = log_signals.get("metrics") if isinstance(log_signals.get("metrics"), dict) else {}
+    grpo_config = _grpo_config_summary(config)
+    sft_config = _sft_config_summary(config)
+    training = _augment_progress(
+        log_signals.get("training_progress"),
+        unit="step",
+        last_duration_s=timings.get("last_step_duration_s"),
+        recent_durations_s=timings.get("step_durations_s"),
+    )
+    if training is None and pipeline == "cpp-sft":
+        training = _sft_step_progress(
+            last_step=log_signals.get("last_step"),
+            metrics=metrics,
+            sft_config=sft_config,
+            expected_final_step=expected_final_step,
+        )
+    trajectory = _augment_progress(
+        log_signals.get("trajectory_progress"),
+        unit="sample",
+        last_duration_s=timings.get("last_generate_duration_s"),
+        recent_durations_s=timings.get("generate_durations_s"),
+    )
+    evaluation = _augment_progress(log_signals.get("evaluation_progress"), unit="eval_batch")
+    if pipeline == "cpp-eval":
+        evaluation = _eval_progress_summary(evaluation=evaluation, artifacts=artifacts)
+    batch_num_seq = _to_float(metrics.get("batch_num_seq"))
+    if training and batch_num_seq:
+        training.setdefault("throughput", {})
+        training["samples_per_step"] = int(batch_num_seq)
+        steps_per_hour = _nested_float(training, "throughput", "items_per_hour")
+        if steps_per_hour is not None:
+            training["throughput"]["samples_per_hour"] = round(steps_per_hour * batch_num_seq, 3)
+    checkpoint = _checkpoint_progress(
+        artifacts=artifacts,
+        completed_step=(training or {}).get("completed") if training else log_signals.get("last_step"),
+        config=config,
+    )
+    throughput = {
+        "training_steps_per_hour": _nested_float(training, "throughput", "items_per_hour") if training else None,
+        "seconds_per_training_step": _nested_float(training, "throughput", "seconds_per_item") if training else None,
+        "rollout_samples_per_second": _nested_float(trajectory, "throughput", "items_per_second") if trajectory else None,
+        "rollout_seconds_per_sample": _nested_float(trajectory, "throughput", "seconds_per_item") if trajectory else None,
+        "rollout_samples_per_hour": _nested_float(trajectory, "throughput", "items_per_hour") if trajectory else None,
+    }
+    if training and training.get("samples_per_step") and throughput["training_steps_per_hour"] is not None:
+        throughput["training_samples_per_hour"] = round(
+            float(training["samples_per_step"]) * float(throughput["training_steps_per_hour"]),
+            3,
+        )
+    gpu_count = _to_float(grpo_config.get("total_gpu_count")) or _to_float(sft_config.get("total_gpu_count"))
+    if gpu_count:
+        if throughput.get("training_samples_per_hour") is not None:
+            throughput["training_samples_per_gpu_hour"] = round(
+                float(throughput["training_samples_per_hour"]) / gpu_count,
+                3,
+            )
+        if throughput.get("rollout_samples_per_second") is not None:
+            throughput["rollout_samples_per_gpu_second"] = round(
+                float(throughput["rollout_samples_per_second"]) / gpu_count,
+                6,
+            )
+    primary = "training_batches" if training else "trajectories" if trajectory else "evaluation" if evaluation else None
+    return {
+        "pipeline": pipeline,
+        "primary": primary,
+        "training": training,
+        "trajectory": trajectory,
+        "evaluation": evaluation,
+        "checkpoint": checkpoint,
+        "timings": timings,
+        "config": config,
+        "grpo_config": grpo_config,
+        "sft_config": sft_config,
+        "metrics": metrics,
+        "tracking": log_signals.get("tracking"),
+        "training_health": _training_health_summary(
+            pipeline=pipeline,
+            metrics=metrics,
+            policy_health_events=log_signals.get("policy_health_events"),
+            checkpoint_artifacts=artifacts.get("checkpoint") if isinstance(artifacts, dict) else None,
+        ),
+        "learning_signal": _learning_signal_summary(
+            pipeline=pipeline,
+            metrics=metrics,
+            grpo_config=grpo_config,
+            grpo_health_events=log_signals.get("grpo_health_events"),
+            checkpoint_artifacts=artifacts.get("checkpoint") if isinstance(artifacts, dict) else None,
+        ),
+        "phase_timing": _phase_timing_summary(metrics=metrics, timings=timings),
+        "bottleneck": _bottleneck_summary(metrics=metrics, timings=timings),
+        "throughput": throughput,
+    }
+
+
+def _eval_progress_summary(*, evaluation: dict[str, Any] | None, artifacts: dict[str, Any]) -> dict[str, Any] | None:
+    outputs = artifacts.get("eval_outputs") if isinstance(artifacts.get("eval_outputs"), dict) else None
+    if not outputs:
+        return evaluation
+    progress = dict(evaluation or {})
+    progress["available"] = True
+    progress["outputs"] = {
+        "labels": outputs.get("labels", []),
+        "complete_labels": outputs.get("complete_labels", []),
+        "record_count": len(outputs.get("records", [])) if isinstance(outputs.get("records"), list) else 0,
+        "summary_count": len(outputs.get("summaries", [])) if isinstance(outputs.get("summaries"), list) else 0,
+        "uplift_summary_uri": outputs.get("uplift_summary_uri"),
+    }
+    gate = outputs.get("uplift_gate")
+    if isinstance(gate, dict):
+        progress["uplift_gate"] = gate
+        progress["formal_uplift_passed"] = gate.get("passed")
+        progress["uplift_verdict"] = gate.get("verdict")
+    else:
+        progress["uplift_gate"] = None
+        progress["formal_uplift_passed"] = None
+        progress["uplift_verdict"] = "uplift_summary_unavailable"
+    return progress
+
+
+def _sft_config_summary(config: dict[str, Any]) -> dict[str, Any]:
+    num_nodes = _to_int(config.get("sft.placement.num_nodes"))
+    gpus_per_node = _to_int(config.get("sft.placement.num_gpus_per_node"))
+    total_gpu_count = None
+    if num_nodes is not None and gpus_per_node is not None:
+        total_gpu_count = num_nodes * gpus_per_node
+    return {
+        "batch_size": _to_int(config.get("sft.batch_size")),
+        "micro_train_batch_size_per_gpu": _to_int(config.get("sft.micro_train_batch_size_per_gpu")),
+        "num_epochs": _to_int(config.get("sft.num_epochs")),
+        "policy_num_nodes": num_nodes,
+        "policy_num_gpus_per_node": gpus_per_node,
+        "total_gpu_count": total_gpu_count,
+        "ckpt_interval": _to_int(config.get("sft.ckpt_interval")),
+        "hf_save_interval": _to_int(config.get("sft.hf_save_interval")),
+        "max_ckpts_to_keep": _to_int(config.get("sft.max_ckpts_to_keep")),
+        "skyrl_ray_pg_timeout_s": _to_int(config.get("skyrl.ray_pg_timeout_s")),
+        "skyrl_worker_nccl_timeout_s": _to_int(config.get("skyrl.worker_nccl_timeout_s")),
+    }
+
+
+def _sft_step_progress(
+    *,
+    last_step: Any,
+    metrics: dict[str, Any],
+    sft_config: dict[str, Any],
+    expected_final_step: int | None,
+) -> dict[str, Any] | None:
+    completed = _to_int(last_step)
+    if completed is None:
+        return None
+    total = _to_int(expected_final_step)
+    payload: dict[str, Any] = {
+        "completed": completed,
+        "total": total,
+        "percent": round(100.0 * completed / total) if total else None,
+        "source": "last_step",
+    }
+    if total:
+        payload["remaining"] = max(total - completed, 0)
+        payload["percent_exact"] = round(100.0 * completed / total, 4)
+    timing: dict[str, Any] = {}
+    step_s = _to_float(metrics.get("timing/step"))
+    if step_s is not None:
+        timing["last_duration_s"] = round(step_s, 6)
+        if total:
+            timing["eta_s"] = round(max(total - completed, 0) * step_s, 3)
+    payload["timing"] = timing
+    payload["throughput"] = _throughput_payload("step", seconds_per_item=step_s, items_per_second=None)
+    batch_size = _to_int(sft_config.get("batch_size"))
+    if batch_size:
+        payload["samples_per_step"] = batch_size
+        steps_per_hour = _nested_float(payload, "throughput", "items_per_hour")
+        if steps_per_hour is not None:
+            payload["throughput"]["samples_per_hour"] = round(steps_per_hour * batch_size, 3)
+    return payload
+
+
+def _grpo_config_summary(config: dict[str, Any]) -> dict[str, Any]:
+    train_batch_size = _to_int(config.get("trainer.train_batch_size"))
+    micro_train_batch_size_per_gpu = _to_int(config.get("trainer.micro_train_batch_size_per_gpu"))
+    n_samples_per_prompt = _to_int(config.get("generator.n_samples_per_prompt"))
+    configured_engines = _to_int(config.get("generator.inference_engine.num_engines"))
+    policy_nodes = _to_int(config.get("trainer.placement.policy_num_nodes"))
+    policy_gpus_per_node = _to_int(config.get("trainer.placement.policy_num_gpus_per_node"))
+    policy_fsdp_size = _to_int(config.get("trainer.policy.fsdp_config.fsdp_size"))
+    ref_fsdp_size = _to_int(config.get("trainer.ref.fsdp_config.fsdp_size"))
+    total_gpu_count = configured_engines
+    if policy_nodes is not None and policy_gpus_per_node is not None:
+        total_gpu_count = policy_nodes * policy_gpus_per_node
+    effective_samples = None
+    if train_batch_size is not None and n_samples_per_prompt is not None:
+        effective_samples = train_batch_size * n_samples_per_prompt
+    samples_per_gpu = None
+    if effective_samples is not None and total_gpu_count:
+        samples_per_gpu = round(effective_samples / total_gpu_count, 6)
+    fsdp_mesh = _fsdp_mesh_shape(
+        total_gpu_count=total_gpu_count,
+        fsdp_size=policy_fsdp_size,
+    )
+    hsdp_active = _hsdp_active(
+        policy_nodes=policy_nodes,
+        policy_gpus_per_node=policy_gpus_per_node,
+        total_gpu_count=total_gpu_count,
+        policy_fsdp_size=policy_fsdp_size,
+        ref_fsdp_size=ref_fsdp_size,
+    )
+    return {
+        "train_batch_size": train_batch_size,
+        "micro_train_batch_size_per_gpu": micro_train_batch_size_per_gpu,
+        "use_kl_loss": _to_bool(config.get("trainer.algorithm.use_kl_loss")),
+        "kl_loss_coef": _to_float(config.get("trainer.algorithm.kl_loss_coef")),
+        "use_entropy_loss": _to_bool(config.get("trainer.algorithm.use_entropy_loss")),
+        "entropy_loss_coef": _to_float(config.get("trainer.algorithm.entropy_loss_coef")),
+        "n_samples_per_prompt": n_samples_per_prompt,
+        "effective_samples_per_step": effective_samples,
+        "policy_num_nodes": policy_nodes,
+        "policy_num_gpus_per_node": policy_gpus_per_node,
+        "total_gpu_count": total_gpu_count,
+        "rollout_engine_count": configured_engines,
+        "vllm_gpu_memory_utilization": _to_float(config.get("generator.inference_engine.gpu_memory_utilization")),
+        "policy_fsdp_size": policy_fsdp_size,
+        "ref_fsdp_size": ref_fsdp_size,
+        "fsdp_mesh_shape": fsdp_mesh,
+        "hsdp_active": hsdp_active,
+        "samples_per_gpu_per_step": samples_per_gpu,
+        "max_env_workers": _to_int(config.get("environment.skyrl_gym.max_env_workers")),
+        "skyrl_ray_pg_timeout_s": _to_int(config.get("skyrl.ray_pg_timeout_s")),
+        "skyrl_worker_nccl_timeout_s": _to_int(config.get("skyrl.worker_nccl_timeout_s")),
+        "max_ckpts_to_keep": _to_int(config.get("trainer.max_ckpts_to_keep")),
+    }
+
+
+def _learning_signal_summary(
+    *,
+    pipeline: str,
+    metrics: dict[str, Any],
+    grpo_config: dict[str, Any],
+    grpo_health_events: Any = None,
+    checkpoint_artifacts: Any = None,
+) -> dict[str, Any]:
+    if pipeline != "cpp-grpo":
+        return {"available": False, "reason": "pipeline_has_no_grpo_learning_signal"}
+
+    reward_metrics = metrics.get("reward") if isinstance(metrics.get("reward"), dict) else {}
+    events = _recent_grpo_health_events(grpo_health_events)
+    avg_final_reward = _to_float(metrics.get("loss/avg_final_rewards"))
+    pass_rate = _max_pass_rate(reward_metrics)
+    train = {
+        "avg_final_reward": avg_final_reward,
+        "avg_raw_reward": _to_float(metrics.get("reward/avg_raw_reward")) or _to_float(reward_metrics.get("avg_raw_reward")),
+        "max_pass_rate": pass_rate,
+        "avg_response_length": _to_float(metrics.get("policy/response_length"))
+        or _to_float(metrics.get("generate/avg_num_tokens")),
+    }
+    policy = {
+        "entropy": _to_float(metrics.get("policy/policy_entropy")),
+        "grad_norm": _to_float(metrics.get("policy/grad_norm")),
+        "policy_loss": _to_float(metrics.get("policy/policy_loss")),
+        "mean_abs_advantage": _to_float(metrics.get("loss/avg_raw_advantages_abs")),
+        "zero_advantage_token_fraction": _to_float(metrics.get("w8/zero_advantage_token_fraction")),
+    }
+    kl_value = _to_float(metrics.get("policy/policy_kl"))
+    entropy_value = policy["entropy"]
+    kl_coef = _to_float(grpo_config.get("kl_loss_coef"))
+    entropy_coef = _to_float(grpo_config.get("entropy_loss_coef"))
+    kl = {
+        "available": kl_value is not None,
+        "policy_kl": kl_value,
+        "loss_term_estimate": round(kl_value * kl_coef, 9) if kl_value is not None and kl_coef is not None else None,
+        "loss_term_source": "metric_times_config" if kl_value is not None and kl_coef is not None else None,
+    }
+    entropy = {
+        "available": entropy_value is not None,
+        "policy_entropy": entropy_value,
+        "loss_term_estimate": round(entropy_value * entropy_coef, 9)
+        if entropy_value is not None and entropy_coef is not None
+        else None,
+        "loss_term_source": "metric_times_config" if entropy_value is not None and entropy_coef is not None else None,
+    }
+    variance = {
+        "available": _to_float(metrics.get("w8/reward_group_variance_mean")) is not None,
+        "reward_group_variance_mean": _to_float(metrics.get("w8/reward_group_variance_mean")),
+        "reward_group_variance_max": _to_float(metrics.get("w8/reward_group_variance_max")),
+        "zero_variance_group_fraction": _to_float(metrics.get("w8/zero_variance_group_fraction")),
+        "reward_group_count": _to_int(metrics.get("w8/reward_group_count")),
+    }
+    validation = _validation_signal(metrics)
+    trends = {
+        "avg_final_reward": _event_trend(events, "loss/avg_final_rewards"),
+        "max_pass_rate": _event_trend(events, _best_event_pass_key(events)),
+        "policy_entropy": _event_trend(events, "policy/policy_entropy"),
+        "grad_norm": _event_trend(events, "policy/grad_norm"),
+        "mean_abs_advantage": _event_trend(events, "loss/avg_raw_advantages_abs"),
+    }
+    history = _learning_history(events)
+    verdict, recommended_action, severity, reasons = _learning_signal_verdict(
+        train=train,
+        policy=policy,
+        variance=variance,
+        validation=validation,
+        checkpoint_resumable=_has_resumable_checkpoint(checkpoint_artifacts),
+    )
+    available = any(
+        value is not None
+        for group in (train, policy)
+        for value in group.values()
+    ) or bool(events)
+    return {
+        "available": available,
+        "reason": None if available else "no_grpo_learning_metrics",
+        "verdict": verdict,
+        "severity": severity,
+        "recommended_action": recommended_action,
+        "reasons": reasons,
+        "train": train,
+        "policy": policy,
+        "kl": kl,
+        "entropy": entropy,
+        "variance": variance,
+        "validation": validation,
+        "trends": trends,
+        "history": history,
+    }
+
+
+def _learning_signal_verdict(
+    *,
+    train: dict[str, Any],
+    policy: dict[str, Any],
+    variance: dict[str, Any],
+    validation: dict[str, Any],
+    checkpoint_resumable: bool,
+) -> tuple[str, str, str, list[str]]:
+    reasons: list[str] = []
+    entropy = _to_float(policy.get("entropy"))
+    grad_norm = _to_float(policy.get("grad_norm"))
+    mean_abs_advantage = _to_float(policy.get("mean_abs_advantage"))
+    avg_reward = _to_float(train.get("avg_final_reward"))
+    pass_rate = _to_float(train.get("max_pass_rate"))
+    zero_variance_fraction = _to_float(variance.get("zero_variance_group_fraction"))
+    low_entropy = entropy is not None and entropy <= 1e-3
+    tiny_gradient = grad_norm is not None and grad_norm <= 0.02
+    tiny_advantage = mean_abs_advantage is not None and mean_abs_advantage <= 0.02
+    high_train_reward = (avg_reward is not None and avg_reward >= 0.5) or (pass_rate is not None and pass_rate >= 0.5)
+    if low_entropy:
+        reasons.append("policy_entropy_near_zero")
+    if tiny_gradient:
+        reasons.append("grad_norm_tiny")
+    if tiny_advantage:
+        reasons.append("mean_abs_advantage_tiny")
+    if zero_variance_fraction is not None and zero_variance_fraction >= 0.75:
+        reasons.append("most_prompt_groups_have_zero_reward_variance")
+    if validation.get("available") is not True:
+        reasons.append("held_out_validation_metrics_missing")
+    elif _validation_lags_train(train=train, validation=validation):
+        reasons.append("held_out_validation_lags_training_reward")
+        return "possible_overfit", "evaluate_checkpoint", "warning", reasons
+    if low_entropy and high_train_reward and (tiny_gradient or tiny_advantage or zero_variance_fraction == 1.0):
+        reasons.append("high_train_reward_but_learning_signal_is_weak")
+        return (
+            "deterministic_convergence_risk",
+            "evaluate_checkpoint" if checkpoint_resumable else "continue_until_checkpoint",
+            "warning",
+            reasons,
+        )
+    if validation.get("available") is True and high_train_reward and not reasons:
+        return "learning_signal_ok", "continue", "ok", reasons
+    if high_train_reward and validation.get("available") is not True:
+        return "needs_validation", "evaluate_checkpoint" if checkpoint_resumable else "continue_until_eval", "warning", reasons
+    if not reasons:
+        return "insufficient_signal", "continue_monitoring", "ok", reasons
+    return "watch", "continue_monitoring", "warning", reasons
+
+
+def _validation_lags_train(*, train: dict[str, Any], validation: dict[str, Any]) -> bool:
+    pass_rate = _to_float(train.get("max_pass_rate"))
+    validation_pass = _to_float(validation.get("max_pass_rate"))
+    if pass_rate is not None and validation_pass is not None and pass_rate - validation_pass >= 0.25:
+        return True
+    train_reward = _to_float(train.get("avg_final_reward")) or _to_float(train.get("avg_raw_reward"))
+    validation_score = _to_float(validation.get("max_avg_score"))
+    return train_reward is not None and validation_score is not None and train_reward - validation_score >= 0.25
+
+
+def _validation_signal(metrics: dict[str, Any]) -> dict[str, Any]:
+    datasets: dict[str, dict[str, float]] = {}
+    for key, value in metrics.items():
+        if not isinstance(key, str) or not key.startswith("eval/"):
+            continue
+        parts = key.split("/", 2)
+        if len(parts) != 3:
+            continue
+        numeric = _to_float(value)
+        if numeric is None:
+            continue
+        datasets.setdefault(parts[1], {})[parts[2]] = numeric
+    pass_rates = [
+        value
+        for dataset in datasets.values()
+        for key, value in dataset.items()
+        if key.startswith("pass_at_")
+    ]
+    avg_scores = [dataset["avg_score"] for dataset in datasets.values() if "avg_score" in dataset]
+    return {
+        "available": bool(datasets),
+        "datasets": datasets,
+        "max_pass_rate": max(pass_rates) if pass_rates else None,
+        "max_avg_score": max(avg_scores) if avg_scores else None,
+    }
+
+
+def _recent_grpo_health_events(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    events = []
+    for item in value:
+        if isinstance(item, dict) and isinstance(item.get("metrics"), dict):
+            events.append(item)
+    return events
+
+
+def _event_trend(events: list[dict[str, Any]], metric_key: str | None) -> dict[str, Any]:
+    if not metric_key:
+        return {"available": False, "reason": "metric_key_unavailable"}
+    series = []
+    for event in events:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        value = _to_float(metrics.get(metric_key))
+        step = _to_int(event.get("step"))
+        if value is not None:
+            series.append({"step": step, "value": value})
+    if len(series) < 2:
+        return {"available": False, "reason": "fewer_than_two_points", "points": series[-5:]}
+    first = series[0]
+    last = series[-1]
+    step_delta = (
+        int(last["step"]) - int(first["step"])
+        if first.get("step") is not None and last.get("step") is not None
+        else len(series) - 1
+    )
+    value_delta = float(last["value"]) - float(first["value"])
+    return {
+        "available": True,
+        "first": first,
+        "last": last,
+        "delta": round(value_delta, 9),
+        "per_step": round(value_delta / step_delta, 9) if step_delta else None,
+        "points": series[-20:],
+    }
+
+
+def _best_event_pass_key(events: list[dict[str, Any]]) -> str | None:
+    pass_keys: set[str] = set()
+    for event in events:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        pass_keys.update(key for key in metrics if isinstance(key, str) and key.startswith("reward/avg_pass_at_"))
+    if not pass_keys:
+        return None
+    return sorted(pass_keys, key=lambda key: _to_int(key.rsplit("_", 1)[-1]) or 0)[-1]
+
+
+def _learning_history(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    history = []
+    pass_key = _best_event_pass_key(events)
+    for event in events[-20:]:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        history.append(
+            {
+                "step": _to_int(event.get("step")),
+                "avg_final_reward": _to_float(metrics.get("loss/avg_final_rewards")),
+                "max_pass_rate": _to_float(metrics.get(pass_key)) if pass_key else None,
+                "policy_entropy": _to_float(metrics.get("policy/policy_entropy")),
+                "grad_norm": _to_float(metrics.get("policy/grad_norm")),
+                "mean_abs_advantage": _to_float(metrics.get("loss/avg_raw_advantages_abs")),
+                "reward_group_variance_mean": _to_float(metrics.get("w8/reward_group_variance_mean")),
+            }
+        )
+    return history
+
+
+def _max_pass_rate(reward_metrics: dict[str, Any]) -> float | None:
+    pass_rates = [
+        _to_float(value)
+        for key, value in reward_metrics.items()
+        if isinstance(key, str) and key.startswith("avg_pass_at_")
+    ]
+    return max([value for value in pass_rates if value is not None], default=None)
+
+
+def _training_health_summary(
+    *,
+    pipeline: str,
+    metrics: dict[str, Any],
+    policy_health_events: Any = None,
+    checkpoint_artifacts: Any = None,
+) -> dict[str, Any]:
+    if pipeline != "cpp-grpo":
+        return {"available": False, "reason": "pipeline_has_no_grpo_policy_health"}
+    reward_metrics = metrics.get("reward") if isinstance(metrics.get("reward"), dict) else {}
+    entropy = _to_float(metrics.get("policy/policy_entropy"))
+    avg_final_reward = _to_float(metrics.get("loss/avg_final_rewards"))
+    pass_rates = [
+        _to_float(value)
+        for key, value in reward_metrics.items()
+        if isinstance(key, str) and key.startswith("avg_pass_at_")
+    ]
+    pass_rate = max([value for value in pass_rates if value is not None], default=None)
+    grad_norm = _to_float(metrics.get("policy/grad_norm"))
+    policy_loss = _to_float(metrics.get("policy/policy_loss"))
+    checkpoint_step = _latest_checkpoint_step(checkpoint_artifacts)
+    signals = {
+        "policy_entropy": entropy,
+        "avg_final_reward": avg_final_reward,
+        "max_pass_rate": pass_rate,
+        "grad_norm": grad_norm,
+        "policy_loss": policy_loss,
+    }
+    if not any(value is not None for value in signals.values()):
+        return {
+            "available": False,
+            "reason": "no_grpo_policy_health_metrics",
+            "recommended_action": "continue_monitoring",
+            "action_reason": "no_grpo_policy_health_metrics",
+            "checkpoint_step": checkpoint_step,
+            "signals": signals,
+        }
+
+    low_entropy = entropy is not None and entropy <= 0.01
+    reward_floor = avg_final_reward is not None and avg_final_reward <= -0.99
+    zero_pass = pass_rate is not None and pass_rate <= 0.0
+    zero_grad = grad_norm is not None and abs(grad_norm) <= 1e-9
+    zero_policy_loss = policy_loss is not None and abs(policy_loss) <= 1e-9
+    if low_entropy and reward_floor and zero_pass and (zero_grad or zero_policy_loss):
+        return {
+            "available": True,
+            "verdict": "collapsed",
+            "severity": "critical",
+            "should_stop": True,
+            "recommended_action": "stop_and_relaunch_from_sft",
+            "action_reason": "terminal_invalid_format_zero_advantage_trap",
+            "checkpoint_step": checkpoint_step,
+            "reason": "entropy_collapse_zero_advantage_trap",
+            "signals": signals,
+            "message": (
+                "GRPO appears terminally collapsed: entropy is near zero, rewards are pinned at the "
+                "format floor, pass rate is zero, and policy gradients/loss are zero."
+            ),
+        }
+    if low_entropy and reward_floor:
+        return {
+            "available": True,
+            "verdict": "collapse_risk",
+            "severity": "warning",
+            "should_stop": False,
+            "recommended_action": "investigate_samples",
+            "action_reason": "low_entropy_reward_floor",
+            "checkpoint_step": checkpoint_step,
+            "reason": "low_entropy_reward_floor",
+            "signals": signals,
+            "message": "GRPO entropy is very low while rewards are pinned at the floor; inspect samples and gradients.",
+        }
+    recent_events = _recent_policy_health_events(policy_health_events)
+    recent_low_gradient = [
+        event
+        for event in recent_events[-5:]
+        if _to_float(event.get("policy_entropy")) is not None
+        and _to_float(event.get("grad_norm")) is not None
+        and float(event["policy_entropy"]) <= 1e-3
+        and abs(float(event["grad_norm"])) <= 1e-4
+    ]
+    checkpoint_resumable = _has_resumable_checkpoint(checkpoint_artifacts)
+    if len(recent_low_gradient) >= 3:
+        signals["recent_low_gradient_events"] = len(recent_low_gradient)
+        signals["recent_policy_health_event_count"] = min(len(recent_events), 5)
+        signals["checkpoint_resumable"] = checkpoint_resumable
+        return {
+            "available": True,
+            "verdict": "deterministic_low_gradient",
+            "severity": "warning",
+            "should_stop": checkpoint_resumable,
+            "recommended_action": "stop_and_evaluate_checkpoint" if checkpoint_resumable else "continue_monitoring",
+            "action_reason": "low_entropy_low_gradient_plateau",
+            "checkpoint_step": checkpoint_step,
+            "reason": "low_entropy_low_gradient_plateau",
+            "signals": signals,
+            "message": (
+                "GRPO policy entropy and gradients are near zero across recent trainer events. "
+                "If a complete checkpoint is available, stop training and evaluate that checkpoint before spending more GPU time."
+            ),
+        }
+    avg_advantage_abs = _to_float(metrics.get("loss/avg_raw_advantages_abs"))
+    zero_variance_group_fraction = _to_float(metrics.get("w8/zero_variance_group_fraction"))
+    high_train_reward = (avg_final_reward is not None and avg_final_reward >= 0.5) or (
+        pass_rate is not None and pass_rate >= 0.5
+    )
+    weak_learning_signal = (
+        (grad_norm is not None and grad_norm <= 0.02)
+        or (avg_advantage_abs is not None and avg_advantage_abs <= 0.02)
+        or (zero_variance_group_fraction is not None and zero_variance_group_fraction >= 0.75)
+    )
+    if low_entropy and high_train_reward and weak_learning_signal:
+        signals["checkpoint_resumable"] = checkpoint_resumable
+        signals["avg_raw_advantages_abs"] = avg_advantage_abs
+        signals["zero_variance_group_fraction"] = zero_variance_group_fraction
+        return {
+            "available": True,
+            "verdict": "deterministic_convergence_risk",
+            "severity": "warning",
+            "should_stop": False,
+            "recommended_action": "evaluate_checkpoint" if checkpoint_resumable else "continue_until_checkpoint",
+            "action_reason": "low_entropy_high_reward_weak_learning_signal",
+            "checkpoint_step": checkpoint_step,
+            "reason": "low_entropy_high_reward_weak_learning_signal",
+            "signals": signals,
+            "message": (
+                "GRPO reward is high, but entropy is near zero and gradient/advantage variance is weak. "
+                "Evaluate the latest checkpoint before assuming more GPU time will improve held-out uplift."
+            ),
+        }
+    return {
+        "available": True,
+        "verdict": "healthy_or_insufficient_collapse_signal",
+        "severity": "ok",
+        "should_stop": False,
+        "recommended_action": "continue",
+        "action_reason": "collapse_guard_not_triggered",
+        "checkpoint_step": checkpoint_step,
+        "reason": "collapse_guard_not_triggered",
+        "signals": signals,
+    }
+
+
+def _phase_timing_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
+    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+    stages = _timing_stage_breakdown(metrics=metrics, timings=timings, step_s=step_s)
+    stage_groups: dict[str, float] = {}
+    for item in stages:
+        group = _timing_stage_group(str(item["stage"]))
+        stage_groups[group] = stage_groups.get(group, 0.0) + float(item["seconds"])
+    groups = [
+        {
+            "group": group,
+            "seconds": round(seconds, 6),
+            "step_percent": round(100.0 * seconds / step_s, 3) if step_s else None,
+        }
+        for group, seconds in sorted(stage_groups.items(), key=lambda item: item[1], reverse=True)
+    ]
+    return {
+        "available": bool(stages),
+        "step_seconds": round(step_s, 6) if step_s is not None else None,
+        "stages": stages,
+        "groups": groups,
+        "message": (
+            "Use phase timing with node_health.activity; instantaneous GPU samples are phase-dependent."
+            if stages
+            else "No phase timing breakdown is available in the scanned logs."
+        ),
+    }
+
+
+def _recent_policy_health_events(value: Any) -> list[dict[str, float]]:
+    if not isinstance(value, list):
+        return []
+    events = []
+    for item in value:
+        if isinstance(item, dict):
+            events.append(item)
+    return events
+
+
+def _has_resumable_checkpoint(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for key in ("latest", "highest"):
+        item = value.get(key)
+        if isinstance(item, dict) and item.get("resumable") is True:
+            return True
+    return False
+
+
+def _latest_checkpoint_step(value: Any) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    for key in ("latest", "highest"):
+        item = value.get(key)
+        if isinstance(item, dict):
+            step = _to_int(item.get("step"))
+            if step is not None:
+                return step
+    return _to_int(value.get("latest_marker"))
+
+
+def _fsdp_mesh_shape(*, total_gpu_count: int | None, fsdp_size: int | None) -> dict[str, int] | None:
+    if total_gpu_count is None or fsdp_size is None or fsdp_size <= 0:
+        return None
+    if fsdp_size >= total_gpu_count:
+        return {"ddp": 1, "fsdp": total_gpu_count}
+    if total_gpu_count % fsdp_size != 0:
+        return {"fsdp": fsdp_size}
+    return {"ddp": total_gpu_count // fsdp_size, "fsdp": fsdp_size}
+
+
+def _hsdp_active(
+    *,
+    policy_nodes: int | None,
+    policy_gpus_per_node: int | None,
+    total_gpu_count: int | None,
+    policy_fsdp_size: int | None,
+    ref_fsdp_size: int | None,
+) -> bool:
+    if (
+        policy_nodes is None
+        or policy_gpus_per_node is None
+        or total_gpu_count is None
+        or policy_fsdp_size is None
+        or ref_fsdp_size is None
+    ):
+        return False
+    return (
+        policy_nodes > 1
+        and policy_fsdp_size == policy_gpus_per_node
+        and ref_fsdp_size == policy_gpus_per_node
+        and 0 < policy_fsdp_size < total_gpu_count
+    )
+
+
+def _timing_stage_breakdown(*, metrics: dict[str, Any], timings: dict[str, Any], step_s: float | None) -> list[dict[str, Any]]:
+    stages: dict[str, float] = {}
+    for key, value in metrics.items():
+        if not isinstance(key, str) or not key.startswith("timing/") or key == "timing/step":
+            continue
+        duration = _to_float(value)
+        if duration is not None:
+            stages[key.removeprefix("timing/")] = duration
+    fallback = {
+        "generate": timings.get("last_generate_duration_s"),
+        "sync_weights": timings.get("last_sync_weights_duration_s"),
+    }
+    for key, value in fallback.items():
+        if key not in stages and (duration := _to_float(value)) is not None:
+            stages[key] = duration
+    breakdown = [
+        {
+            "stage": stage,
+            "seconds": round(seconds, 6),
+            "step_percent": round(100.0 * seconds / step_s, 3) if step_s else None,
+        }
+        for stage, seconds in sorted(stages.items(), key=lambda item: item[1], reverse=True)
+    ]
+    return breakdown
+
+
+def _timing_stage_group(stage: str) -> str:
+    if stage == "generate":
+        return "rollout"
+    if stage == "postprocess_generator_output":
+        return "reward"
+    if stage in {"train_critic_and_policy", "policy_train", "critic_train", "compute_advantages_and_returns"}:
+        return "policy_update"
+    if stage in {"fwd_logprobs_values_reward", "apply_reward_kl_penalty", "convert_to_training_input"}:
+        return "forward_or_assembly"
+    if stage in {"sync_weights", "update_ref_with_policy"}:
+        return "synchronization"
+    if stage == "save_checkpoints":
+        return "checkpoint"
+    if stage == "save_hf_model":
+        return "export"
+    return "other"
+
+
+def _bottleneck_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
+    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+    breakdown = _timing_stage_breakdown(metrics=metrics, timings=timings, step_s=step_s)
+    dominant = breakdown[0] if breakdown else None
+    if dominant is None:
+        verdict = "unknown"
+        message = "No timing breakdown is available in the scanned logs."
+    elif dominant["stage"] in {"policy_train", "train_critic_and_policy"}:
+        verdict = "policy_update_dominant"
+        message = "Policy training is the largest observed step cost."
+    elif dominant["stage"] == "generate":
+        verdict = "rollout_dominant"
+        message = "Trajectory generation is the largest observed step cost."
+    elif dominant["stage"] == "fwd_logprobs_values_reward":
+        verdict = "reward_or_forward_dominant"
+        message = "Reward/logprob/value forward work is the largest observed step cost."
+    elif dominant["stage"] == "sync_weights":
+        verdict = "sync_dominant"
+        message = "Weight synchronization is the largest observed step cost."
+    else:
+        verdict = "mixed"
+        message = f"{dominant['stage']} is the largest observed step cost."
+    return {
+        "available": bool(breakdown),
+        "step_seconds": round(step_s, 6) if step_s is not None else None,
+        "dominant_stage": dominant,
+        "stages": breakdown,
+        "verdict": verdict,
+        "message": message,
+    }
+
+
+def _augment_progress(
+    progress: Any,
+    *,
+    unit: str,
+    last_duration_s: Any = None,
+    recent_durations_s: Any = None,
+) -> dict[str, Any] | None:
+    if not isinstance(progress, dict):
+        return None
+    completed = _to_int(progress.get("completed"))
+    total = _to_int(progress.get("total"))
+    payload = dict(progress)
+    if completed is not None and total:
+        payload["remaining"] = max(total - completed, 0)
+        payload["percent_exact"] = round(100.0 * completed / total, 4)
+    timing = _parse_tqdm_timing(str(progress.get("line", "")))
+    if last_duration_s is not None:
+        timing["last_duration_s"] = _to_float(last_duration_s)
+    recent = [float(item) for item in recent_durations_s or [] if _to_float(item) is not None]
+    if recent:
+        timing["recent_duration_avg_s"] = round(sum(recent) / len(recent), 3)
+    payload["timing"] = timing
+    seconds_per_item = timing.get("seconds_per_item")
+    items_per_second = timing.get("items_per_second")
+    if seconds_per_item is None and timing.get("recent_duration_avg_s") is not None:
+        seconds_per_item = timing["recent_duration_avg_s"]
+        items_per_second = 1.0 / seconds_per_item if seconds_per_item else None
+    payload["throughput"] = _throughput_payload(unit, seconds_per_item=seconds_per_item, items_per_second=items_per_second)
+    return payload
+
+
+def _throughput_payload(
+    unit: str,
+    *,
+    seconds_per_item: Any,
+    items_per_second: Any,
+) -> dict[str, Any]:
+    seconds = _to_float(seconds_per_item)
+    rate = _to_float(items_per_second)
+    if seconds is None and rate:
+        seconds = 1.0 / rate
+    if rate is None and seconds:
+        rate = 1.0 / seconds
+    return {
+        "unit": unit,
+        "seconds_per_item": round(seconds, 6) if seconds is not None else None,
+        "items_per_second": round(rate, 6) if rate is not None else None,
+        "items_per_minute": round(rate * 60.0, 3) if rate is not None else None,
+        "items_per_hour": round(rate * 3600.0, 3) if rate is not None else None,
+    }
+
+
+def _checkpoint_progress(
+    *,
+    artifacts: dict[str, Any],
+    completed_step: Any,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    checkpoint = artifacts.get("checkpoint") if isinstance(artifacts.get("checkpoint"), dict) else {}
+    interval = _to_int(config.get("trainer.ckpt_interval")) or _to_int(config.get("sft.ckpt_interval"))
+    step = _to_int(completed_step)
+    next_checkpoint_step = None
+    steps_until_next = None
+    if interval and interval > 0 and step is not None:
+        next_checkpoint_step = ((step // interval) + 1) * interval
+        steps_until_next = max(next_checkpoint_step - step, 0)
+    return {
+        "latest_marker": checkpoint.get("latest_marker"),
+        "highest_step": (checkpoint.get("highest") or {}).get("step") if isinstance(checkpoint.get("highest"), dict) else None,
+        "in_progress_step": (checkpoint.get("in_progress") or {}).get("step")
+        if isinstance(checkpoint.get("in_progress"), dict)
+        else None,
+        "next_checkpoint_step": next_checkpoint_step,
+        "steps_until_next_checkpoint": steps_until_next,
+        "interval": interval,
+    }
+
+
+def _resource_summary(
+    *,
+    instances: list[dict[str, Any]],
+    node_health: dict[str, Any] | None,
+) -> dict[str, Any]:
+    accelerator_counts: dict[str, int] = {}
+    for instance in instances:
+        for accelerator in instance.get("accelerators", []) if isinstance(instance.get("accelerators"), list) else []:
+            accelerator_type = str(accelerator.get("type") or "unknown")
+            accelerator_counts[accelerator_type] = accelerator_counts.get(accelerator_type, 0) + int(
+                accelerator.get("count") or 0
+            )
+    gpus = node_health.get("gpus") if isinstance(node_health, dict) and isinstance(node_health.get("gpus"), list) else []
+    gpu_utils = [gpu.get("utilization_gpu_percent") for gpu in gpus if gpu.get("utilization_gpu_percent") is not None]
+    gpu_mem_used = [gpu.get("memory_used_mib") for gpu in gpus if gpu.get("memory_used_mib") is not None]
+    gpu_mem_total = [gpu.get("memory_total_mib") for gpu in gpus if gpu.get("memory_total_mib") is not None]
+    avg_gpu_utilization = round(sum(gpu_utils) / len(gpu_utils), 3) if gpu_utils else None
+    node_activity = node_health.get("activity") if isinstance(node_health, dict) else None
+    return {
+        "total_instance_count": len(instances),
+        "active_instance_count": sum(1 for item in instances if item.get("status") in ACTIVE_INSTANCE_STATUSES),
+        "zones": sorted({str(item.get("zone")) for item in instances if item.get("zone")}),
+        "machine_types": sorted({str(item.get("machine_type")) for item in instances if item.get("machine_type")}),
+        "accelerators": accelerator_counts,
+        "gpu_count": sum(accelerator_counts.values()),
+        "node_health_sample_scope": node_health.get("sample_scope") if isinstance(node_health, dict) else None,
+        "sampled_node_count": node_health.get("sampled_node_count")
+        if isinstance(node_health, dict) and node_health.get("sampled_node_count") is not None
+        else (
+            sum(1 for node in node_health.get("nodes", []) if node.get("sampled"))
+            if isinstance(node_health, dict) and isinstance(node_health.get("nodes"), list)
+            else 0
+        ),
+        "failed_node_count": node_health.get("failed_node_count")
+        if isinstance(node_health, dict) and node_health.get("failed_node_count") is not None
+        else None,
+        "node_health_activity": node_activity,
+        "sampled_gpu_count": len(gpus),
+        "avg_gpu_utilization_percent": avg_gpu_utilization,
+        "max_gpu_utilization_percent": max(gpu_utils) if gpu_utils else None,
+        "avg_gpu_memory_used_mib": round(sum(gpu_mem_used) / len(gpu_mem_used), 3) if gpu_mem_used else None,
+        "avg_gpu_memory_total_mib": round(sum(gpu_mem_total) / len(gpu_mem_total), 3) if gpu_mem_total else None,
+        "gpu_sample_interpretation": _gpu_sample_interpretation(
+            activity=node_activity,
+            avg_gpu_utilization_percent=avg_gpu_utilization,
+            sample_scope=node_health.get("sample_scope") if isinstance(node_health, dict) else None,
+        ),
+    }
+
+
+def _gpu_sample_interpretation(
+    *,
+    activity: Any,
+    avg_gpu_utilization_percent: float | None,
+    sample_scope: Any,
+) -> dict[str, Any]:
+    if avg_gpu_utilization_percent is None:
+        return {
+            "available": False,
+            "message": "No GPU utilization sample is available.",
+        }
+    group = STAGE_GROUPS.get(str(activity), "unknown") if activity else "unknown"
+    if group in {"reward", "setup", "checkpoint", "export", "artifact"}:
+        message = (
+            "GPU utilization may be low in this phase; use phase timing to decide whether reward, checkpoint, "
+            "or export work is the bottleneck."
+        )
+    elif group in {"training", "rollout"}:
+        message = (
+            "GPU utilization is expected to be phase-dependent here; this sample supports current activity "
+            "but does not prove end-to-end throughput or learning quality."
+        )
+    else:
+        message = "Interpret this instantaneous GPU sample with phase_timing and node_health.activity."
+    return {
+        "available": True,
+        "sample_scope": sample_scope,
+        "activity": activity,
+        "activity_group": group,
+        "avg_gpu_utilization_percent": avg_gpu_utilization_percent,
+        "message": message,
+    }
+
+
+def _pipeline_commands(cluster: str, job: dict[str, Any] | None) -> dict[str, list[str]]:
+    commands = {
+        "queue": ["uv", "run", "w8-biayn", "ops", "queue", cluster],
+        "logs": ["uv", "run", "w8-biayn", "ops", "logs", cluster, "--tail", "200"],
+        "down": ["uv", "run", "w8-biayn", "ops", "down", cluster],
+    }
+    if job and job.get("job_id") is not None:
+        job_id = str(job["job_id"])
+        commands["logs"] = ["uv", "run", "w8-biayn", "ops", "logs", cluster, job_id, "--tail", "200"]
+        commands["follow_logs"] = ["uv", "run", "w8-biayn", "ops", "logs", cluster, job_id, "--follow"]
+        commands["cancel"] = ["uv", "run", "w8-biayn", "ops", "cancel", cluster, job_id]
+    return commands
+
+
+def _speed_comparison(
+    *,
+    pipeline: str,
+    current_progress: dict[str, Any],
+    baseline_statuses: list[dict[str, Any]],
+    current_resources: Any = None,
+) -> dict[str, Any]:
+    if not baseline_statuses:
+        return {"available": False, "reason": "no_baseline_status"}
+    comparisons = []
+    current_metrics = _comparison_metrics(current_progress)
+    if current_metrics.get("gpu_count") is None:
+        current_metrics["gpu_count"] = _gpu_count_from_resource_text(current_resources)
+        _add_gpu_normalized_metrics(current_metrics)
+    for status in baseline_statuses:
+        baseline = _find_pipeline_status(status, pipeline)
+        if not baseline:
+            continue
+        baseline_progress = baseline.get("progress")
+        if not isinstance(baseline_progress, dict):
+            baseline_progress = _progress_summary(
+                pipeline=pipeline,
+                log_signals=baseline.get("logs") if isinstance(baseline.get("logs"), dict) else {},
+                artifacts=baseline.get("artifacts") if isinstance(baseline.get("artifacts"), dict) else {},
+            )
+        baseline_metrics = _comparison_metrics(baseline_progress)
+        baseline_resources = _baseline_resources(baseline)
+        if baseline_metrics.get("gpu_count") is None:
+            baseline_metrics["gpu_count"] = _gpu_count_from_resource_text(baseline_resources)
+            _add_gpu_normalized_metrics(baseline_metrics)
+        _add_gpu_normalized_metrics(current_metrics)
+        comparison = {
+            "source": status.get("_status_source"),
+            "run_id": status.get("run_id"),
+            "pipeline": pipeline,
+            "cluster": baseline.get("cluster"),
+            "state": baseline.get("state"),
+            "resources": baseline_resources,
+            "baseline": baseline_metrics,
+            "current": current_metrics,
+            "training_step_speedup_factor": _time_speedup(
+                baseline_metrics.get("seconds_per_training_step"),
+                current_metrics.get("seconds_per_training_step"),
+            ),
+            "training_steps_per_hour_speedup_factor": _rate_speedup(
+                baseline_metrics.get("training_steps_per_hour"),
+                current_metrics.get("training_steps_per_hour"),
+            ),
+            "training_samples_per_hour_speedup_factor": _rate_speedup(
+                baseline_metrics.get("training_samples_per_hour"),
+                current_metrics.get("training_samples_per_hour"),
+            ),
+            "training_samples_per_gpu_hour_speedup_factor": _rate_speedup(
+                baseline_metrics.get("training_samples_per_gpu_hour"),
+                current_metrics.get("training_samples_per_gpu_hour"),
+            ),
+            "rollout_speedup_factor": _rate_speedup(
+                baseline_metrics.get("rollout_samples_per_second"),
+                current_metrics.get("rollout_samples_per_second"),
+            ),
+            "rollout_samples_per_gpu_second_speedup_factor": _rate_speedup(
+                baseline_metrics.get("rollout_samples_per_gpu_second"),
+                current_metrics.get("rollout_samples_per_gpu_second"),
+            ),
+        }
+        comparison.update(_comparison_verdict(comparison))
+        if any(
+            comparison.get(key) is not None
+            for key in (
+                "training_step_speedup_factor",
+                "training_steps_per_hour_speedup_factor",
+                "training_samples_per_hour_speedup_factor",
+                "rollout_speedup_factor",
+            )
+        ):
+            comparisons.append(comparison)
+    return {
+        "available": bool(comparisons),
+        "reason": None if comparisons else "no_comparable_throughput_in_baseline",
+        "primary": comparisons[0] if comparisons else None,
+        "baselines": comparisons,
+    }
+
+
+def _baseline_resources(baseline: dict[str, Any]) -> Any:
+    active_job = baseline.get("active_job")
+    if isinstance(active_job, dict) and active_job.get("resources"):
+        return active_job.get("resources")
+    queue = baseline.get("backend", {}).get("queue") if isinstance(baseline.get("backend"), dict) else None
+    jobs = queue.get("jobs") if isinstance(queue, dict) and isinstance(queue.get("jobs"), list) else []
+    return jobs[0].get("resources") if jobs and isinstance(jobs[0], dict) else None
+
+
+def _comparison_metrics(progress: dict[str, Any]) -> dict[str, Any]:
+    throughput = progress.get("throughput") if isinstance(progress.get("throughput"), dict) else {}
+    training = progress.get("training") if isinstance(progress.get("training"), dict) else {}
+    trajectory = progress.get("trajectory") if isinstance(progress.get("trajectory"), dict) else {}
+    metrics = {
+        "training_completed": training.get("completed"),
+        "training_total": training.get("total"),
+        "seconds_per_training_step": throughput.get("seconds_per_training_step"),
+        "training_steps_per_hour": throughput.get("training_steps_per_hour"),
+        "training_samples_per_hour": throughput.get("training_samples_per_hour"),
+        "training_samples_per_gpu_hour": throughput.get("training_samples_per_gpu_hour"),
+        "rollout_completed": trajectory.get("completed"),
+        "rollout_total": trajectory.get("total"),
+        "rollout_samples_per_second": throughput.get("rollout_samples_per_second"),
+        "rollout_samples_per_gpu_second": throughput.get("rollout_samples_per_gpu_second"),
+        "rollout_samples_per_hour": throughput.get("rollout_samples_per_hour"),
+        "gpu_count": _nested_float(progress.get("grpo_config") if isinstance(progress.get("grpo_config"), dict) else {}, "total_gpu_count"),
+        "effective_samples_per_step": _nested_float(
+            progress.get("grpo_config") if isinstance(progress.get("grpo_config"), dict) else {},
+            "effective_samples_per_step",
+        ),
+    }
+    _add_gpu_normalized_metrics(metrics)
+    return metrics
+
+
+def _add_gpu_normalized_metrics(metrics: dict[str, Any]) -> None:
+    gpu_count = _to_float(metrics.get("gpu_count"))
+    if not gpu_count:
+        return
+    training_samples = _to_float(metrics.get("training_samples_per_hour"))
+    rollout_samples = _to_float(metrics.get("rollout_samples_per_second"))
+    if training_samples is not None and metrics.get("training_samples_per_gpu_hour") is None:
+        metrics["training_samples_per_gpu_hour"] = round(training_samples / gpu_count, 3)
+    if rollout_samples is not None and metrics.get("rollout_samples_per_gpu_second") is None:
+        metrics["rollout_samples_per_gpu_second"] = round(rollout_samples / gpu_count, 6)
+
+
+def _comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
+    preferred = (
+        comparison.get("training_samples_per_hour_speedup_factor")
+        or comparison.get("training_steps_per_hour_speedup_factor")
+        or comparison.get("training_step_speedup_factor")
+        or comparison.get("rollout_speedup_factor")
+    )
+    factor = _to_float(preferred)
+    if factor is None:
+        verdict = "inconclusive"
+        message = "No comparable throughput metric was available in the baseline."
+    elif factor > 1.05:
+        verdict = "faster"
+        message = f"Current run achieved {factor:.3g}x baseline throughput on the primary comparable metric."
+    elif factor < 0.95:
+        verdict = "slower"
+        message = (
+            f"Current run achieved {factor:.3g}x baseline throughput on the primary comparable metric; "
+            "lower than 1.0 means slower."
+        )
+    else:
+        verdict = "roughly_equal"
+        message = f"Current run is roughly equal to baseline throughput ({factor:.3g}x)."
+    baseline_gpu_count = _nested_float(comparison.get("baseline"), "gpu_count")
+    current_gpu_count = _nested_float(comparison.get("current"), "gpu_count")
+    gpu_scale = None
+    gpu_speedup_efficiency = None
+    cost_verdict = "unknown"
+    if baseline_gpu_count and current_gpu_count:
+        gpu_scale = round(current_gpu_count / baseline_gpu_count, 4)
+        if factor is not None:
+            gpu_speedup_efficiency = round(factor / gpu_scale, 4) if gpu_scale else None
+            if current_gpu_count > baseline_gpu_count and factor <= 1.0:
+                cost_verdict = "cost_inefficient"
+            elif gpu_speedup_efficiency is not None and gpu_speedup_efficiency < 0.8:
+                cost_verdict = "under_scaling"
+            else:
+                cost_verdict = "acceptable"
+    return {
+        "verdict": verdict,
+        "message": message,
+        "gpu_scale_factor": gpu_scale,
+        "gpu_speedup_efficiency": gpu_speedup_efficiency,
+        "cost_verdict": cost_verdict,
+    }
+
+
+def _gpu_count_from_resource_text(resources: Any) -> int | None:
+    if not isinstance(resources, str):
+        return None
+    if match := re.search(r"(\d+)x\[[A-Za-z0-9_.-]+:(\d+)\]", resources):
+        return int(match.group(1)) * int(match.group(2))
+    if match := re.search(r"[A-Za-z0-9_.-]+:(\d+)", resources):
+        return int(match.group(1))
+    return None
+
+
+def _find_pipeline_status(status: dict[str, Any], pipeline: str) -> dict[str, Any] | None:
+    for item in status.get("pipelines", []) if isinstance(status.get("pipelines"), list) else []:
+        if isinstance(item, dict) and item.get("pipeline") == pipeline:
+            return item
+    return None
+
+
+def _time_speedup(baseline_seconds: Any, current_seconds: Any) -> float | None:
+    baseline = _to_float(baseline_seconds)
+    current = _to_float(current_seconds)
+    if not baseline or not current:
+        return None
+    return round(baseline / current, 4)
+
+
+def _rate_speedup(baseline_rate: Any, current_rate: Any) -> float | None:
+    baseline = _to_float(baseline_rate)
+    current = _to_float(current_rate)
+    if not baseline or not current:
+        return None
+    return round(current / baseline, 4)
+
+
+def _parse_tqdm_timing(line: str) -> dict[str, Any]:
+    match = TQDM_TIMING_RE.search(line)
+    if not match:
+        return {}
+    elapsed_s = _parse_duration_s(match.group(1))
+    eta_s = _parse_duration_s(match.group(2))
+    rate_text = (match.group(3) or "").strip()
+    items_per_second, seconds_per_item = _parse_tqdm_rate(rate_text)
+    return {
+        "elapsed_s": elapsed_s,
+        "eta_s": eta_s,
+        "rate_text": rate_text or None,
+        "items_per_second": items_per_second,
+        "seconds_per_item": seconds_per_item,
+    }
+
+
+def _parse_duration_s(text: str | None) -> int | None:
+    if not text or "?" in text:
+        return None
+    parts = text.strip().split(":")
+    if not all(part.isdigit() for part in parts):
+        return None
+    values = [int(part) for part in parts]
+    if len(values) == 2:
+        minutes, seconds = values
+        return minutes * 60 + seconds
+    if len(values) == 3:
+        hours, minutes, seconds = values
+        return hours * 3600 + minutes * 60 + seconds
+    if len(values) == 1:
+        return values[0]
+    return None
+
+
+def _parse_tqdm_rate(text: str) -> tuple[float | None, float | None]:
+    if not text or "?" in text:
+        return None, None
+    if match := re.search(r"([0-9.]+)\s*it/s", text):
+        rate = float(match.group(1))
+        return rate, 1.0 / rate if rate else None
+    if match := re.search(r"([0-9.]+)s/it", text):
+        seconds = float(match.group(1))
+        return 1.0 / seconds if seconds else None, seconds
+    return None, None
+
+
+def _record_metric(metrics: dict[str, Any], name: str, value: float) -> None:
+    if name.startswith("reward/"):
+        reward = metrics.setdefault("reward", {})
+        if isinstance(reward, dict):
+            reward[name.split("/", 1)[1]] = value
+        return
+    if value.is_integer():
+        metrics[name] = int(value)
+    else:
+        metrics[name] = value
+
+
+def _nested_float(payload: dict[str, Any] | None, *keys: str) -> float | None:
+    value: Any = payload
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return _to_float(value)
+
+
+def _expected_final_step(pipeline: str, *, sft: int | None, grpo: int | None) -> int | None:
+    if pipeline == "cpp-sft":
+        return sft
+    if pipeline == "cpp-grpo":
+        return grpo
+    return None
+
+
+def _parse_json_payload(text: str) -> Any | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    for opener in ("{", "["):
+        index = stripped.find(opener)
+        if index >= 0:
+            try:
+                return json.loads(stripped[index:])
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+def _parse_marker(text: str) -> int | None:
+    match = re.search(r"\b(\d+)\b", text)
+    return int(match.group(1)) if match else None
+
+
+def _file_entry(files: list[Any], path: str) -> dict[str, Any] | None:
+    for item in files:
+        if isinstance(item, dict) and item.get("path") == path:
+            return {"path": path, "bytes": item.get("bytes"), "sha256": item.get("sha256")}
+    return None
+
+
+def _manifest_path(item: Any) -> str:
+    return str(item.get("path", "")) if isinstance(item, dict) else ""
+
+
+def _gs_uris(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip().startswith("gs://")]
+
+
+def _gsutil_objects(text: str) -> list[dict[str, Any]]:
+    objects: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if match := GSUTIL_OBJECT_RE.search(line):
+            objects.append(
+                {
+                    "bytes": int(match.group(1)),
+                    "timestamp": match.group(2),
+                    "uri": match.group(3),
+                }
+            )
+    return objects
+
+
+def _strip_ansi(line: str) -> str:
+    return ANSI_RE.sub("", line)
+
+
+def _tail(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[-limit:]
+
+
+def _basename(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _to_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return None

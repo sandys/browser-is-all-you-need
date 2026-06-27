@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="480.0" y="26" text-anchor="middle" font-family="Arial" font-size="20" font-weight="700">GRPO gradient norm</text>
+<text x="508.0" y="398" text-anchor="middle" font-family="Arial" font-size="13">step</text>
+<text transform="translate(20 197.0) rotate(-90)" text-anchor="middle" font-family="Arial" font-size="13">grad norm</text>
+<line x1="82" y1="52" x2="82" y2="342" stroke="#333"/>
+<line x1="82" y1="342" x2="934" y2="342" stroke="#333"/>
+<line x1="82.0" y1="52" x2="82.0" y2="342" stroke="#eee"/>
+<text x="82.0" y="362" text-anchor="middle" font-family="Arial" font-size="11">235</text>
+<line x1="252.4" y1="52" x2="252.4" y2="342" stroke="#eee"/>
+<text x="252.4" y="362" text-anchor="middle" font-family="Arial" font-size="11">255</text>
+<line x1="422.8" y1="52" x2="422.8" y2="342" stroke="#eee"/>
+<text x="422.8" y="362" text-anchor="middle" font-family="Arial" font-size="11">275</text>
+<line x1="593.2" y1="52" x2="593.2" y2="342" stroke="#eee"/>
+<text x="593.2" y="362" text-anchor="middle" font-family="Arial" font-size="11">294</text>
+<line x1="763.6" y1="52" x2="763.6" y2="342" stroke="#eee"/>
+<text x="763.6" y="362" text-anchor="middle" font-family="Arial" font-size="11">314</text>
+<line x1="934.0" y1="52" x2="934.0" y2="342" stroke="#eee"/>
+<text x="934.0" y="362" text-anchor="middle" font-family="Arial" font-size="11">334</text>
+<line x1="82" y1="52.0" x2="934" y2="52.0" stroke="#eee"/>
+<text x="74" y="56.0" text-anchor="end" font-family="Arial" font-size="11">0.123</text>
+<line x1="82" y1="110.0" x2="934" y2="110.0" stroke="#eee"/>
+<text x="74" y="114.0" text-anchor="end" font-family="Arial" font-size="11">0.097</text>
+<line x1="82" y1="168.0" x2="934" y2="168.0" stroke="#eee"/>
+<text x="74" y="172.0" text-anchor="end" font-family="Arial" font-size="11">0.07</text>
+<line x1="82" y1="226.0" x2="934" y2="226.0" stroke="#eee"/>
+<text x="74" y="230.0" text-anchor="end" font-family="Arial" font-size="11">0.044</text>
+<line x1="82" y1="284.0" x2="934" y2="284.0" stroke="#eee"/>
+<text x="74" y="288.0" text-anchor="end" font-family="Arial" font-size="11">0.017</text>
+<line x1="82" y1="342.0" x2="934" y2="342.0" stroke="#eee"/>
+<text x="74" y="346.0" text-anchor="end" font-family="Arial" font-size="11">-0.009</text>
+<polyline points="82.0,313.2 90.6,322.0 99.2,322.0 107.8,322.0 116.4,322.0 125.0,259.1 133.6,221.9 142.2,322.0 150.8,321.5 159.5,322.0 168.1,242.5 176.7,322.0 185.3,322.0 193.9,322.0 202.5,322.0 211.1,321.9 219.7,322.0 228.3,263.2 236.9,321.9 245.5,275.0 254.1,322.0 262.7,271.3 271.3,321.6 279.9,322.0 288.5,321.9 297.2,322.0 305.8,318.7 314.4,283.4 323.0,322.0 331.6,322.0 340.2,321.9 348.8,322.0 357.4,214.7 366.0,322.0 374.6,321.9 383.2,288.4 391.8,322.0 400.4,321.6 409.0,322.0 417.6,322.0 426.2,322.0 434.8,322.0 443.5,322.0 452.1,308.0 460.7,274.6 469.3,263.8 477.9,315.4 486.5,322.0 495.1,279.3 503.7,321.9 512.3,322.0 520.9,322.0 529.5,321.9 538.1,322.0 546.7,322.0 555.3,315.2 563.9,321.9 572.5,313.2 581.2,309.5 589.8,321.9 598.4,222.5 607.0,322.0 615.6,321.9 624.2,318.4 632.8,322.0 641.4,321.7 650.0,303.8 658.6,245.3 667.2,321.9 675.8,322.0 684.4,321.6 693.0,283.7 701.6,255.2 710.2,316.1 718.8,311.5 727.5,321.8 736.1,322.0 744.7,294.6 753.3,312.8 761.9,321.9 770.5,321.9 779.1,322.0 787.7,322.0 796.3,322.0 804.9,290.3 813.5,308.0 822.1,72.0 830.7,321.9 839.3,295.5 847.9,322.0 856.5,322.0 865.2,321.9 873.8,307.2 882.4,247.9 891.0,322.0 899.6,258.6 908.2,322.0 916.8,299.1 925.4,321.9 934.0,322.0" fill="none" stroke="#1f77b4" stroke-width="2.4"/>
+<circle cx="82.0" cy="313.2" r="3" fill="#1f77b4"/>
+<circle cx="934.0" cy="322.0" r="3" fill="#1f77b4"/>
+<rect x="90" y="55" width="12" height="12" fill="#1f77b4"/>
+<text x="108" y="65" font-family="Arial" font-size="12">grad norm</text>
+</svg>

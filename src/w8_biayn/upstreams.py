@@ -1,4 +1,4 @@
-"""Manage local ignored clones of rLLM and SkyRL."""
+"""Manage local ignored clones of pinned upstream repositories."""
 
 from __future__ import annotations
 
@@ -63,4 +63,3 @@ def status(repo_root: str | Path = ".") -> list[dict[str, str]]:
             }
         )
     return rows
-

@@ -1,175 +1,450 @@
 from __future__ import annotations
 
-import pytest
+import subprocess
+
 import yaml
 
-from w8_biayn.constants import DEFAULT_GPU_CONTAINER_IMAGE, DEFAULT_HARBOR_R3_ACCELERATORS
-from w8_biayn.harbor.tasks import DEFAULT_HARBOR_TASK_IDS
-from w8_biayn.sky_config import (
-    RenderOptions,
-    accelerator_count,
-    is_private_runtime_url,
-    render_sky_yaml,
-    skyrl_overrides,
-)
+from w8_biayn.sky_config import RenderOptions, render_sky_yaml
 
 
-def test_render_miniwob_sky_yaml_contains_gcp_and_mount():
-    text = render_sky_yaml(
-        RenderOptions(
-            pipeline="miniwob",
-            project_id="proj",
-            credentials_path=".gcp-service-account.json",
-        )
-    )
-    config = yaml.safe_load(text)
+def test_render_cpp_smoke_yaml_contains_gcp_model_and_upstreams():
+    rendered = render_sky_yaml(RenderOptions(pipeline="cpp-smoke", project_id="proj"))
+    config = yaml.safe_load(rendered)
 
+    assert config["name"] == "w8-biayn-cpp-smoke"
     assert config["resources"]["infra"] == "gcp"
-    assert config["resources"]["accelerators"] == "A100:4"
+    assert config["resources"]["accelerators"] == "H100:8"
+    assert config["resources"]["disk_size"] == 256
     assert config["file_mounts"]["/tmp/w8-gcp-service-account.json"] == ".gcp-service-account.json"
-    assert "w8-biayn data prepare miniwob" in config["setup"]
-    assert "w8_biayn.integrations.skyrl_browsergym_main" in config["run"]
+    assert config["envs"]["W8_BIAYN_MODEL"] == "zai-org/GLM-5.1"
+    assert "NovaSky-AI/SkyRL" in config["setup"]
+    assert "rllm-org/rllm" in config["setup"]
+    assert "vllm" in config["run"]
+    assert "uv venv --clear --python 3.12 --seed /tmp/w8-cpp-smoke" in config["run"]
+    assert "domdiff" not in rendered.lower()
+    assert "harbor" not in rendered.lower()
 
 
-def test_r3_overrides_enable_routing_replay():
-    overrides = skyrl_overrides(RenderOptions(pipeline="r3", project_id="proj"))
-
-    assert "generator.inference_engine.enable_return_routed_experts=true" in overrides
-    assert "trainer.policy.megatron_config.moe_enable_routing_replay=true" in overrides
-    assert "trainer.placement.policy_num_gpus_per_node=4" in overrides
-    assert "generator.inference_engine.tensor_parallel_size=4" in overrides
-    assert "generator.inference_engine.distributed_executor_backend=mp" in overrides
-    assert "trainer.strategy=megatron" in overrides
-    assert "trainer.algorithm.use_kl_loss=false" in overrides
-    assert "trainer.policy.megatron_config.tensor_model_parallel_size=2" in overrides
-    assert "trainer.policy.megatron_config.expert_model_parallel_size=4" in overrides
-    assert "trainer.use_sample_packing=true" in overrides
-    assert "trainer.flash_attn=false" in overrides
-    assert not any("SKYPILOT_NUM_GPUS_PER_NODE" in item for item in overrides)
-    assert any("moonshotai/Moonlight-16B-A3B-Instruct" in item for item in overrides)
-
-
-def test_accelerator_count_parses_skypilot_accelerator_request():
-    assert accelerator_count("A100:4") == 4
-    assert accelerator_count(DEFAULT_HARBOR_R3_ACCELERATORS) == 8
-    assert accelerator_count("L4") == 1
-    assert accelerator_count("A100:abc") == 1
-    assert accelerator_count("") == 1
-
-
-def test_render_webarena_includes_service_provision_hook():
-    text = render_sky_yaml(
+def test_render_can_pin_gcp_region_and_zone():
+    rendered = render_sky_yaml(
         RenderOptions(
-            pipeline="webarena",
+            pipeline="cpp-grpo",
             project_id="proj",
-            webarena_archives_gcs="gs://proj-w8-biayn/webarena",
+            accelerators="A100:8",
+            region="asia-northeast3",
+            zone="asia-northeast3-b",
         )
     )
-    config = yaml.safe_load(text)
+    config = yaml.safe_load(rendered)
 
-    assert config["envs"]["W8_WEBARENA_ARCHIVES_GCS"] == "gs://proj-w8-biayn/webarena"
-    assert "webarena-setup" in config["setup"]
-    assert "WA_SHOPPING" in config["run"]
+    assert config["resources"]["infra"] == "gcp/asia-northeast3/asia-northeast3-b"
+    assert config["envs"]["W8_BIAYN_REGION"] == "asia-northeast3"
+    assert config["envs"]["W8_BIAYN_ZONE"] == "asia-northeast3-b"
 
 
-def test_render_r3_includes_domdiff_reward_envs():
-    text = render_sky_yaml(
+def test_render_derives_region_from_zone_when_region_is_omitted():
+    rendered = render_sky_yaml(
+        RenderOptions(pipeline="cpp-grpo", project_id="proj", accelerators="A100:8", zone="asia-northeast3-b")
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["resources"]["infra"] == "gcp/asia-northeast3/asia-northeast3-b"
+
+
+def test_render_training_and_eval_default_to_qwen_model():
+    for pipeline in ("cpp-sft", "cpp-grpo", "cpp-eval"):
+        rendered = render_sky_yaml(RenderOptions(pipeline=pipeline, project_id="proj"))
+        config = yaml.safe_load(rendered)
+
+        assert config["envs"]["W8_BIAYN_MODEL"] == "Qwen/Qwen2.5-Coder-7B-Instruct"
+        assert 'Qwen/Qwen2.5-Coder-7B-Instruct' in config["run"]
+
+
+def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
+    sft = yaml.safe_load(
+        render_sky_yaml(RenderOptions(pipeline="cpp-sft", project_id="proj", accelerators="A100:8"))
+    )
+    grpo_text = render_sky_yaml(RenderOptions(pipeline="cpp-grpo", project_id="proj", accelerators="A100:8"))
+    grpo = yaml.safe_load(grpo_text)
+
+    assert sft["resources"]["accelerators"] == "A100:8"
+    assert sft["resources"]["disk_size"] == 1024
+    assert sft["resources"]["memory"] == "128+"
+    assert grpo["resources"]["disk_size"] == 1024
+    assert grpo["resources"]["memory"] == "128+"
+    assert "python -m skyrl.train.main_sft" in sft["run"]
+    assert "dataset_name=/data/sft" in sft["run"]
+    assert "python -m w8_biayn.integrations.skyrl_io_patch" in sft["run"]
+    assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in sft["run"]
+    assert "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in sft["run"]
+    assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" in grpo["run"]
+    assert "uv venv --clear --python 3.12 --seed /tmp/w8-train" in grpo["run"]
+    assert grpo["run"].index("uv sync --active --extra fsdp --extra gcp") < grpo["run"].index(
+        "uv pip install gcsfs"
+    )
+    assert grpo["run"].index("uv pip install gcsfs") < grpo["run"].index(
+        "uv pip install --no-deps -e /workspace"
+    )
+    assert grpo["run"].index("uv pip install --no-deps -e /workspace") < grpo["run"].index(
+        "python -m w8_biayn.integrations.skyrl_cpp_perf_main"
+    )
+    assert "W8_BIAYN_MODEL_PATH" in grpo["run"]
+    assert 'trainer.policy.model.path="$W8_BIAYN_MODEL_PATH"' in grpo["run"]
+    assert 'export SKYRL_RAY_PG_TIMEOUT_IN_S="${SKYRL_RAY_PG_TIMEOUT_IN_S:-1800}"' in grpo["run"]
+    assert 'export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-3600}"' in grpo["run"]
+    assert '-e SKYRL_RAY_PG_TIMEOUT_IN_S="$SKYRL_RAY_PG_TIMEOUT_IN_S"' in grpo["run"]
+    assert '-e SKYRL_WORKER_NCCL_TIMEOUT_IN_S="$SKYRL_WORKER_NCCL_TIMEOUT_IN_S"' in grpo["run"]
+    assert "environment.env_class=cpp-perf" in grpo["run"]
+    assert "-v /var/run/docker.sock:/var/run/docker.sock" in grpo["run"]
+    assert "-v /tmp:/tmp" in grpo["run"]
+    assert "DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io" in grpo["run"]
+    assert "docker version" in grpo["run"]
+    assert "kernel.perf_event_paranoid" not in grpo["run"]
+    assert 'uv run w8-biayn cpp harness preflight --image "w8-biayn-cpp-perf:latest" --cpu "3"' in grpo["run"]
+    assert grpo["run"].index("uv run w8-biayn cpp harness preflight") < grpo["run"].index(
+        "gcloud storage cp --recursive"
+    )
+    assert grpo["run"].index("uv run w8-biayn cpp harness preflight") < grpo["run"].index(
+        "docker pull \"$W8_GPU_CONTAINER_IMAGE\""
+    )
+    assert "w8-biayn cpp harness preflight --image \"w8-biayn-cpp-perf:latest\" --cpu \"3\"" in grpo["run"]
+    assert grpo["run"].count("w8-biayn cpp harness preflight") == 2
+    assert "environment.skyrl_gym.max_env_workers=32" in grpo["run"]
+    assert "trainer.logger=[console,mlflow]" in grpo["run"]
+    assert "logger=[console,mlflow]" in sft["run"]
+    assert 'uv pip install "mlflow>=2.12,<3"' in grpo["run"]
+    assert "mlflow server" in grpo["run"]
+    assert 'export MLFLOW_TRACKING_URI="http://${W8_MLFLOW_HEAD_IP}:${W8_MLFLOW_PORT:-5000}"' in grpo["run"]
+    assert "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db" in grpo["run"]
+    assert "sync_mlflow_tracking_once" in grpo["run"]
+    assert "W8_SETUP_STAGE" in grpo["run"]
+    assert "w8_stage dependency_setup start" in grpo["run"]
+    assert "python -m w8_biayn.integrations.skyrl_startup_patch" in grpo["run"]
+    assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/tracking\"" in grpo["run"]
+    assert "trainer.ckpt_interval=-1" in grpo["run"]
+    assert "trainer.hf_save_interval=-1" in grpo["run"]
+    assert "trainer.micro_train_batch_size_per_gpu=1" in grpo["run"]
+    assert "trainer.algorithm.use_kl_loss=true" in grpo["run"]
+    assert "trainer.algorithm.kl_loss_coef=0.001" in grpo["run"]
+    assert "trainer.algorithm.use_entropy_loss=true" in grpo["run"]
+    assert "trainer.algorithm.entropy_loss_coef=0.001" in grpo["run"]
+    assert "micro_train_batch_size_per_gpu=1" in sft["run"]
+    assert '-v "$W8_ARTIFACT_DIR":/artifacts' in grpo["run"]
+    assert 'trainer.ckpt_path="$W8_CKPT_PATH"' in grpo["run"]
+    assert 'trainer.export_path="$W8_EXPORT_PATH"' in grpo["run"]
+    assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/exports\"" in grpo["run"]
+    assert "trainer.epochs=1" in grpo["run"]
+    assert "trainer.eval_before_train=true" in grpo["run"]
+    assert "trainer.eval_interval=50" in grpo["run"]
+    assert "trainer.placement.colocate_all=true" in grpo["run"]
+    assert "trainer.placement.policy_num_nodes=1" in grpo["run"]
+    assert "trainer.placement.policy_num_gpus_per_node=8" in grpo["run"]
+    assert "trainer.placement.ref_num_nodes=1" in grpo["run"]
+    assert "trainer.placement.ref_num_gpus_per_node=8" in grpo["run"]
+    assert "trainer.policy.fsdp_config.fsdp_size=8" in grpo["run"]
+    assert "trainer.ref.fsdp_config.fsdp_size=8" in grpo["run"]
+    assert "generator.inference_engine.num_engines=8" in grpo["run"]
+    assert "generator.inference_engine.tensor_parallel_size=1" in grpo["run"]
+    assert "generator.inference_engine.pipeline_parallel_size=1" in grpo["run"]
+    assert "generator.inference_engine.data_parallel_size=1" in grpo["run"]
+    assert "generator.inference_engine.backend=vllm" in grpo["run"]
+    assert "generator.inference_engine.run_engines_locally=true" in grpo["run"]
+    assert "generator.inference_engine.weight_sync_backend=nccl" in grpo["run"]
+    assert "generator.inference_engine.async_engine=true" in grpo["run"]
+    assert "generator.inference_engine.gpu_memory_utilization=0.7" in grpo["run"]
+    assert "generator.batched=false" in grpo["run"]
+    assert "ray start --head" not in grpo["run"]
+    assert "BasePPOExp" not in grpo_text
+    assert "domdiff" not in grpo_text.lower()
+    assert "harbor" not in grpo_text.lower()
+    assert grpo["envs"]["W8_BIAYN_DATA_GCS_PREFIX"].endswith("/datasets/cpp-perf/cpp-perf-v1/skyrl")
+    assert grpo["envs"]["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] == "/tmp/w8-gcp-service-account.json"
+    assert grpo["envs"]["CLOUDSDK_CORE_PROJECT"] == "proj"
+
+
+def test_render_cpp_training_yaml_exposes_full_run_knobs():
+    grpo_rendered = render_sky_yaml(
         RenderOptions(
-            pipeline="r3",
+            pipeline="cpp-grpo",
             project_id="proj",
-            chromiumrl_url="https://reward.trycloudflare.com",
-            cdp_url="wss://cdp.trycloudflare.com",
-            benchmark="webvoyager-domdiff-heldout",
+            accelerators="A100:8",
+            disk_size=2048,
+            train_epochs=3,
+            eval_before_train=False,
+            eval_interval=25,
+            max_env_workers=128,
+            ckpt_interval=50,
+            hf_save_interval=100,
+            max_ckpts_to_keep=2,
+            ckpt_path="gs://bucket/ckpts",
+            export_path="gs://bucket/exports",
+            micro_train_batch_size_per_gpu=2,
+            grpo_use_kl_loss=True,
+            grpo_kl_loss_coef=0.002,
+            grpo_use_entropy_loss=True,
+            grpo_entropy_loss_coef=0.003,
+            grpo_vllm_gpu_memory_utilization=0.65,
+            sandbox_image="w8-cpp:perf",
+            sandbox_cpu="7",
         )
     )
-    config = yaml.safe_load(text)
-
-    assert config["envs"]["W8_BIAYN_DOMDIFF_ENABLED"] == "1"
-    assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
-    assert config["envs"]["CDP_URL"] == "wss://cdp.trycloudflare.com"
-    assert config["envs"]["W8_BIAYN_BENCHMARK"] == "webvoyager-domdiff-heldout"
-    assert "uv sync --extra megatron --extra gcp" in config["setup"]
-    assert "trainer.strategy=megatron" in config["run"]
-    assert 'export CHROMIUMRL_API_URL="https://reward.trycloudflare.com"' in config["run"]
-
-
-def test_private_domdiff_urls_are_rejected_for_remote_runtime():
-    assert is_private_runtime_url("http://127.0.0.1:8080")
-    assert is_private_runtime_url("ws://192.168.1.10:9224")
-    assert not is_private_runtime_url("https://reward.trycloudflare.com")
-
-    with pytest.raises(ValueError, match="local/private URL"):
-        render_sky_yaml(
-            RenderOptions(
-                pipeline="r3",
-                project_id="proj",
-                chromiumrl_url="http://localhost:8080",
-            )
-        )
-
-
-def test_render_harbor_r3_uses_gpu_container_and_skyrl_entrypoint():
-    text = render_sky_yaml(
+    sft_rendered = render_sky_yaml(
         RenderOptions(
-            pipeline="r3",
+            pipeline="cpp-sft",
             project_id="proj",
-            benchmark="harbor-domdiff-browser-swe",
-            chromiumrl_url="https://reward.trycloudflare.com",
-            harbor_task_ids=(DEFAULT_HARBOR_TASK_IDS[0],),
+            accelerators="A100:8",
+            resume_from="latest",
+            micro_train_batch_size_per_gpu=2,
         )
     )
-    config = yaml.safe_load(text)
 
-    assert "secrets" not in config
-    assert config["envs"]["CHROMIUMRL_URL"] == "https://reward.trycloudflare.com"
-    assert "CDP_URL" not in config["envs"]
-    assert "rllm-org/rllm" not in config["setup"]
-    assert "git clone https://github.com/NovaSky-AI/SkyRL.git" in config["setup"]
-    assert DEFAULT_GPU_CONTAINER_IMAGE in config["run"]
-    assert "docker run --rm --gpus all --network host --shm-size=32g" in config["run"]
-    assert 'if [ ! -x "$HARBOR_VENV/bin/python" ]; then' in config["run"]
-    assert 'uv venv --python 3.12 --seed --clear "$HARBOR_VENV"' in config["run"]
-    assert "uv sync --active --extra megatron --extra gcp" in config["run"]
-    assert "cd /workspace" in config["run"]
-    assert "w8-biayn harbor prepare-data" in config["run"]
-    assert "w8_biayn.integrations.skyrl_harbor_main" in config["run"]
-    assert "TINKER_API_KEY" not in config["run"]
-    assert "environment.env_class=harbor-domdiff" in config["run"]
-    assert "generator.inference_engine.enable_return_routed_experts=true" in config["run"]
-    assert "SKYPILOT_NUM_GPUS_PER_NODE" not in config["run"]
-    assert config["resources"]["accelerators"] == "A100:4"
-    assert "trainer.placement.policy_num_gpus_per_node=4" in config["run"]
-    assert "generator.inference_engine.tensor_parallel_size=4" in config["run"]
-    assert "generator.inference_engine.expert_parallel_size=4" in config["run"]
-    assert "generator.inference_engine.distributed_executor_backend=mp" in config["run"]
-    assert "trainer.strategy=megatron" in config["run"]
-    assert "trainer.algorithm.use_kl_loss=false" in config["run"]
-    assert "trainer.policy.megatron_config.tensor_model_parallel_size=2" in config["run"]
-    assert "trainer.policy.megatron_config.expert_model_parallel_size=4" in config["run"]
-    assert "trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_cpu_offload=true" in config["run"]
-    assert "trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_offload_fraction=1.0" in config["run"]
-    assert "trainer.use_sample_packing=true" in config["run"]
-    assert DEFAULT_HARBOR_TASK_IDS[0] in config["run"]
-    assert DEFAULT_HARBOR_TASK_IDS[1] not in config["run"]
+    assert "w8-biayn cpp harness preflight --image \"w8-cpp:perf\" --cpu \"7\"" in grpo_rendered
+    assert yaml.safe_load(grpo_rendered)["resources"]["disk_size"] == 2048
+    assert "uv run w8-biayn cpp harness preflight --image \"w8-cpp:perf\" --cpu \"7\"" in grpo_rendered
+    assert "uv venv --clear --python 3.12 --seed /tmp/w8-train" in grpo_rendered
+    assert "python -m w8_biayn.integrations.skyrl_io_patch" in grpo_rendered
+    assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in grpo_rendered
+    assert "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in grpo_rendered
+    assert 'export SKYRL_RAY_PG_TIMEOUT_IN_S="${SKYRL_RAY_PG_TIMEOUT_IN_S:-1800}"' in sft_rendered
+    assert 'export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-3600}"' in sft_rendered
+    assert "trainer.epochs=3" in grpo_rendered
+    assert "trainer.eval_before_train=false" in grpo_rendered
+    assert "trainer.eval_interval=25" in grpo_rendered
+    assert "environment.skyrl_gym.max_env_workers=128" in grpo_rendered
+    assert "trainer.ckpt_interval=50" in grpo_rendered
+    assert "trainer.hf_save_interval=100" in grpo_rendered
+    assert "trainer.micro_train_batch_size_per_gpu=2" in grpo_rendered
+    assert "trainer.algorithm.use_kl_loss=true" in grpo_rendered
+    assert "trainer.algorithm.kl_loss_coef=0.002" in grpo_rendered
+    assert "trainer.algorithm.use_entropy_loss=true" in grpo_rendered
+    assert "trainer.algorithm.entropy_loss_coef=0.003" in grpo_rendered
+    assert "generator.inference_engine.gpu_memory_utilization=0.65" in grpo_rendered
+    assert "micro_train_batch_size_per_gpu=2" in sft_rendered
+    assert "trainer.max_ckpts_to_keep=2" in grpo_rendered
+    assert 'export W8_CKPT_PATH="gs://bucket/ckpts"' in grpo_rendered
+    assert 'export W8_EXPORT_PATH="gs://bucket/exports"' in grpo_rendered
+    assert 'trainer.ckpt_path="$W8_CKPT_PATH"' in grpo_rendered
+    assert 'trainer.export_path="$W8_EXPORT_PATH"' in grpo_rendered
+    assert 'resume_from="latest"' in sft_rendered
 
 
-def test_render_harbor_r3_h100_eight_gpu_topology():
-    text = render_sky_yaml(
+def test_render_cpp_grpo_export_checkpoint_skips_training_and_dataset_restore():
+    rendered = render_sky_yaml(
         RenderOptions(
-            pipeline="r3",
+            pipeline="cpp-grpo",
             project_id="proj",
-            benchmark="harbor-domdiff-browser-swe",
-            accelerators=DEFAULT_HARBOR_R3_ACCELERATORS,
-            chromiumrl_url="https://reward.trycloudflare.com",
+            accelerators="A100:8",
+            model="gs://bucket/cpp-sft/exports/global_step_1074/policy",
+            sft_export_checkpoint="gs://bucket/cpp-grpo/ckpts/global_step_250",
+            run_id="rexport",
         )
     )
-    config = yaml.safe_load(text)
+    config = yaml.safe_load(rendered)
+    run = config["run"]
 
-    assert config["resources"]["accelerators"] == DEFAULT_HARBOR_R3_ACCELERATORS
-    assert "trainer.placement.policy_num_gpus_per_node=8" in config["run"]
-    assert "generator.inference_engine.tensor_parallel_size=8" in config["run"]
-    assert "generator.inference_engine.expert_parallel_size=8" in config["run"]
-    assert "trainer.policy.megatron_config.tensor_model_parallel_size=4" in config["run"]
-    assert "trainer.policy.megatron_config.expert_model_parallel_size=8" in config["run"]
-    assert "trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_cpu_offload=false" in config["run"]
-    assert "trainer.policy.megatron_config.optimizer_config_kwargs.optimizer_offload_fraction=0.0" in config["run"]
+    assert "cpp-grpo export-only: skipping dataset restore" in run
+    assert "python -m w8_biayn.integrations.skyrl_sft_export_checkpoint_main" in run
+    assert "--checkpoint \"$W8_SFT_EXPORT_CHECKPOINT\"" in run
+    assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" not in run
+    assert "test -f /data/grpo/train.parquet" not in run
+    assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/exports\"" in run
+    assert "mlflow server" not in run
+    assert "trainer.logger=[console,mlflow]" not in run
+    assert config["envs"]["W8_BIAYN_MODEL"] == "gs://bucket/cpp-sft/exports/global_step_1074/policy"
+    assert config["envs"]["W8_BIAYN_RUN_ID"] == "rexport"
+
+
+def test_render_cpp_training_allows_console_only_tracking():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            tracking_backends=("console",),
+        )
+    )
+    run = yaml.safe_load(rendered)["run"]
+
+    assert "trainer.logger=console" in run
+    assert "mlflow server" not in run
+    assert 'uv pip install "mlflow>=2.12,<3"' not in run
+
+
+def test_render_cpp_training_run_scripts_parse_nested_skyrl_patch():
+    for pipeline in ("cpp-sft", "cpp-grpo"):
+        rendered = render_sky_yaml(RenderOptions(pipeline=pipeline, project_id="proj", accelerators="A100:8"))
+        run = yaml.safe_load(rendered)["run"]
+
+        shell_result = subprocess.run(["bash", "-n"], input=run, text=True, capture_output=True)
+        assert shell_result.returncode == 0, shell_result.stderr
+        assert "python -m w8_biayn.integrations.skyrl_io_patch" in run
+        assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in run
+        assert "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in run
+
+
+def test_render_cpp_grpo_multinode_uses_total_rollout_engines_and_resume_mode():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            num_nodes=2,
+            train_batch_size=32,
+            n_samples_per_prompt=8,
+            max_env_workers=256,
+            resume_from="latest",
+        )
+    )
+    config = yaml.safe_load(rendered)
+    run = config["run"]
+
+    assert config["num_nodes"] == 2
+    assert config["resources"]["disk_size"] == 2048
+    assert "trainer.placement.policy_num_nodes=2" in run
+    assert "trainer.placement.policy_num_gpus_per_node=8" in run
+    assert "trainer.placement.ref_num_nodes=2" in run
+    assert "trainer.placement.ref_num_gpus_per_node=8" in run
+    assert "trainer.policy.fsdp_config.fsdp_size=8" in run
+    assert "trainer.ref.fsdp_config.fsdp_size=8" in run
+    assert "generator.inference_engine.num_engines=16" in run
+    assert "trainer.train_batch_size=32" in run
+    assert "generator.n_samples_per_prompt=8" in run
+    assert "environment.skyrl_gym.max_env_workers=256" in run
+    assert "generator.inference_engine.tensor_parallel_size=1" in run
+    assert "generator.inference_engine.data_parallel_size=1" in run
+    assert "trainer.resume_mode=latest" in run
+    assert "-e NCCL_IB_DISABLE=1" in run
+    assert '-e NCCL_SOCKET_IFNAME="^lo,docker,veth"' in run
+    assert 'export W8_GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-$(ip route show default' in run
+    assert '-e GLOO_SOCKET_IFNAME="$W8_GLOO_SOCKET_IFNAME"' in run
+    assert "-e NCCL_DEBUG=WARN" in run
+    assert '-e SKYPILOT_NODE_RANK="${SKYPILOT_NODE_RANK:-0}"' in run
+    assert '-e SKYPILOT_NODE_IPS="${SKYPILOT_NODE_IPS:-}"' in run
+    assert "if [ \"${SKYPILOT_NODE_RANK:-0}\" = \"0\" ]" in run
+    assert "ray start --head --disable-usage-stats --port 6479 --num-gpus 8" in run
+    assert 'start_ray_worker "$W8_RAY_HEAD_IP:6479"' in run
+    assert "w8_stage ray_cluster start" in run
+    assert "w8_stage ray_worker_join start" in run
+    assert "w8_stage skyrl_entrypoint start" in run
+    assert "export RAY_ADDRESS=127.0.0.1:6479" in run
+    assert "worker rank ${SKYPILOT_NODE_RANK:-unknown} joined Ray" in run
+    assert "skipping artifact upload on worker rank" in run
+    assert run.count("python -m w8_biayn.integrations.skyrl_cpp_perf_main") == 1
+    assert config["envs"]["W8_BIAYN_TOTAL_GPU_COUNT"] == "16"
+    assert config["envs"]["W8_BIAYN_EFFECTIVE_SAMPLES_PER_STEP"] == "256"
+    assert config["envs"]["W8_BIAYN_SAMPLES_PER_GPU_PER_STEP"] == "16"
+
+
+def test_render_run_id_adds_cluster_suffix_labels_and_env():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            run_id="R2026_06_14_Test",
+            owner="SSS",
+        )
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["name"] == "w8-biayn-cpp-grpo-R2026_06_14_Test"
+    assert config["envs"]["W8_BIAYN_RUN_ID"] == "R2026_06_14_Test"
+    assert config["resources"]["labels"] == {
+        "project": "w8-biayn",
+        "phase": "cpp-perf-rl",
+        "pipeline": "cpp-grpo",
+        "run_id": "r2026-06-14-test",
+        "owner": "sss",
+        "ttl": "training",
+    }
+
+
+def test_render_cpp_eval_yaml_uses_eval_entrypoint_and_a100_one():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-eval",
+            project_id="proj",
+            accelerators="A100:1",
+            run_id="rtest",
+            eval_label="base",
+            eval_max_tasks=8,
+        )
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["resources"]["accelerators"] == "A100:1"
+    assert config["resources"]["memory"] == "80+"
+    assert config["resources"]["disk_size"] == 1024
+    assert config["resources"]["labels"]["pipeline"] == "cpp-eval"
+    assert "python -m w8_biayn.integrations.cpp_eval_main" in config["run"]
+    assert "uv venv --clear --python 3.10 --seed /tmp/w8-eval" in config["run"]
+    assert (
+        'uv pip install "vllm==0.6.6.post1" "transformers==4.57.6" '
+        "--extra-index-url https://download.pytorch.org/whl/cu124"
+    ) in config["run"]
+    assert "--label \"base\"" in config["run"]
+    assert "--max-tasks 8" in config["run"]
+    assert "W8_EVAL_MODEL" in config["run"]
+    assert "kernel.perf_event_paranoid" not in config["run"]
+    assert "uv run w8-biayn cpp harness preflight" in config["run"]
+    assert config["run"].index("uv run w8-biayn cpp harness preflight") < config["run"].index(
+        "gcloud storage cp --recursive"
+    )
+    assert "gcloud storage cp --recursive" in config["run"]
+    assert "dataset cache already restored for $W8_DATA_GCS_PREFIX" in config["run"]
+    assert 'printf \'%s\\n\' "$W8_DATA_GCS_PREFIX" > "$W8_DATA_DIR/.w8_data_gcs_prefix"' in config["run"]
+    assert "runs/cpp-perf/rtest/cpp-eval" in config["run"]
+
+
+def test_render_training_stages_gcs_model_exports():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            model="gs://bucket/runs/cpp-sft/exports",
+        )
+    )
+
+    assert 'export W8_BIAYN_MODEL_PATH="gs://bucket/runs/cpp-sft/exports"' in rendered
+    assert "resolve_gcs_model_export()" in rendered
+    assert 'export W8_BIAYN_MODEL_SOURCE="$W8_BIAYN_MODEL_PATH"' in rendered
+    assert 'export W8_BIAYN_MODEL_PATH="$(resolve_gcs_model_export "$W8_BIAYN_MODEL_PATH")"' in rendered
+    assert 'echo "resolved GCS model export: $W8_BIAYN_MODEL_SOURCE -> $W8_BIAYN_MODEL_PATH"' in rendered
+    assert 'export W8_LOCAL_MODEL_DIR="$W8_ARTIFACT_DIR/model"' in rendered
+    assert "gcloud storage cp --recursive \"$W8_BIAYN_MODEL_PATH/*\" \"$W8_LOCAL_MODEL_DIR/\"" in rendered
+    assert 'assert_local_hf_model "$W8_LOCAL_MODEL_DIR"' in rendered
+    assert 'normalize_local_hf_tokenizer_config "$W8_LOCAL_MODEL_DIR"' in rendered
+    assert 'data["additional_special_tokens"] = merged' in rendered
+    assert 'export W8_BIAYN_MODEL_PATH="/artifacts/model"' in rendered
+    assert '-v "$W8_ARTIFACT_DIR":/artifacts' in rendered
+    assert 'trainer.policy.model.path="$W8_BIAYN_MODEL_PATH"' in rendered
+    assert "has_gcs_policy_weights()" in rendered
+    assert "no model weight files found under concrete HF policy export $source" in rendered
+    assert "global_step_${step}/policy" in rendered
+
+
+def test_render_eval_uses_training_prelude_staged_gcs_model():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-eval",
+            project_id="proj",
+            accelerators="A100:1",
+            model="gs://bucket/runs/cpp-grpo/exports/global_step_10/policy",
+            run_id="rtest",
+            eval_label="grpo",
+        )
+    )
+    run = yaml.safe_load(rendered)["run"]
+
+    assert "resolve_gcs_model_export()" in run
+    assert 'export W8_BIAYN_MODEL_SOURCE="$W8_BIAYN_MODEL_PATH"' in run
+    assert 'export W8_BIAYN_MODEL_PATH="$(resolve_gcs_model_export "$W8_BIAYN_MODEL_PATH")"' in run
+    assert 'export W8_BIAYN_MODEL_PATH="/artifacts/model"' in run
+    assert 'export W8_EVAL_MODEL="$W8_BIAYN_MODEL_PATH"' in run
+    assert "eval GCS model export was not staged by training_prelude" in run
+    assert 'export W8_EVAL_MODEL_SOURCE="$W8_EVAL_MODEL"' not in run
+    assert "gcloud storage cp --recursive \"$W8_EVAL_MODEL/*\"" not in run
+    assert "-v /tmp:/tmp" in run
+    assert '-v "$W8_ARTIFACT_DIR":/artifacts' in run
+    assert '--model "$W8_EVAL_MODEL"' in run

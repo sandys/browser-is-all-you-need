@@ -3,25 +3,20 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/bootstrap.sh [--no-sky] [--no-cloudflared]
+Usage: ./scripts/bootstrap.sh [--no-sky]
 
-Bootstraps a fresh machine for w8-biayn development and operation.
+Bootstraps a fresh machine for w8-biayn C++ performance-RL development and operation.
 
 Options:
-  --no-sky          Skip SkyPilot installation. Useful for local unit-test-only setup.
-  --no-cloudflared  Skip local cloudflared installation.
+  --no-sky  Skip SkyPilot installation. Useful for local unit-test-only setup.
 EOF
 }
 
 install_sky=1
-install_cloudflared=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-sky)
       install_sky=0
-      ;;
-    --no-cloudflared)
-      install_cloudflared=0
       ;;
     -h|--help)
       usage
@@ -51,7 +46,7 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 echo "Syncing Python environment..."
-uv sync --extra dev --extra browser --extra domdiff
+uv sync --extra dev --extra cpp-perf
 
 if [ "$install_sky" -eq 1 ]; then
   echo "Installing SkyPilot with GCP support..."
@@ -71,30 +66,32 @@ Install Google Cloud CLI before running real GCP smoke tests:
 EOF
 fi
 
-if [ "$install_cloudflared" -eq 1 ] && ! command -v cloudflared >/dev/null 2>&1; then
-  cloudflared_dir="$repo_root/.local/cloudflared"
-  cloudflared_bin="$cloudflared_dir/cloudflared"
-  machine="$(uname -m)"
-  system="$(uname -s)"
-  cloudflared_url=""
-  if [ "$system" = "Linux" ] && [ "$machine" = "x86_64" ]; then
-    cloudflared_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-  elif [ "$system" = "Linux" ] && [ "$machine" = "aarch64" ]; then
-    cloudflared_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-  fi
-  if [ -n "$cloudflared_url" ]; then
-    echo "Installing cloudflared into .local/cloudflared..."
-    mkdir -p "$cloudflared_dir"
-    curl -fsSL -o "$cloudflared_bin" "$cloudflared_url"
-    chmod 0755 "$cloudflared_bin"
-  else
-    cat >&2 <<'EOF'
+if ! command -v docker >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
 
-cloudflared is not installed and this platform is not supported by the bootstrap downloader.
-Install cloudflared manually or set CLOUDFLARED_BIN before running DOMDiff tunnel workflows.
+docker is not installed or not on PATH.
+Install Docker before running the C++ sandbox harness:
+  https://docs.docker.com/engine/install/
 
 EOF
-  fi
+fi
+
+if ! command -v g++ >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+
+g++ is not installed or not on PATH.
+Install a C++ compiler before building PIE tasks or measuring coverage.
+
+EOF
+fi
+
+if ! command -v gcov >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+
+gcov is not installed or not on PATH.
+Install GCC coverage tools before running `w8-biayn data pie measure-coverage`.
+
+EOF
 fi
 
 echo
@@ -102,9 +99,10 @@ echo "Bootstrap complete."
 echo
 echo "Next commands:"
 echo "  cp /secure/path/service-account.json .gcp-service-account.json"
-echo "  uv run w8-biayn doctor --cloud --domdiff"
-echo "  uv run w8-biayn launch miniwob --dry-run"
+echo "  uv run w8-biayn doctor --cloud --cpp-perf"
+echo "  uv run w8-biayn data doctor"
+echo "  uv run w8-biayn upstreams clone"
+echo "  uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json"
 echo
 echo "Real smoke launch:"
-echo "  uv run w8-biayn launch miniwob"
-echo "  uv run w8-biayn domdiff local smoke --image android-world-domdiff:local"
+echo "  uv run w8-biayn launch cpp-smoke --credentials .gcp-service-account.json"
