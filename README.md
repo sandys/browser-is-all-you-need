@@ -584,6 +584,44 @@ uv run w8-biayn slime setup
 
 The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
 
+### SLIME Moonlight MoE Smoke
+
+For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses Moonlight-16B-A3B INT4, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.
+
+Prerequisites are intentionally narrow: a 4x A100 80 GB node, the pinned SLIME sidecar, `/root/Megatron-LM`, a local Moonlight INT4 HF checkpoint, and its converted Megatron torch_dist checkpoint. Defaults are `/root/Moonlight-16B-A3B-Instruct-INT4` and `/root/Moonlight-16B-A3B-Instruct-INT4_torch_dist`; override with `SLIME_HF_CHECKPOINT` and `SLIME_REF_LOAD_DIR`.
+
+Start the SLIME container:
+
+```bash
+.w8-biayn/slime/run-container.sh
+```
+
+Then launch the smoke inside the container:
+
+```bash
+cd /workspace/<repo-name>
+
+SLIME_NUM_GPUS=4 \
+SLIME_NUM_ROLLOUT=1 \
+SLIME_ROLLOUT_BATCH_SIZE=4 \
+SLIME_N_SAMPLES_PER_PROMPT=1 \
+SLIME_MAX_RESPONSE_LEN=128 \
+SLIME_MAX_TOKENS_PER_GPU=1024 \
+bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
+```
+
+If the torch_dist checkpoint is not already present, the same script can do the conversion explicitly:
+
+```bash
+SLIME_CONVERT_IF_MISSING=1 \
+SLIME_CONVERT_NPROC=4 \
+bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
+```
+
+Keep `SLIME_ENABLE_DEEPEP=0` for the first pass. Set `SLIME_ENABLE_DEEPEP=1` only after the default all-to-all smoke is healthy on that host/container stack.
+
+The launcher samples `nvidia-smi` during the run and writes `vram_usage.csv` plus `vram_peak.txt` under `.w8-biayn/slime/moonlight-16b-a3b-int4-smoke/runs/<timestamp>/`; use `vram_peak.txt` as the peak-VRAM receipt.
+
 ### SLIME Multi-Agent Text Example
 
 For a text-only SLIME RL bring-up, use the repo-owned multi-agent wrapper under `examples/slime/multi_agent/`. This avoids the VLM memory/config path and validates the core SLIME loop: DAPO-Math data, Ray, SGLang rollout, reward/logprob processing, and Megatron actor training.
