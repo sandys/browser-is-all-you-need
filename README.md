@@ -588,7 +588,7 @@ The generic doctor checks the upstream root plus `README.md`, `train.py`, `train
 
 For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses Moonlight-16B-A3B INT4, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.
 
-Prerequisites are intentionally narrow: a 4x A100 80 GB node, the pinned SLIME sidecar, `/root/Megatron-LM`, a local Moonlight INT4 HF checkpoint, and its converted Megatron torch_dist checkpoint. Defaults are `/root/Moonlight-16B-A3B-Instruct-INT4` and `/root/Moonlight-16B-A3B-Instruct-INT4_torch_dist`; override with `SLIME_HF_CHECKPOINT` and `SLIME_REF_LOAD_DIR`.
+Prerequisites are intentionally narrow: a 4x A100 80 GB node, the pinned SLIME sidecar, `/root/Megatron-LM`, a local Moonlight INT4 HF checkpoint, and its converted Megatron torch_dist checkpoint. Defaults are `/root/Moonlight-16B-A3B-Instruct` and `/root/Moonlight-16B-A3B-Instruct_torch_dist`; override with `SLIME_HF_CHECKPOINT` and `SLIME_REF_LOAD_DIR`.
 
 Start the SLIME container:
 
