@@ -18,7 +18,7 @@ fi
 
 MEGATRON_DIR="${MEGATRON_DIR:-/root/Megatron-LM}"
 PROMPT_DATA="${SLIME_PROMPT_DATA:-${REPO_ROOT}/examples/slime/moonlight_moe_smoke/moonlight_math_smoke.jsonl}"
-HF_CHECKPOINT="${SLIME_HF_CHECKPOINT:-/root/Moonlight-16B-A3B-Instruct-INT4}"
+HF_CHECKPOINT="${SLIME_HF_CHECKPOINT:-/root/Moonlight-16B-A3B-Instruct}"
 REF_LOAD_DIR="${SLIME_REF_LOAD_DIR:-${HF_CHECKPOINT}_torch_dist}"
 ACTOR_LOAD_DIR="${SLIME_ACTOR_LOAD_DIR:-${REPO_ROOT}/.w8-biayn/slime/moonlight-16b-a3b-int4-smoke/checkpoints}"
 ACTOR_SAVE_DIR="${SLIME_ACTOR_SAVE_DIR:-${ACTOR_LOAD_DIR}}"
