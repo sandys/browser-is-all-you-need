@@ -1,7 +1,7 @@
 # SLIME Moonlight MoE Smoke
 
 This is the smallest repo-owned SLIME MoE bring-up path: Moonlight-16B-A3B
-INT4, four local math prompts, one rollout, one sample per prompt, short
+Instruct, four local math prompts, one rollout, one sample per prompt, short
 responses, and no E2B/browser/DAPO/W&B dependency by default.
 
 ## Prerequisites
@@ -9,14 +9,16 @@ responses, and no E2B/browser/DAPO/W&B dependency by default.
 - Run from a 4x A100 80 GB node, preferably inside the SLIME container started
   by `.w8-biayn/slime/run-container.sh`.
 - Clone or refresh the pinned SLIME sidecar with `uv run w8-biayn upstreams clone slime`.
-- Put the Moonlight INT4 HF checkpoint at
-  `/root/Moonlight-16B-A3B-Instruct-INT4`, or set `SLIME_HF_CHECKPOINT`.
+- Put the Moonlight HF checkpoint at
+  `/root/Moonlight-16B-A3B-Instruct`, or set `SLIME_HF_CHECKPOINT`.
 - Put the converted Megatron torch_dist checkpoint at
-  `/root/Moonlight-16B-A3B-Instruct-INT4_torch_dist`, or set
+  `/root/Moonlight-16B-A3B-Instruct_torch_dist`, or set
   `SLIME_REF_LOAD_DIR`.
 
 The script can convert the HF checkpoint when `SLIME_CONVERT_IF_MISSING=1`,
 but keeping conversion explicit makes the smoke run easier to reason about.
+
+Before running on a GPU host, make sure the generated `.w8-biayn/slime/run-container.sh` includes the Docker mount line `-v "${HOST_MODELS_DIR:-$HOME/models}":/root/models \`. The current Moonlight smoke depends on that mount so the checkpoint files are visible inside the container.
 
 ## Run
 

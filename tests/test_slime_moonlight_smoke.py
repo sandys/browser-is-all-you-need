@@ -14,7 +14,7 @@ def test_moonlight_smoke_launcher_uses_local_int4_moe_defaults() -> None:
     text = LAUNCHER.read_text(encoding="utf-8")
 
     assert "scripts/models/moonlight.sh" in text
-    assert "Moonlight-16B-A3B-Instruct-INT4" in text
+    assert "Moonlight-16B-A3B-Instruct" in text
     assert "moonlight_math_smoke.jsonl" in text
     assert 'NUM_GPUS="${SLIME_NUM_GPUS:-4}"' in text
     assert 'TP_SIZE="${SLIME_TENSOR_MODEL_PARALLEL_SIZE:-2}"' in text
