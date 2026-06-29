@@ -18,7 +18,9 @@ responses, and no E2B/browser/DAPO/W&B dependency by default.
 The script can convert the HF checkpoint when `SLIME_CONVERT_IF_MISSING=1`,
 but keeping conversion explicit makes the smoke run easier to reason about.
 
-Before running on a GPU host, make sure the generated `.w8-biayn/slime/run-container.sh` includes the Docker mount line `-v "${HOST_MODELS_DIR:-$HOME/models}":/root/models \`. The current Moonlight smoke depends on that mount so the checkpoint files are visible inside the container.
+The generated `.w8-biayn/slime/run-container.sh` now mounts
+`${HOST_MODELS_DIR:-$HOME/models}` at `/root/models` by default so local
+Moonlight checkpoint files are visible inside the SLIME container.
 
 ## Run
 
