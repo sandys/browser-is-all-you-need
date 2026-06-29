@@ -26,6 +26,8 @@ def test_moonlight_smoke_launcher_uses_local_int4_moe_defaults() -> None:
     assert "vram_usage.csv" in text
     assert "vram_peak.txt" in text
     assert "--query-gpu=timestamp,index,name,memory.used,memory.total" in text
+    assert 'SLIME_ATTENTION_BACKEND:-' in text
+    assert "--attention-backend flash" not in text
     assert "--ci-test" in text
 
 
@@ -70,6 +72,7 @@ def test_moonlight_smoke_readme_documents_prereqs_and_run_command() -> None:
     assert "SLIME_HF_CHECKPOINT" in text
     assert "SLIME_REF_LOAD_DIR" in text
     assert "SLIME_CONVERT_IF_MISSING=1" in text
+    assert "SLIME_ATTENTION_BACKEND" in text
     assert "SLIME_WANDB_PROJECT" in text
     assert "SLIME_WANDB_RUN_ID" in text
     assert "vram_peak.txt" in text

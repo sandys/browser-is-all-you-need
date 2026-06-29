@@ -20,7 +20,9 @@ but keeping conversion explicit makes the smoke run easier to reason about.
 
 The generated `.w8-biayn/slime/run-container.sh` now mounts
 `${HOST_MODELS_DIR:-$HOME/models}` at `/root/models` by default so local
-Moonlight checkpoint files are visible inside the SLIME container.
+Moonlight checkpoint files are visible inside the SLIME container. Moonlight uses
+MLA, so the smoke does not force `--attention-backend flash`; set
+`SLIME_ATTENTION_BACKEND` only for a deliberate backend experiment.
 
 ## Run
 

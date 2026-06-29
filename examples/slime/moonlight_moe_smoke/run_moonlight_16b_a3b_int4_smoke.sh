@@ -286,6 +286,10 @@ MISC_ARGS=(
   --ci-test
 )
 
+if [ -n "${SLIME_ATTENTION_BACKEND:-}" ]; then
+  MISC_ARGS+=(--attention-backend "${SLIME_ATTENTION_BACKEND}")
+fi
+
 if [ "${SLIME_ENABLE_DEEPEP:-0}" = "1" ]; then
   MISC_ARGS+=(--moe-enable-deepep --moe-token-dispatcher-type flex)
 fi

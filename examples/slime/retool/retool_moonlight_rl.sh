@@ -211,8 +211,11 @@ MISC_ARGS=(
   --hidden-dropout 0.0
   --accumulate-allreduce-grads-in-fp32
   --attention-softmax-in-fp32
-  --attention-backend flash
 )
+
+if [ -n "${SLIME_ATTENTION_BACKEND:-}" ]; then
+  MISC_ARGS+=(--attention-backend "${SLIME_ATTENTION_BACKEND}")
+fi
 
 CUSTOM_ARGS=(
   --custom-generate-function-path generate_with_retool.generate

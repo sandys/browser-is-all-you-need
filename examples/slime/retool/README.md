@@ -27,7 +27,9 @@ with the same Moonlight-16B-A3B checkpoint pattern used by
 
 The generated `.w8-biayn/slime/run-container.sh` mounts
 `${HOST_MODELS_DIR:-$HOME/models}` at `/root/models` by default, so local model
-files can be shared into the container.
+files can be shared into the container. Moonlight uses MLA, so these launchers
+do not force `--attention-backend flash`; set `SLIME_ATTENTION_BACKEND` only for
+a deliberate backend experiment.
 
 ## Data
 

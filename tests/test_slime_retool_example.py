@@ -31,6 +31,8 @@ def test_retool_launchers_use_moonlight_model_wiring() -> None:
         assert 'source "${SLIME_ROOT}/scripts/models/moonlight.sh"' in text
         assert 'HF_CHECKPOINT="${SLIME_HF_CHECKPOINT:-/root/Moonlight-16B-A3B-Instruct}"' in text
         assert 'REF_LOAD_DIR="${SLIME_REF_LOAD_DIR:-${HF_CHECKPOINT}_torch_dist}"' in text
+        assert 'SLIME_ATTENTION_BACKEND:-' in text
+        assert "--attention-backend flash" not in text
         assert "Qwen" not in text
         assert "qwen" not in text
         assert "qwen3-4B.sh" not in text
