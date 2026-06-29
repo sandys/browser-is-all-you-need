@@ -29,6 +29,20 @@ def test_moonlight_smoke_launcher_uses_local_int4_moe_defaults() -> None:
     assert "--ci-test" in text
 
 
+def test_moonlight_smoke_launcher_configures_optional_wandb_diagnostics() -> None:
+    text = LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'WANDB_KEY="${WANDB_API_KEY:-${WANDB_KEY:-}}"' in text
+    assert "WANDB_ALREADY_LOGGED_IN" in text
+    assert '${HOME}/.config/wandb/settings' in text
+    assert "--wandb-project" in text
+    assert "--wandb-group" in text
+    assert "--disable-wandb-random-suffix" in text
+    assert "--wandb-run-id" in text
+    assert "SLIME_WANDB_RUN_ID" in text
+    assert '"${WANDB_ARGS[@]}"' in text
+
+
 def test_moonlight_smoke_launcher_has_no_external_task_dependencies() -> None:
     text = LAUNCHER.read_text(encoding="utf-8").lower()
     executable_text = "\n".join(
@@ -36,7 +50,6 @@ def test_moonlight_smoke_launcher_has_no_external_task_dependencies() -> None:
     )
 
     assert "e2b" not in executable_text
-    assert "wandb" not in executable_text
     assert "dapo" not in executable_text
     assert "hf download" not in executable_text
     assert "custom-generate-function-path" not in executable_text
@@ -57,5 +70,7 @@ def test_moonlight_smoke_readme_documents_prereqs_and_run_command() -> None:
     assert "SLIME_HF_CHECKPOINT" in text
     assert "SLIME_REF_LOAD_DIR" in text
     assert "SLIME_CONVERT_IF_MISSING=1" in text
+    assert "SLIME_WANDB_PROJECT" in text
+    assert "SLIME_WANDB_RUN_ID" in text
     assert "vram_peak.txt" in text
     assert "run_moonlight_16b_a3b_int4_smoke.sh" in text

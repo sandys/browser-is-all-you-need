@@ -36,6 +36,16 @@ SLIME_MAX_TOKENS_PER_GPU=1024 \
 bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
 ```
 
+Optional W&B diagnostics, assuming `wandb login` was already run inside the
+container or `WANDB_API_KEY` is set:
+
+```bash
+SLIME_WANDB_PROJECT=slime-moonlight-smoke \
+SLIME_WANDB_GROUP=moonlight-int4-moe-smoke \
+SLIME_WANDB_RUN_ID=moonlight-smoke-first-gpu \
+bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
+```
+
 Optional one-time conversion:
 
 ```bash
