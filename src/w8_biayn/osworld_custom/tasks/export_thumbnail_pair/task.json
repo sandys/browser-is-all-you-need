@@ -1,0 +1,56 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nw, h = 320, 240\ndata = '\"'\"'P3\\n{} {}\\n255\\n'\"'\"'.format(w, h) + ('\"'\"'30 160 120\\n'\"'\"' * (w * h))\nPath('\"'\"'/home/user/Desktop/thumb_source.ppm'\"'\"').write_text(data)\nfor name in ['\"'\"'thumb_64.png'\"'\"', '\"'\"'thumb_256.png'\"'\"']:\n    p = Path('\"'\"'/home/user/Desktop'\"'\"') / name\n    if p.exists():\n        p.unlink()'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "gimp",
+          "/home/user/Desktop/thumb_source.ppm"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "GIMP"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nimport struct\n\ndef dims(path):\n    data = Path(path).read_bytes() if Path(path).exists() else b'\"'\"''\"'\"'\n    if len(data) < 24 or data[:8] != b'\"'\"'\\x89PNG\\r\\n\\x1a\\n'\"'\"':\n        return None\n    return struct.unpack('\"'\"'>II'\"'\"', data[16:24])\n\nok = dims('\"'\"'/home/user/Desktop/thumb_64.png'\"'\"') == (64, 64) and dims('\"'\"'/home/user/Desktop/thumb_256.png'\"'\"') == (256, 256)\nprint('\"'\"'Evaluation successful.'\"'\"' if ok else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847020",
+  "instruction": "Open the image on the Desktop and export two PNG files on the Desktop: thumb_64.png with dimensions 64 by 64 pixels and thumb_256.png with dimensions 256 by 256 pixels.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "gimp"
+  ],
+  "snapshot": "gimp",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

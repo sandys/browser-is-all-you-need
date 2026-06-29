@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; d=Path(\"/home/user/Desktop/custom10_rename\"); d.mkdir(parents=True, exist_ok=True); (d/\"app.py\").write_text(\"def calc_total(prices):\\n    return sum(prices)\\n\\ninvoice_total = calc_total([12, 8, 5])\\nprint(f\\\"Total: {invoice_total}\\\")\\n\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom10_rename"
+        ]
+      },
+      "type": "launch"
+    },
+    {
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "postconfig": [
+      {
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        },
+        "type": "activate_window"
+      },
+      {
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        },
+        "type": "execute"
+      }
+    ],
+    "result": {
+      "command": "python3 -c 'import subprocess; from pathlib import Path; p=Path(\"/home/user/Desktop/custom10_rename/app.py\"); text=p.read_text(); run=subprocess.run([\"python3\", str(p)], text=True, capture_output=True); ok=(\"calculate_total\" in text and \"calc_total\" not in text and run.stdout.strip()==\"Total: 25\"); print(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847004",
+  "instruction": "In app.py, rename the function calc_total to calculate_total and update the call site so the script still prints Total: 25.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

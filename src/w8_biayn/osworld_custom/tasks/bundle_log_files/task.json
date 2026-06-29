@@ -1,0 +1,57 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; d=Path(\"/home/user/Desktop/logs\"); (d/\"nested\").mkdir(parents=True, exist_ok=True); (d/\"app.log\").write_text(\"app\\n\"); (d/\"system.log\").write_text(\"system\\n\"); (d/\"nested/service.log\").write_text(\"service\\n\"); (d/\"nested/cache.tmp\").write_text(\"tmp\\n\"); (d/\"notes.txt\").write_text(\"notes\\n\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "python",
+          "-c",
+          "import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)"
+        ]
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "window_name": "Terminal"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "result": {
+      "command": "python3 -c 'import tarfile; from pathlib import Path; p=Path(\"/home/user/Desktop/logs_bundle.tar.gz\"); expected={\"app.log\",\"system.log\",\"nested/service.log\"}; ok=False\ntry:\n t=tarfile.open(p,\"r:gz\"); names=set()\n for n in t.getnames():\n  n=n.lstrip(\"./\")\n  if n.startswith(\"logs/\"): n=n[5:]\n  names.add(n)\n ok=expected.issubset(names) and not any(n.endswith(\".tmp\") for n in names)\nexcept Exception:\n ok=False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847003",
+  "instruction": "Create Desktop/logs_bundle.tar.gz containing every .log file under Desktop/logs while preserving the nested path inside logs. Exclude .tmp files.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

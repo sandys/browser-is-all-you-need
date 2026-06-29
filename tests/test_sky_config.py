@@ -25,6 +25,32 @@ def test_render_cpp_smoke_yaml_contains_gcp_model_and_upstreams():
     assert "harbor" not in rendered.lower()
 
 
+def test_render_can_pin_gcp_region_and_zone():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            region="asia-northeast3",
+            zone="asia-northeast3-b",
+        )
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["resources"]["infra"] == "gcp/asia-northeast3/asia-northeast3-b"
+    assert config["envs"]["W8_BIAYN_REGION"] == "asia-northeast3"
+    assert config["envs"]["W8_BIAYN_ZONE"] == "asia-northeast3-b"
+
+
+def test_render_derives_region_from_zone_when_region_is_omitted():
+    rendered = render_sky_yaml(
+        RenderOptions(pipeline="cpp-grpo", project_id="proj", accelerators="A100:8", zone="asia-northeast3-b")
+    )
+    config = yaml.safe_load(rendered)
+
+    assert config["resources"]["infra"] == "gcp/asia-northeast3/asia-northeast3-b"
+
+
 def test_render_training_and_eval_default_to_qwen_model():
     for pipeline in ("cpp-sft", "cpp-grpo", "cpp-eval"):
         rendered = render_sky_yaml(RenderOptions(pipeline=pipeline, project_id="proj"))
@@ -50,6 +76,7 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "dataset_name=/data/sft" in sft["run"]
     assert "python -m w8_biayn.integrations.skyrl_io_patch" in sft["run"]
     assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in sft["run"]
+    assert "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in sft["run"]
     assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" in grpo["run"]
     assert "uv venv --clear --python 3.12 --seed /tmp/w8-train" in grpo["run"]
     assert grpo["run"].index("uv sync --active --extra fsdp --extra gcp") < grpo["run"].index(
@@ -83,7 +110,17 @@ def test_render_cpp_training_yaml_uses_skyrl_entrypoints_and_a100_defaults():
     assert "w8-biayn cpp harness preflight --image \"w8-biayn-cpp-perf:latest\" --cpu \"3\"" in grpo["run"]
     assert grpo["run"].count("w8-biayn cpp harness preflight") == 2
     assert "environment.skyrl_gym.max_env_workers=32" in grpo["run"]
-    assert "trainer.logger=console" in grpo["run"]
+    assert "trainer.logger=[console,mlflow]" in grpo["run"]
+    assert "logger=[console,mlflow]" in sft["run"]
+    assert 'uv pip install "mlflow>=2.12,<3"' in grpo["run"]
+    assert "mlflow server" in grpo["run"]
+    assert 'export MLFLOW_TRACKING_URI="http://${W8_MLFLOW_HEAD_IP}:${W8_MLFLOW_PORT:-5000}"' in grpo["run"]
+    assert "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db" in grpo["run"]
+    assert "sync_mlflow_tracking_once" in grpo["run"]
+    assert "W8_SETUP_STAGE" in grpo["run"]
+    assert "w8_stage dependency_setup start" in grpo["run"]
+    assert "python -m w8_biayn.integrations.skyrl_startup_patch" in grpo["run"]
+    assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/tracking\"" in grpo["run"]
     assert "trainer.ckpt_interval=-1" in grpo["run"]
     assert "trainer.hf_save_interval=-1" in grpo["run"]
     assert "trainer.micro_train_batch_size_per_gpu=1" in grpo["run"]
@@ -167,6 +204,7 @@ def test_render_cpp_training_yaml_exposes_full_run_knobs():
     assert "uv venv --clear --python 3.12 --seed /tmp/w8-train" in grpo_rendered
     assert "python -m w8_biayn.integrations.skyrl_io_patch" in grpo_rendered
     assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in grpo_rendered
+    assert "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in grpo_rendered
     assert 'export SKYRL_RAY_PG_TIMEOUT_IN_S="${SKYRL_RAY_PG_TIMEOUT_IN_S:-1800}"' in sft_rendered
     assert 'export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-3600}"' in sft_rendered
     assert "trainer.epochs=3" in grpo_rendered
@@ -210,8 +248,26 @@ def test_render_cpp_grpo_export_checkpoint_skips_training_and_dataset_restore():
     assert "python -m w8_biayn.integrations.skyrl_cpp_perf_main" not in run
     assert "test -f /data/grpo/train.parquet" not in run
     assert "gcloud storage cp --recursive \"$W8_ARTIFACT_DIR/exports\"" in run
+    assert "mlflow server" not in run
+    assert "trainer.logger=[console,mlflow]" not in run
     assert config["envs"]["W8_BIAYN_MODEL"] == "gs://bucket/cpp-sft/exports/global_step_1074/policy"
     assert config["envs"]["W8_BIAYN_RUN_ID"] == "rexport"
+
+
+def test_render_cpp_training_allows_console_only_tracking():
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            tracking_backends=("console",),
+        )
+    )
+    run = yaml.safe_load(rendered)["run"]
+
+    assert "trainer.logger=console" in run
+    assert "mlflow server" not in run
+    assert 'uv pip install "mlflow>=2.12,<3"' not in run
 
 
 def test_render_cpp_training_run_scripts_parse_nested_skyrl_patch():
@@ -223,6 +279,7 @@ def test_render_cpp_training_run_scripts_parse_nested_skyrl_patch():
         assert shell_result.returncode == 0, shell_result.stderr
         assert "python -m w8_biayn.integrations.skyrl_io_patch" in run
         assert "python -m w8_biayn.integrations.skyrl_vllm_logprob_patch" in run
+        assert "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in run
 
 
 def test_render_cpp_grpo_multinode_uses_total_rollout_engines_and_resume_mode():
@@ -266,6 +323,9 @@ def test_render_cpp_grpo_multinode_uses_total_rollout_engines_and_resume_mode():
     assert "if [ \"${SKYPILOT_NODE_RANK:-0}\" = \"0\" ]" in run
     assert "ray start --head --disable-usage-stats --port 6479 --num-gpus 8" in run
     assert 'start_ray_worker "$W8_RAY_HEAD_IP:6479"' in run
+    assert "w8_stage ray_cluster start" in run
+    assert "w8_stage ray_worker_join start" in run
+    assert "w8_stage skyrl_entrypoint start" in run
     assert "export RAY_ADDRESS=127.0.0.1:6479" in run
     assert "worker rank ${SKYPILOT_NODE_RANK:-unknown} joined Ray" in run
     assert "skipping artifact upload on worker rank" in run

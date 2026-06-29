@@ -1,0 +1,80 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e102",
+  "snapshot": "vscode",
+  "instruction": "Open the desktop project in VS Code. Enable beta mode in both the JSON settings file and the JavaScript flags file, and change the banner text to Beta access is live. Save the files.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\nimport shutil, json\nroot = Path('/home/user/Desktop/custom_beta_banner')\nshutil.rmtree(root, ignore_errors=True)\n(root / 'src').mkdir(parents=True)\n(root / 'settings.json').write_text(json.dumps({'betaMode': False, 'bannerText': 'Coming soon'}, indent=2) + '\\n')\n(root / 'src' / 'flags.js').write_text('export const DEFAULT_BETA_MODE = false;\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_beta_banner"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "vscode"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\nimport json\nsettings = json.loads(Path('/home/user/Desktop/custom_beta_banner/settings.json').read_text())\nflags = Path('/home/user/Desktop/custom_beta_banner/src/flags.js').read_text()\nok = settings.get('betaMode') is True and settings.get('bannerText') == 'Beta access is live' and 'DEFAULT_BETA_MODE = true' in flags and 'DEFAULT_BETA_MODE = false' not in flags\nprint('Evaluation successful.' if ok else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}

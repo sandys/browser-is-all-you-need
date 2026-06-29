@@ -176,6 +176,23 @@ def _add_static_runtime_checks(checks: list[dict[str, Any]], *, config: dict[str
     )
     _add_check(
         checks,
+        "skyrl.patch.grpo_health",
+        "python -m w8_biayn.integrations.skyrl_grpo_health_patch" in run,
+        "critical",
+        "SkyRL GRPO health logging patch is invoked.",
+        remediation="Invoke skyrl_grpo_health_patch before uv sync in the training container.",
+    )
+    _add_check(
+        checks,
+        "skyrl.patch.startup",
+        "python -m w8_biayn.integrations.skyrl_startup_patch" in run,
+        "critical",
+        "SkyRL startup stage logging patch is invoked.",
+        remediation="Invoke skyrl_startup_patch before uv sync in the training container.",
+    )
+    _add_tracking_checks(checks, run=run)
+    _add_check(
+        checks,
         "network.nccl_env",
         "-e NCCL_IB_DISABLE=1" in run
         and '-e NCCL_SOCKET_IFNAME="^lo,docker,veth"' in run
@@ -356,6 +373,73 @@ def _add_checkpoint_retention_check(checks: list[dict[str, Any]], *, extracted: 
     )
 
 
+def _add_tracking_checks(checks: list[dict[str, Any]], *, run: str) -> None:
+    console_enabled = _trainer_logger_has(run, "console")
+    mlflow_enabled = _mlflow_tracking_enabled(run)
+    _add_check(
+        checks,
+        "tracking.console_logger",
+        console_enabled,
+        "critical",
+        "GRPO keeps console logging enabled for log-tail fallback status.",
+        evidence={"console_enabled": console_enabled},
+        remediation="Keep console in trainer.logger even when MLflow tracking is enabled.",
+    )
+    _add_check(
+        checks,
+        "tracking.mlflow_server",
+        (not mlflow_enabled) or ("mlflow server" in run and "MLFLOW_TRACKING_URI" in run),
+        "critical",
+        (
+            "MLflow tracking is disabled for this render; no tracking server is required."
+            if not mlflow_enabled
+            else "GRPO starts an MLflow Tracking Server and points SkyRL at it through MLFLOW_TRACKING_URI."
+        ),
+        evidence={"mlflow_enabled": mlflow_enabled},
+        remediation="Use the rendered MLflow tracking-server setup instead of direct SQLite writes.",
+    )
+    _add_check(
+        checks,
+        "tracking.mlflow_persistence",
+        (not mlflow_enabled)
+        or (
+            "sync_mlflow_tracking_once" in run
+            and "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db" in run
+            and "gcloud storage cp \"$snapshot\"" in run
+        ),
+        "critical",
+        (
+            "MLflow tracking is disabled for this render; no MLflow GCS persistence is required."
+            if not mlflow_enabled
+            else "MLflow SQLite backend snapshots are synced to the run GCS tracking path."
+        ),
+        evidence={"mlflow_enabled": mlflow_enabled},
+        remediation="Keep the host-side MLflow tracking sync loop enabled for headless ops metrics.",
+    )
+
+
+def _mlflow_tracking_enabled(run: str) -> bool:
+    if 'W8_ENABLE_MLFLOW_TRACKING="1"' in run:
+        return True
+    if 'W8_ENABLE_MLFLOW_TRACKING="0"' in run:
+        return False
+    return _trainer_logger_has(run, "mlflow")
+
+
+def _trainer_logger_has(run: str, backend: str) -> bool:
+    prefix = "trainer.logger="
+    for line in run.splitlines():
+        value = line.strip()
+        if not value.startswith(prefix):
+            continue
+        value = value.removeprefix(prefix).strip().rstrip("\\").strip()
+        value = value.strip("\"'")
+        if value.startswith("[") and value.endswith("]"):
+            return backend in {item.strip().lower() for item in value[1:-1].split(",")}
+        return value.lower() == backend
+    return False
+
+
 def _add_status_checks(checks: list[dict[str, Any]], *, status_payload: dict[str, Any]) -> None:
     _add_check(
         checks,
@@ -378,7 +462,9 @@ def _add_status_checks(checks: list[dict[str, Any]], *, status_payload: dict[str
     if pipeline is None:
         return
     _add_status_node_health_check(checks, pipeline=pipeline)
+    _add_status_startup_check(checks, pipeline=pipeline)
     _add_status_training_health_check(checks, pipeline=pipeline)
+    _add_status_learning_signal_check(checks, pipeline=pipeline)
     _add_status_recovery_check(checks, pipeline=pipeline)
 
 
@@ -435,6 +521,33 @@ def _add_status_node_health_check(checks: list[dict[str, Any]], *, pipeline: dic
     )
 
 
+def _add_status_startup_check(checks: list[dict[str, Any]], *, pipeline: dict[str, Any]) -> None:
+    progress = pipeline.get("progress") if isinstance(pipeline.get("progress"), dict) else {}
+    startup = progress.get("startup") if isinstance(progress.get("startup"), dict) else {}
+    action = startup.get("recommended_action")
+    action_required = action in {"inspect_startup_stage", "inspect_failed_startup_or_relaunch"}
+    _add_check(
+        checks,
+        "status.startup_progress",
+        not action_required,
+        "action_required",
+        "GRPO startup is not stuck before the first scalar metric.",
+        evidence={
+            "available": startup.get("available"),
+            "active_stage": startup.get("active_stage"),
+            "max_elapsed_s": startup.get("max_elapsed_s"),
+            "long_running": startup.get("long_running"),
+            "tracking_state": startup.get("tracking_state"),
+            "scalar_metrics_available": startup.get("scalar_metrics_available"),
+            "recommended_action": action,
+        },
+        remediation=(
+            "If startup is long-running with run_active_no_metrics, stop the run, inspect the startup stage, "
+            "and do not relaunch paid multi-node GRPO until that stage has a concrete fix."
+        ),
+    )
+
+
 def _add_status_training_health_check(checks: list[dict[str, Any]], *, pipeline: dict[str, Any]) -> None:
     progress = pipeline.get("progress") if isinstance(pipeline.get("progress"), dict) else {}
     health = progress.get("training_health") if isinstance(progress.get("training_health"), dict) else {}
@@ -453,6 +566,45 @@ def _add_status_training_health_check(checks: list[dict[str, Any]], *, pipeline:
             "checkpoint_step": health.get("checkpoint_step"),
         },
         remediation="If should_stop=true, stop the run and follow training_health.recommended_action.",
+    )
+
+
+def _add_status_learning_signal_check(checks: list[dict[str, Any]], *, pipeline: dict[str, Any]) -> None:
+    progress = pipeline.get("progress") if isinstance(pipeline.get("progress"), dict) else {}
+    learning_signal = progress.get("learning_signal") if isinstance(progress.get("learning_signal"), dict) else {}
+    available = learning_signal.get("available") is True
+    _add_check(
+        checks,
+        "status.learning_signal_available",
+        available,
+        "warning",
+        "Status JSON includes GRPO learning-signal metrics.",
+        evidence={
+            "available": learning_signal.get("available"),
+            "verdict": learning_signal.get("verdict"),
+            "recommended_action": learning_signal.get("recommended_action"),
+        },
+        remediation=(
+            "Poll a run rendered with skyrl_grpo_health_patch and enough log tail to include W8_GRPO_HEALTH lines."
+        ),
+    )
+    if not available:
+        return
+    recommended_action = learning_signal.get("recommended_action")
+    action_required = recommended_action in {"evaluate_checkpoint", "stop_and_evaluate_checkpoint"}
+    _add_check(
+        checks,
+        "status.learning_signal_recommendation",
+        not action_required,
+        "action_required",
+        "GRPO learning signal does not currently recommend checkpoint evaluation.",
+        evidence={
+            "verdict": learning_signal.get("verdict"),
+            "severity": learning_signal.get("severity"),
+            "recommended_action": recommended_action,
+            "reasons": learning_signal.get("reasons"),
+        },
+        remediation="If learning_signal recommends evaluation, export/evaluate the checkpoint before spending more GPU time.",
     )
 
 

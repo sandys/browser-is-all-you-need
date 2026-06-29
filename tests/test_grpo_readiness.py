@@ -45,10 +45,31 @@ def test_grpo_readiness_passes_valid_multinode_render(tmp_path: Path) -> None:
     assert _check(payload, "network.gloo_concrete_interface")["ok"] is True
     assert _check(payload, "skyrl.patch.io")["ok"] is True
     assert _check(payload, "skyrl.patch.vllm_logprob")["ok"] is True
+    assert _check(payload, "skyrl.patch.grpo_health")["ok"] is True
+    assert _check(payload, "skyrl.patch.startup")["ok"] is True
+    assert _check(payload, "tracking.console_logger")["ok"] is True
+    assert _check(payload, "tracking.mlflow_server")["ok"] is True
+    assert _check(payload, "tracking.mlflow_server")["evidence"]["mlflow_enabled"] is True
+    assert _check(payload, "tracking.mlflow_persistence")["ok"] is True
+    assert _check(payload, "tracking.mlflow_persistence")["evidence"]["mlflow_enabled"] is True
     assert _check(payload, "multinode.hsdp_mesh")["ok"] is True
     assert _check(payload, "multinode.rollout_engines")["ok"] is True
     assert _check(payload, "multinode.utilization_gate")["ok"] is True
     assert _check(payload, "training.checkpoint_retention")["ok"] is True
+
+
+def test_grpo_readiness_passes_console_only_render_without_mlflow(tmp_path: Path) -> None:
+    path = _write_rendered(tmp_path, tracking_backends=("console",))
+
+    payload = build_grpo_readiness(path)
+
+    assert payload["overall"] == "pass"
+    assert readiness_blocks_launch(payload) is False
+    assert _check(payload, "tracking.console_logger")["ok"] is True
+    assert _check(payload, "tracking.mlflow_server")["ok"] is True
+    assert _check(payload, "tracking.mlflow_server")["evidence"]["mlflow_enabled"] is False
+    assert _check(payload, "tracking.mlflow_persistence")["ok"] is True
+    assert _check(payload, "tracking.mlflow_persistence")["evidence"]["mlflow_enabled"] is False
 
 
 def test_grpo_readiness_fails_bad_gloo_exclusion_syntax(tmp_path: Path) -> None:
@@ -98,6 +119,50 @@ def test_grpo_readiness_fails_missing_vllm_patch(tmp_path: Path) -> None:
 
     assert payload["overall"] == "fail"
     assert _check(payload, "skyrl.patch.vllm_logprob")["ok"] is False
+
+
+def test_grpo_readiness_fails_missing_grpo_health_patch(tmp_path: Path) -> None:
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            num_nodes=2,
+            train_batch_size=32,
+            n_samples_per_prompt=8,
+            max_env_workers=256,
+            max_ckpts_to_keep=8,
+            hf_save_interval=10000,
+        )
+    ).replace("python -m w8_biayn.integrations.skyrl_grpo_health_patch\n", "")
+    path = _write_rendered(tmp_path, text=rendered)
+
+    payload = build_grpo_readiness(path)
+
+    assert payload["overall"] == "fail"
+    assert _check(payload, "skyrl.patch.grpo_health")["ok"] is False
+
+
+def test_grpo_readiness_fails_missing_startup_patch(tmp_path: Path) -> None:
+    rendered = render_sky_yaml(
+        RenderOptions(
+            pipeline="cpp-grpo",
+            project_id="proj",
+            accelerators="A100:8",
+            num_nodes=2,
+            train_batch_size=32,
+            n_samples_per_prompt=8,
+            max_env_workers=256,
+            max_ckpts_to_keep=8,
+            hf_save_interval=10000,
+        )
+    ).replace("python -m w8_biayn.integrations.skyrl_startup_patch\n", "")
+    path = _write_rendered(tmp_path, text=rendered)
+
+    payload = build_grpo_readiness(path)
+
+    assert payload["overall"] == "fail"
+    assert _check(payload, "skyrl.patch.startup")["ok"] is False
 
 
 def test_grpo_readiness_fails_wrong_hsdp_mesh(tmp_path: Path) -> None:
@@ -182,6 +247,58 @@ def test_grpo_readiness_status_requires_all_active_node_health(tmp_path: Path) -
     assert payload["recommended_commands"][0][:5] == ["uv", "run", "w8-biayn", "ops", "run-status"]
 
 
+def test_grpo_readiness_status_flags_long_pre_metric_startup(tmp_path: Path) -> None:
+    path = _write_rendered(tmp_path)
+    status = {
+        "schema_version": "w8-run-status-v1",
+        "run_id": "rtest",
+        "pipelines": [
+            {
+                "pipeline": "cpp-grpo",
+                "state": "running",
+                "active_job": {"job_id": 2, "status": "RUNNING"},
+                "progress": {
+                    "grpo_config": {"policy_num_nodes": 2, "total_gpu_count": 16},
+                    "startup": {
+                        "available": True,
+                        "active_stage": "ref_model_init",
+                        "max_elapsed_s": 1209,
+                        "long_running": True,
+                        "tracking_state": "run_active_no_metrics",
+                        "scalar_metrics_available": False,
+                        "recommended_action": "inspect_startup_stage",
+                    },
+                },
+                "resources": {
+                    "total_instance_count": 2,
+                    "active_instance_count": 2,
+                    "gpu_count": 16,
+                    "sampled_node_count": 2,
+                    "sampled_gpu_count": 16,
+                    "failed_node_count": 0,
+                },
+                "node_health": {
+                    "sample_scope": "all_active",
+                    "expected_node_count": 2,
+                    "sampled_node_count": 2,
+                    "failed_node_count": 0,
+                    "gpus": [{} for _ in range(16)],
+                },
+                "commands": {},
+                "recovery": {"available": False},
+            }
+        ],
+    }
+
+    payload = build_grpo_readiness(path, status_payload=status)
+
+    assert payload["overall"] == "action_required"
+    check = _check(payload, "status.startup_progress")
+    assert check["ok"] is False
+    assert check["evidence"]["active_stage"] == "ref_model_init"
+    assert check["evidence"]["recommended_action"] == "inspect_startup_stage"
+
+
 def test_grpo_readiness_status_flags_should_stop_training_health(tmp_path: Path) -> None:
     path = _write_rendered(tmp_path)
     status = {
@@ -228,6 +345,57 @@ def test_grpo_readiness_status_flags_should_stop_training_health(tmp_path: Path)
     check = _check(payload, "status.training_health_should_continue")
     assert check["ok"] is False
     assert check["evidence"]["recommended_action"] == "stop_and_evaluate_checkpoint"
+
+
+def test_grpo_readiness_status_flags_learning_signal_eval_recommendation(tmp_path: Path) -> None:
+    path = _write_rendered(tmp_path)
+    status = {
+        "schema_version": "w8-run-status-v1",
+        "run_id": "rtest",
+        "pipelines": [
+            {
+                "pipeline": "cpp-grpo",
+                "state": "running",
+                "active_job": {"job_id": 2, "status": "RUNNING"},
+                "progress": {
+                    "grpo_config": {"policy_num_nodes": 2, "total_gpu_count": 16},
+                    "training_health": {"should_stop": False, "recommended_action": "evaluate_checkpoint"},
+                    "learning_signal": {
+                        "available": True,
+                        "verdict": "deterministic_convergence_risk",
+                        "severity": "warning",
+                        "recommended_action": "evaluate_checkpoint",
+                        "reasons": ["policy_entropy_near_zero"],
+                    },
+                },
+                "resources": {
+                    "total_instance_count": 2,
+                    "active_instance_count": 2,
+                    "gpu_count": 16,
+                    "sampled_node_count": 2,
+                    "sampled_gpu_count": 16,
+                    "failed_node_count": 0,
+                },
+                "node_health": {
+                    "sample_scope": "all_active",
+                    "expected_node_count": 2,
+                    "sampled_node_count": 2,
+                    "failed_node_count": 0,
+                    "gpus": [{} for _ in range(16)],
+                },
+                "commands": {},
+                "recovery": {"available": False},
+            }
+        ],
+    }
+
+    payload = build_grpo_readiness(path, status_payload=status)
+
+    assert payload["overall"] == "action_required"
+    assert _check(payload, "status.learning_signal_available")["ok"] is True
+    check = _check(payload, "status.learning_signal_recommendation")
+    assert check["ok"] is False
+    assert check["evidence"]["recommended_action"] == "evaluate_checkpoint"
 
 
 def test_grpo_readiness_json_is_serializable(tmp_path: Path) -> None:

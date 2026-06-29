@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import socket
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,9 +13,10 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
-from . import benchmarks, upstreams
+from . import benchmarks, osworld, upstreams
 from .constants import (
     CPP_DATA_SCHEMA_VERSION,
     DEFAULT_CPP_CONTAINER_IMAGE,
@@ -58,6 +60,8 @@ from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
+from .mlflow_metrics import DEFAULT_METRIC_KEYS, read_mlflow_api, read_mlflow_metrics
+from .mlflow_tracking import parse_mlflow_tags
 from .run_status import PIPELINES as STATUS_PIPELINES
 from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -67,6 +71,7 @@ from .sky_config import (
     GRPO_MULTINODE_RESUME_MIN_DISK_GB,
     Pipeline,
     RenderOptions,
+    SUPPORTED_TRACKING_BACKENDS,
     write_sky_yaml,
 )
 
@@ -86,6 +91,9 @@ benchmarks_app = typer.Typer(help="Inspect the C++ performance-RL benchmark ladd
 gcp_app = typer.Typer(help="Run-scoped GCP cleanup helpers.")
 ops_app = typer.Typer(help="Inspect and manage cloud runs without calling the backend directly.")
 eval_app = typer.Typer(help="Aggregate C++ performance-RL evaluation outputs.")
+osworld_app = typer.Typer(help="Validate and run OSWorld desktop tasks from the upstream clone.")
+osworld_custom_app = typer.Typer(help="Manage custom OSWorld-style tasks stored in this repo.")
+scalecua_app = typer.Typer(help="Run ScaleCUA OSWorld SFT pipeline steps.")
 
 app.add_typer(upstreams_app, name="upstreams")
 app.add_typer(data_app, name="data")
@@ -93,6 +101,9 @@ data_app.add_typer(data_pie_app, name="pie")
 data_app.add_typer(data_supercoder_app, name="supercoder")
 data_app.add_typer(data_skyrl_app, name="skyrl")
 data_app.add_typer(data_cache_app, name="cache")
+app.add_typer(osworld_app, name="osworld")
+osworld_app.add_typer(osworld_custom_app, name="custom")
+app.add_typer(scalecua_app, name="scalecua")
 app.add_typer(cpp_app, name="cpp")
 cpp_app.add_typer(task_app, name="task")
 cpp_app.add_typer(harness_app, name="harness")
@@ -276,6 +287,21 @@ def _require_grpo_multinode_resume_disk(options: RenderOptions) -> None:
         f"--disk-size {GRPO_MULTINODE_RESUME_MIN_DISK_GB} or larger; 1024 GB failed during "
         "FSDP checkpoint restore with [Errno 28] No space left on device."
     )
+
+
+def _normalize_tracking_backends(backends: Optional[list[str]]) -> tuple[str, ...] | None:
+    if not backends:
+        return None
+    normalized: list[str] = []
+    for backend in backends:
+        value = backend.strip().lower()
+        if value not in SUPPORTED_TRACKING_BACKENDS:
+            raise typer.BadParameter(
+                f"unknown tracking backend {backend!r}; supported: {', '.join(SUPPORTED_TRACKING_BACKENDS)}"
+            )
+        if value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
 
 
 def _require_grpo_readiness(rendered_config_path: str | Path) -> None:
@@ -961,6 +987,8 @@ def config_render(
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
     accelerators: Optional[str] = typer.Option(None, help="Cloud backend accelerator request."),
     num_nodes: int = typer.Option(1, help="Cloud backend node count."),
+    region: str = typer.Option("", "--region", help="Optional GCP region to pin in rendered SkyPilot infra."),
+    zone: str = typer.Option("", "--zone", help="Optional GCP zone to pin in rendered SkyPilot infra."),
     disk_size: Optional[int] = typer.Option(None, help="Cloud backend boot disk size in GB."),
     cluster: Optional[str] = typer.Option(None, help="Cloud backend cluster name."),
     model: Optional[str] = typer.Option(None, help="Open model to load/train."),
@@ -1007,6 +1035,14 @@ def config_render(
     export_checkpoint: str = typer.Option("", help="SFT/GRPO export-only checkpoint source: a global_step_N path."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
+    tracking_backend: Optional[list[str]] = typer.Option(
+        None,
+        "--tracking-backend",
+        help=(
+            "Tracking backend for training. Repeatable. Supported: "
+            f"{', '.join(SUPPORTED_TRACKING_BACKENDS)}. Full SFT/GRPO default to console+mlflow."
+        ),
+    ),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
     eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
@@ -1025,6 +1061,8 @@ def config_render(
         bucket=bucket,
         accelerators=accelerators,
         num_nodes=num_nodes,
+        region=region,
+        zone=zone,
         disk_size=disk_size,
         cluster=cluster,
         model=model,
@@ -1051,6 +1089,7 @@ def config_render(
         export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        tracking_backends=tracking_backend,
         run_id=run_id,
         owner=owner,
         eval_label=eval_label,
@@ -1070,6 +1109,8 @@ def launch(
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
     accelerators: Optional[str] = typer.Option(None, help="Cloud backend accelerator request."),
     num_nodes: int = typer.Option(1, help="Cloud backend node count."),
+    region: str = typer.Option("", "--region", help="Optional GCP region to pin in rendered SkyPilot infra."),
+    zone: str = typer.Option("", "--zone", help="Optional GCP zone to pin in rendered SkyPilot infra."),
     disk_size: Optional[int] = typer.Option(None, help="Cloud backend boot disk size in GB."),
     cluster: Optional[str] = typer.Option(None, help="Cloud backend cluster name."),
     model: Optional[str] = typer.Option(None, help="Open model to load/train."),
@@ -1116,12 +1157,25 @@ def launch(
     export_checkpoint: str = typer.Option("", help="SFT/GRPO export-only checkpoint source: a global_step_N path."),
     sandbox_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="C++ sandbox Docker image."),
     sandbox_cpu: str = typer.Option(DEFAULT_CPU, help="CPU id used by sandbox taskset."),
+    tracking_backend: Optional[list[str]] = typer.Option(
+        None,
+        "--tracking-backend",
+        help=(
+            "Tracking backend for training. Repeatable. Supported: "
+            f"{', '.join(SUPPORTED_TRACKING_BACKENDS)}. Full SFT/GRPO default to console+mlflow."
+        ),
+    ),
     run_id: Optional[str] = typer.Option(None, help="Run id for labels, cluster name, and artifacts."),
     owner: str = typer.Option("sss", help="Owner label for GCP resources."),
     eval_label: str = typer.Option("model", help="Evaluation label for cpp-eval output files."),
     eval_max_tasks: Optional[int] = typer.Option(None, help="Optional validation task limit for cpp-eval."),
     yes: bool = typer.Option(True, help="Skip cloud backend confirmation prompts."),
     down_after: bool = typer.Option(True, help="Pass --down so successful smoke runs tear down the cluster."),
+    detach_run: bool = typer.Option(
+        False,
+        "--detach-run/--no-detach-run",
+        help="Submit the backend job and return after it starts instead of streaming logs until completion.",
+    ),
     dry_run: bool = typer.Option(False, help="Render and print commands without launching."),
     allow_low_multinode_utilization: bool = typer.Option(
         False,
@@ -1138,6 +1192,8 @@ def launch(
         bucket=bucket,
         accelerators=accelerators,
         num_nodes=num_nodes,
+        region=region,
+        zone=zone,
         disk_size=disk_size,
         cluster=cluster,
         model=model,
@@ -1164,6 +1220,7 @@ def launch(
         export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        tracking_backends=tracking_backend,
         run_id=effective_run_id,
         owner=owner,
         eval_label=eval_label,
@@ -1182,10 +1239,711 @@ def launch(
         sky_args.append("-y")
     if down_after:
         sky_args.append("--down")
+    if detach_run:
+        sky_args.append("--detach-run")
     sky_args.append(str(output))
     console.print(f"run_id: {options.run_id}")
     console.print(f"cluster: {options.name}")
     run_command(sky_args, env=env, dry_run=dry_run)
+
+
+@osworld_app.command("list")
+def osworld_list(
+    domain: Optional[str] = typer.Option(None, help="Only list tasks from one OSWorld domain."),
+    smoke_candidates: bool = typer.Option(
+        False,
+        "--smoke-candidates",
+        help="Only show low-risk tasks with proxy=false and fixed_ip=false.",
+    ),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of tasks to print."),
+) -> None:
+    """List OSWorld tasks discovered from the pinned upstream clone."""
+    tasks = osworld.list_tasks(domain=domain, smoke_candidates=smoke_candidates)
+    if limit is not None:
+        tasks = tasks[:limit]
+    table = Table(title="OSWorld tasks")
+    for column in ("task", "proxy", "fixed_ip", "env_change", "instruction"):
+        table.add_column(column)
+    for task_info in tasks:
+        instruction = task_info.instruction.replace("\n", " ")
+        if len(instruction) > 100:
+            instruction = instruction[:97] + "..."
+        table.add_row(
+            task_info.task,
+            "" if task_info.proxy is None else str(task_info.proxy).lower(),
+            "" if task_info.fixed_ip is None else str(task_info.fixed_ip).lower(),
+            task_info.env_change,
+            instruction,
+        )
+    console.print(table)
+    console.print(f"tasks: {len(tasks)}")
+
+
+@osworld_custom_app.command("list")
+def osworld_custom_list(
+    taskset: Optional[str] = typer.Option(None, help="Optional JSON taskset path for a filtered list."),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of tasks to print."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON instead of a table."),
+) -> None:
+    """List custom OSWorld-style tasks tracked in this repository."""
+    from .osworld_custom import registry
+
+    tasks = registry.load_taskset(taskset) if taskset else registry.iter_custom_tasks()
+    if limit is not None:
+        tasks = tasks[:limit]
+    if json_output:
+        console.print_json(data=[task.as_row() for task in tasks])
+        return
+    table = Table(title="Custom OSWorld tasks")
+    for column in ("domain", "task_id", "source", "instruction"):
+        table.add_column(column)
+    for task in tasks:
+        instruction = task.instruction.replace("\n", " ")
+        if len(instruction) > 100:
+            instruction = instruction[:97] + "..."
+        table.add_row(task.domain, task.task_id, task.source, instruction)
+    console.print(table)
+    console.print(f"tasks: {len(tasks)}")
+
+
+@osworld_custom_app.command("validate")
+def osworld_custom_validate(
+    targets: list[str] = typer.Argument(None, help="Task directories or task.json paths."),
+    taskset: Optional[str] = typer.Option(None, help="Optional JSON taskset path to validate."),
+    allow_proxy: bool = typer.Option(False, "--allow-proxy", help="Allow tasks with proxy=true."),
+    allow_network: bool = typer.Option(False, "--allow-network", help="Allow non-proxy tasks to contain network URLs."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON instead of text."),
+) -> None:
+    """Validate custom OSWorld task JSON for deterministic local use."""
+    from .osworld_custom import validate as custom_validate
+
+    if taskset:
+        report = custom_validate.validate_taskset(taskset, allow_proxy=allow_proxy, strict_network=not allow_network)
+    else:
+        if not targets:
+            raise typer.BadParameter("provide task path(s) or --taskset")
+        report = custom_validate.validate_task_paths(targets, allow_proxy=allow_proxy, strict_network=not allow_network)
+    if json_output:
+        console.print_json(data=report.as_dict())
+    else:
+        console.print(custom_validate.format_report(report))
+    if not report.ok:
+        raise typer.Exit(1)
+
+
+@osworld_custom_app.command("smoke")
+def osworld_custom_smoke(
+    targets: list[str] = typer.Argument(None, help="Task directories or task.json paths."),
+    taskset: Optional[str] = typer.Option(None, help="Optional JSON taskset path to run."),
+    task_id: Optional[str] = typer.Option(None, help="Optional task id filter after task/taskset resolution."),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of tasks to run."),
+    provider: str = typer.Option(osworld.DEFAULT_PROVIDER, help="OSWorld provider name."),
+    headless: bool = typer.Option(True, "--headless/--headed", help="Run DesktopEnv in headless mode."),
+    screen_width: int = typer.Option(1920, help="Screen width passed to DesktopEnv."),
+    screen_height: int = typer.Option(1080, help="Screen height passed to DesktopEnv."),
+    max_steps: int = typer.Option(1, help="Maximum actions to execute in the smoke run."),
+    step_pause: float = typer.Option(0.5, help="Pause between actions during env.step."),
+    action: list[str] = typer.Option([], "--action", help="Literal actions to execute. Defaults to WAIT."),
+    osworld_path: Optional[str] = typer.Option(None, help="Optional OSWorld checkout override."),
+    cache_dir: Optional[str] = typer.Option(None, help="Optional DesktopEnv cache dir."),
+    path_to_vm: Optional[str] = typer.Option(None, help="Optional VM path override."),
+    upstream_python: str = typer.Option("3.12", help="Python version for uv worker subprocess."),
+    cleanup_containers: bool = typer.Option(True, "--cleanup-containers/--no-cleanup-containers", help="Attempt cleanup after smoke runs."),
+    cleanup_scope: str = typer.Option("created", help="Container cleanup scope."),
+    remove_containers: bool = typer.Option(True, "--remove-containers/--keep-containers", help="Remove containers instead of only stopping them."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON instead of a summary."),
+) -> None:
+    """Run a minimal DesktopEnv smoke over custom OSWorld tasks."""
+    from .osworld_custom import harness
+
+    config = harness.HarnessConfig(
+        provider_name=provider,
+        headless=headless,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        osworld_path=Path(osworld_path) if osworld_path else None,
+        cache_dir=Path(cache_dir) if cache_dir else None,
+        path_to_vm=path_to_vm,
+        upstream_python=upstream_python,
+        max_steps=max_steps,
+        step_pause=step_pause,
+        cleanup_containers=cleanup_containers,
+        cleanup_scope=cleanup_scope,
+        remove_containers=remove_containers,
+    )
+    tasks = harness.resolve_env_tasks(taskset=taskset, task_paths=targets, task_id=task_id, limit=limit)
+    summary = harness.run_env_smoke(tasks, config, actions=action or None)
+    if json_output:
+        console.print_json(data=summary)
+        return
+    console.print(f"run_dir: {summary['run_dir']}")
+    console.print(
+        f"episodes: {summary['episodes']}/{summary['task_count']}  "
+        f"passed: {summary['passed']}  failed: {summary['failed']}  "
+        f"validation_errors: {summary['validation_errors']}"
+    )
+    for row in summary.get('results', []):
+        marker = 'OK' if row.get('ok') else 'FAIL'
+        console.print(
+            f"{marker:<5} {row['domain']}/{row['task_id']} "
+            f"eval={row.get('eval_score')} total={row.get('total_reward')} {row.get('env_error') or ''}"
+        )
+    if not summary.get('ok'):
+        raise typer.Exit(1)
+
+
+@osworld_app.command("setup")
+def osworld_setup(
+    dry_run: bool = typer.Option(False, help="Print the upstream uv sync command without running it."),
+) -> None:
+    """Create/update the OSWorld-specific upstream Python environment."""
+    try:
+        osworld.setup(dry_run=dry_run)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print("OSWorld environment command completed." if not dry_run else "OSWorld setup dry run rendered.")
+
+
+@osworld_app.command("validate")
+def osworld_validate(
+    task: str = typer.Option(
+        osworld.DEFAULT_OSWORLD_TASK, help="Task formatted as <domain>/<task-id>."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Also validate the OSWorld proxy config file.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+) -> None:
+    """Validate local OSWorld upstream, env, Docker, KVM, and task metadata."""
+    rows = osworld.validate(task=task, enable_proxy=enable_proxy, proxy_config_file=proxy_config_file)
+    table = Table(title="OSWorld validation")
+    for column in ("check", "status", "detail"):
+        table.add_column(column)
+    for row in rows:
+        table.add_row(row.check, row.status, row.detail)
+    console.print(table)
+    if osworld.has_errors(rows):
+        raise typer.Exit(1)
+
+
+@osworld_app.command("run")
+def osworld_run(
+    tasks: list[str] = typer.Option(
+        [], "--task", help="Task formatted as <domain>/<task-id>. Can be repeated."
+    ),
+    suite: Optional[str] = typer.Option(None, help="Run tasks from one OSWorld suite, such as 'tiny'."),
+    domain: Optional[str] = typer.Option(None, help="Run tasks from one OSWorld domain."),
+    taskset: Optional[str] = typer.Option(
+        None, help="Named OSWorld taskset or JSON path, such as arpo-subset32."
+    ),
+    limit: Optional[int] = typer.Option(None, help="Maximum number of selected tasks."),
+    provider: str = typer.Option(
+        osworld.DEFAULT_PROVIDER, help="OSWorld provider name. Docker is the current local default."
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type."
+    ),
+    model: str = typer.Option(
+        osworld.DEFAULT_MODEL, help="OSWorld model argument passed through to upstream run.py."
+    ),
+    base_url: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible base URL for local Qwen/Kimi-style OSWorld runs."
+    ),
+    api_key: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible API key. Use EMPTY for local vLLM servers that ignore it."
+    ),
+    max_steps: int = typer.Option(osworld.DEFAULT_MAX_STEPS, help="Max OSWorld agent steps."),
+    max_tokens: int = typer.Option(
+        osworld.DEFAULT_MAX_TOKENS, help="Max model output tokens per OSWorld action request."
+    ),
+    max_trajectory_length: int = typer.Option(
+        1, help="Number of previous OSWorld observations to keep in the upstream prompt history."
+    ),
+    a11y_tree_max_items: int = typer.Option(
+        osworld.DEFAULT_A11Y_TREE_MAX_ITEMS,
+        help="Maximum deduped accessibility-tree rows kept before token trimming.",
+    ),
+    a11y_iou_threshold: float = typer.Option(
+        osworld.DEFAULT_A11Y_IOU_THRESHOLD,
+        help="IoU threshold for removing duplicate accessibility-tree rows with the same text.",
+    ),
+    headless: bool = typer.Option(
+        True, "--headless/--headed", help="Run OSWorld in headless mode."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Enable OSWorld proxy setup for tasks with proxy=true.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+    client_password: str = typer.Option(
+        osworld.DEFAULT_CLIENT_PASSWORD,
+        help="Ubuntu VM password used by OSWorld proxy setup for sudo operations.",
+    ),
+    dry_run: bool = typer.Option(
+        False, help="Print the upstream OSWorld command without running it."
+    ),
+) -> None:
+    """Run or render local OSWorld tasks through upstream run.py."""
+    try:
+        metadata, task_keys, run_id = osworld.run(
+            tasks=tuple(tasks),
+            suite=suite,
+            domain=domain,
+            taskset=taskset,
+            limit=limit,
+            provider=provider,
+            observation_type=observation_type,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            max_steps=max_steps,
+            max_tokens=max_tokens,
+            max_trajectory_length=max_trajectory_length,
+            a11y_tree_max_items=a11y_tree_max_items,
+            a11y_iou_threshold=a11y_iou_threshold,
+            headless=headless,
+            enable_proxy=enable_proxy,
+            proxy_config_file=proxy_config_file,
+            client_password=client_password,
+            dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if not dry_run:
+        record = osworld.read_run_record(run_id) if run_id is not None else {}
+        result_dir = record.get("results")
+        table = Table(title="OSWorld run result")
+        for column in ("task", "status", "score", "result"):
+            table.add_column(column)
+        for task_key in task_keys:
+            result = osworld.read_task_result(
+                task_key, observation_type=observation_type, model=model, result_dir=result_dir
+            )
+            table.add_row(
+                result.task,
+                result.status,
+                "" if result.score is None else str(result.score),
+                str(result.result_file),
+            )
+        console.print(table)
+        if run_id is not None:
+            console.print(f"run_id: {run_id}")
+        console.print(f"metadata: {metadata}")
+        console.print(f"results: {result_dir or osworld.results_path()}")
+
+
+@osworld_app.command("benchmark")
+def osworld_benchmark(
+    domains: list[str] = typer.Option(
+        [], "--domain", help="OSWorld domain to include. Can be repeated. Defaults to all domains."
+    ),
+    taskset: Optional[str] = typer.Option(
+        None, help="Named OSWorld taskset or JSON path, such as arpo-subset32."
+    ),
+    limit_per_domain: Optional[int] = typer.Option(
+        None, help="Maximum number of tasks to run per domain."
+    ),
+    smoke_candidates: bool = typer.Option(
+        False,
+        "--smoke-candidates",
+        help="Only run low-risk proxy=false/fixed_ip=false/env_change=low tasks.",
+    ),
+    provider: str = typer.Option(
+        osworld.DEFAULT_PROVIDER, help="OSWorld provider name. Docker is the current local default."
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type."
+    ),
+    model: str = typer.Option(
+        osworld.DEFAULT_MODEL, help="OSWorld model argument passed through to upstream run.py."
+    ),
+    base_url: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible base URL for local Qwen/Kimi-style OSWorld runs."
+    ),
+    api_key: Optional[str] = typer.Option(
+        None, help="OpenAI-compatible API key. Use EMPTY for local vLLM servers that ignore it."
+    ),
+    max_steps: int = typer.Option(osworld.DEFAULT_MAX_STEPS, help="Max OSWorld agent steps."),
+    max_tokens: int = typer.Option(
+        osworld.DEFAULT_MAX_TOKENS, help="Max model output tokens per OSWorld action request."
+    ),
+    max_trajectory_length: int = typer.Option(
+        1, help="Number of previous OSWorld observations to keep in the upstream prompt history."
+    ),
+    a11y_tree_max_items: int = typer.Option(
+        osworld.DEFAULT_A11Y_TREE_MAX_ITEMS,
+        help="Maximum deduped accessibility-tree rows kept before token trimming.",
+    ),
+    a11y_iou_threshold: float = typer.Option(
+        osworld.DEFAULT_A11Y_IOU_THRESHOLD,
+        help="IoU threshold for removing duplicate accessibility-tree rows with the same text.",
+    ),
+    headless: bool = typer.Option(
+        True, "--headless/--headed", help="Run OSWorld in headless mode."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Enable OSWorld proxy setup for tasks with proxy=true.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+    client_password: str = typer.Option(
+        osworld.DEFAULT_CLIENT_PASSWORD,
+        help="Ubuntu VM password used by OSWorld proxy setup for sudo operations.",
+    ),
+    mlflow_tracking_uri: Optional[str] = typer.Option(
+        None,
+        "--mlflow-tracking-uri",
+        help="MLflow tracking URI to record benchmark metrics.",
+    ),
+    mlflow_experiment: Optional[str] = typer.Option(
+        None,
+        "--mlflow-experiment",
+        help="MLflow experiment name for the benchmark run.",
+    ),
+    mlflow_run_name: Optional[str] = typer.Option(
+        None,
+        "--mlflow-run-name",
+        help="MLflow run name for this benchmark invocation.",
+    ),
+    mlflow_tag: list[str] = typer.Option(
+        [],
+        "--mlflow-tag",
+        help="MLflow tag in key=value format. Repeatable.",
+    ),
+    dry_run: bool = typer.Option(
+        False, help="Print the benchmark plan without running domains."
+    ),
+) -> None:
+    """Run all or selected OSWorld domains as a benchmark sequence."""
+    try:
+        mlflow_tags = parse_mlflow_tags(mlflow_tag)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    benchmark_kwargs = dict(
+        domains=tuple(domains),
+        taskset=taskset,
+        limit_per_domain=limit_per_domain,
+        smoke_candidates=smoke_candidates,
+        provider=provider,
+        observation_type=observation_type,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        max_steps=max_steps,
+        max_tokens=max_tokens,
+        max_trajectory_length=max_trajectory_length,
+        a11y_tree_max_items=a11y_tree_max_items,
+        a11y_iou_threshold=a11y_iou_threshold,
+        headless=headless,
+        enable_proxy=enable_proxy,
+        proxy_config_file=proxy_config_file,
+        client_password=client_password,
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        mlflow_experiment=mlflow_experiment,
+        mlflow_run_name=mlflow_run_name,
+        mlflow_tags=mlflow_tags,
+        dry_run=dry_run,
+    )
+    try:
+        if not dry_run and console.is_terminal:
+            progress = Progress(
+                TextColumn("OSWorld benchmark"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TextColumn("left: {task.fields[tasks_left]} tasks"),
+                TextColumn("ETA: {task.fields[eta]}"),
+                TextColumn("domain: {task.fields[domain]}"),
+                TimeElapsedColumn(),
+                console=console,
+                transient=True,
+            )
+            with progress:
+                task_id = progress.add_task(
+                    "benchmark",
+                    total=1,
+                    completed=0,
+                    tasks_left=0,
+                    eta="estimating...",
+                    domain="-",
+                )
+
+                def update_progress(snapshot: osworld.BenchmarkProgress) -> None:
+                    total = max(snapshot.total_tasks, 1)
+                    progress.update(
+                        task_id,
+                        total=total,
+                        completed=snapshot.completed_tasks,
+                        tasks_left=snapshot.remaining_tasks,
+                        eta=_format_duration(snapshot.eta_seconds),
+                        domain=snapshot.current_domain or "-",
+                    )
+
+                result = osworld.benchmark(
+                    **benchmark_kwargs,
+                    progress_callback=update_progress,
+                    progress_poll_seconds=2.0,
+                )
+        else:
+            result = osworld.benchmark(**benchmark_kwargs)
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if dry_run or result is None:
+        return
+
+    table = Table(title="OSWorld benchmark result")
+    for column in ("domain", "run_id", "tasks", "completed", "successes", "failures", "average", "results"):
+        table.add_column(column)
+    for domain in result.domains:
+        average = "" if domain.average_score is None else f"{domain.average_score:.3f}"
+        table.add_row(
+            domain.domain,
+            domain.run_id,
+            str(len(domain.tasks)),
+            str(domain.completed),
+            str(domain.successes),
+            str(domain.failures),
+            average,
+            str(domain.results),
+        )
+    console.print(table)
+    average = "" if result.average_score is None else f"{result.average_score:.3f}"
+    console.print(
+        f"domains: {len(result.domains)} tasks: {result.total_tasks} "
+        f"completed: {result.completed} successes: {result.successes} "
+        f"failures: {result.failures} average_score: {average}"
+    )
+
+
+@osworld_app.command("results")
+def osworld_results(
+    run_id: Optional[str] = typer.Option(
+        None, help="Run id to summarize. Defaults to the latest OSWorld run."
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type used by the run."
+    ),
+    model: str = typer.Option(osworld.DEFAULT_MODEL, help="OSWorld model used by the run."),
+) -> None:
+    """Summarize OSWorld result files for a recorded run."""
+    try:
+        record = osworld.read_run_record(run_id)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    task_keys = tuple(record.get("tasks", []))
+    result_dir = record.get("results")
+    observation_type = record.get("observation_type") or observation_type
+    model = record.get("model") or model
+    summary = osworld.summarize_task_results(
+        task_keys, observation_type=observation_type, model=model, result_dir=result_dir
+    )
+    table = Table(title=f"OSWorld results {record.get('run_id', '')}")
+    for column in ("task", "status", "score", "result"):
+        table.add_column(column)
+    for result in summary.tasks:
+        table.add_row(
+            result.task,
+            result.status,
+            "" if result.score is None else str(result.score),
+            str(result.result_file),
+        )
+    console.print(table)
+    average = "" if summary.average_score is None else f"{summary.average_score:.3f}"
+    console.print(
+        f"completed: {summary.completed}/{len(summary.tasks)} "
+        f"successes: {summary.successes} failures: {summary.failures} average_score: {average}"
+    )
+    if result_dir:
+        console.print(f"results: {result_dir}")
+
+
+@osworld_app.command("status")
+def osworld_status() -> None:
+    """List recorded OSWorld runs."""
+    records = osworld.list_run_records()
+    table = Table(title="OSWorld runs")
+    for column in (
+        "run_id",
+        "status",
+        "command",
+        "tasks",
+        "mlflow_run_id",
+        "mlflow_experiment_name",
+        "created_at",
+    ):
+        table.add_column(column)
+    for record in records:
+        table.add_row(
+            str(record.get("run_id", "")),
+            str(record.get("status", "")),
+            str(record.get("command", "")),
+            str(len(record.get("tasks", []))),
+            str(record.get("mlflow_run_id", "")),
+            str(record.get("mlflow_experiment_name", "")),
+            str(record.get("created_at", "")),
+        )
+    console.print(table)
+
+
+@osworld_app.command("smoke")
+def osworld_smoke(
+    task: str = typer.Option(
+        osworld.DEFAULT_OSWORLD_TASK, help="Task formatted as <domain>/<task-id>."
+    ),
+    suite: Optional[str] = typer.Option(
+        None, help="Named OSWorld smoke suite to run, such as 'tiny'."
+    ),
+    provider: str = typer.Option(
+        osworld.DEFAULT_PROVIDER,
+        help="OSWorld provider name. Docker is the current local smoke default.",
+    ),
+    observation_type: str = typer.Option(
+        osworld.DEFAULT_OBSERVATION_TYPE, help="OSWorld observation type."
+    ),
+    model: str = typer.Option(
+        osworld.DEFAULT_MODEL, help="OSWorld model argument passed through to upstream run.py."
+    ),
+    max_steps: int = typer.Option(osworld.DEFAULT_MAX_STEPS, help="Max OSWorld agent steps."),
+    max_tokens: int = typer.Option(
+        osworld.DEFAULT_MAX_TOKENS, help="Max model output tokens per OSWorld action request."
+    ),
+    max_trajectory_length: int = typer.Option(
+        1, help="Number of previous OSWorld observations to keep in the upstream prompt history."
+    ),
+    a11y_tree_max_items: int = typer.Option(
+        osworld.DEFAULT_A11Y_TREE_MAX_ITEMS,
+        help="Maximum deduped accessibility-tree rows kept before token trimming.",
+    ),
+    a11y_iou_threshold: float = typer.Option(
+        osworld.DEFAULT_A11Y_IOU_THRESHOLD,
+        help="IoU threshold for removing duplicate accessibility-tree rows with the same text.",
+    ),
+    headless: bool = typer.Option(
+        True, "--headless/--headed", help="Run OSWorld in headless mode."
+    ),
+    enable_proxy: bool = typer.Option(
+        False,
+        "--enable-proxy/--no-enable-proxy",
+        help="Enable OSWorld proxy setup for tasks with proxy=true.",
+    ),
+    proxy_config_file: Optional[str] = typer.Option(
+        None,
+        help="Proxy JSON path. Defaults to upstream evaluation_examples/settings/proxy/dataimpulse.json.",
+    ),
+    client_password: str = typer.Option(
+        osworld.DEFAULT_CLIENT_PASSWORD,
+        help="Ubuntu VM password used by OSWorld proxy setup for sudo operations.",
+    ),
+    dry_run: bool = typer.Option(
+        False, help="Print the upstream OSWorld command without running it."
+    ),
+) -> None:
+    """Run or render a one-task OSWorld smoke through upstream run.py."""
+    try:
+        metadata = osworld.smoke(
+            task=task,
+            suite=suite,
+            provider=provider,
+            observation_type=observation_type,
+            model=model,
+            max_steps=max_steps,
+            max_tokens=max_tokens,
+            max_trajectory_length=max_trajectory_length,
+            a11y_tree_max_items=a11y_tree_max_items,
+            a11y_iou_threshold=a11y_iou_threshold,
+            headless=headless,
+            enable_proxy=enable_proxy,
+            proxy_config_file=proxy_config_file,
+            client_password=client_password,
+            dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if not dry_run:
+        task_keys = osworld.tasks_for_suite(suite) if suite else (task,)
+        table = Table(title="OSWorld smoke result")
+        for column in ("task", "status", "score", "result"):
+            table.add_column(column)
+        for task_key in task_keys:
+            result = osworld.read_task_result(
+                task_key, observation_type=observation_type, model=model
+            )
+            table.add_row(
+                result.task,
+                result.status,
+                "" if result.score is None else str(result.score),
+                str(result.result_file),
+            )
+        console.print(table)
+        console.print(f"metadata: {metadata}")
+        console.print(f"results: {osworld.results_path()}")
+
+
+@scalecua_app.command("sft")
+def scalecua_sft(
+    model: str = typer.Option("Qwen/Qwen2.5-VL-7B-Instruct", help="Base Qwen2.5-VL model."),
+    train: str = typer.Option(..., "--train", help="Converted ScaleCUA OSWorld tool-call JSONL."),
+    eval_path: Optional[str] = typer.Option(None, "--eval", help="Optional held-out eval JSONL."),
+    output: str = typer.Option(..., "--output", help="Output directory for the LoRA adapter."),
+    max_steps: int = typer.Option(100, help="Maximum optimizer steps."),
+    batch_size: int = typer.Option(1, help="Per-device train batch size."),
+    grad_accum: int = typer.Option(8, help="Gradient accumulation steps."),
+    learning_rate: float = typer.Option(2e-4, help="LoRA learning rate."),
+    lora_r: int = typer.Option(16, help="LoRA rank."),
+    lora_alpha: int = typer.Option(32, help="LoRA alpha."),
+    lora_dropout: float = typer.Option(0.05, help="LoRA dropout."),
+    logging_steps: int = typer.Option(5, help="Trainer logging interval."),
+    save_steps: int = typer.Option(50, help="Checkpoint save interval."),
+    eval_steps: int = typer.Option(50, help="Run held-out eval every N optimizer steps when --eval is set."),
+    limit: Optional[int] = typer.Option(None, help="Optional max JSONL rows to load."),
+    wandb_project: Optional[str] = typer.Option(None, help="Weights & Biases project. Enables W&B reporting when set."),
+    wandb_run_name: Optional[str] = typer.Option(None, help="Weights & Biases run name."),
+    mlflow_tracking_uri: Optional[str] = typer.Option(None, help="MLflow tracking URI. Prefer sqlite:////abs/path.db for local runs."),
+    mlflow_experiment: Optional[str] = typer.Option(None, help="MLflow experiment name."),
+    mlflow_run_name: Optional[str] = typer.Option(None, help="MLflow run name. Must match --wandb-run-name when both are set."),
+) -> None:
+    """Run Qwen2.5-VL LoRA SFT on converted ScaleCUA OSWorld tool-call rows."""
+    from .scalecua_sft import SftConfig, run_sft
+
+    path = run_sft(
+        SftConfig(
+            model=model,
+            train=Path(train),
+            eval=Path(eval_path) if eval_path else None,
+            output=Path(output),
+            max_steps=max_steps,
+            batch_size=batch_size,
+            grad_accum=grad_accum,
+            learning_rate=learning_rate,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            logging_steps=logging_steps,
+            save_steps=save_steps,
+            eval_steps=eval_steps,
+            limit=limit,
+            wandb_project=wandb_project,
+            wandb_run_name=wandb_run_name,
+            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_experiment=mlflow_experiment,
+            mlflow_run_name=mlflow_run_name,
+        )
+    )
+    console.print(f"adapter: {path}")
+
 
 
 @benchmarks_app.command("list")
@@ -1448,7 +2206,7 @@ def ops_run_status(
         0,
         "--check-retries",
         min=0,
-        help="Retries for timed-out read-only backend/GCS/SSH checks.",
+        help="Retries for timed-out or transiently failed read-only backend/GCS/SSH checks.",
     ),
     node_health: bool = typer.Option(
         False,
@@ -1500,6 +2258,302 @@ def ops_run_status(
     if out:
         _write_json(out, payload)
     console.print_json(data=payload)
+
+
+@ops_app.command("metrics")
+def ops_metrics(
+    run_id: str = typer.Option(..., "--run-id", help="Run id to inspect."),
+    pipeline: str = typer.Option("cpp-grpo", "--pipeline", help="Pipeline to inspect, usually cpp-sft or cpp-grpo."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI. Defaults from the credentials project."),
+    source: str = typer.Option(
+        "auto",
+        "--source",
+        help="Metric source: auto prefers live MLflow API through SSH tunnel, api requires it, sqlite reads GCS snapshot.",
+    ),
+    cluster: Optional[str] = typer.Option(
+        None,
+        "--cluster",
+        help="Optional SkyPilot cluster name for live MLflow API tunneling. Defaults to w8-biayn-<pipeline>-<run-id>.",
+    ),
+    mlflow_port: int = typer.Option(5000, "--mlflow-port", min=1, max=65535, help="Remote MLflow server port."),
+    api_timeout: int = typer.Option(20, "--api-timeout", min=1, help="Seconds to wait for live API/tunnel."),
+    metric: Optional[list[str]] = typer.Option(
+        None,
+        "--metric",
+        help="Metric key to include. Repeatable. Defaults to the standard GRPO/SFT post-training metric set.",
+    ),
+    last: int = typer.Option(100, "--last", min=1, help="Number of points per selected metric to return."),
+    out: Optional[str] = typer.Option(None, "--out", help="Optional path to also write the JSON payload."),
+    dry_run: bool = typer.Option(False, help="Print the planned GCS download without reading cloud state."),
+) -> None:
+    """Fetch MLflow metrics through live API or synced SQLite and emit headless metric JSON."""
+
+    if pipeline not in STATUS_PIPELINES:
+        raise typer.BadParameter(f"unknown pipeline: {pipeline}")
+    if source not in {"auto", "api", "sqlite"}:
+        raise typer.BadParameter("source must be one of: auto, api, sqlite")
+    project_id = _project_id(credentials)
+    artifact_bucket = (bucket or default_bucket_for_project(project_id)).rstrip("/")
+    db_uri = f"{artifact_bucket}/runs/cpp-perf/{run_id}/{pipeline}/tracking/mlflow/mlflow.db"
+    local_db = Path(".w8-biayn/runs") / run_id / pipeline / "mlflow.db"
+    local_db.parent.mkdir(parents=True, exist_ok=True)
+    cluster_name = cluster or f"w8-biayn-{pipeline}-{run_id}"
+    checks: list[dict[str, object]] = []
+    metrics_payload: dict[str, object] | None = None
+    resolved_source = source
+    if dry_run:
+        if source in {"auto", "api"}:
+            checks.append(
+                {
+                    "name": "ssh_tunnel:mlflow_api",
+                    "command": _mlflow_tunnel_command(
+                        cluster=cluster_name,
+                        local_port="<auto>",
+                        remote_port=mlflow_port,
+                    ),
+                    "ok": None,
+                    "returncode": None,
+                    "skipped": True,
+                    "timed_out": False,
+                    "attempt_count": 1,
+                }
+            )
+        if source in {"auto", "sqlite"}:
+            checks.append(_gcloud_mlflow_db_check(["gcloud", "storage", "cp", db_uri, str(local_db)], dry_run=True))
+        metrics_payload = {
+            "available": False,
+            "reason": "dry_run",
+            "backend": "mlflow_api" if source == "api" else "mlflow",
+            "tracking_state": "dry_run",
+            "source": {"path": str(local_db), "size_bytes": None},
+            "experiments": {"count": 0, "items": []},
+            "runs": {"count": 0, "items": []},
+            "run": {"available": False},
+            "params": {"count": 0, "available_keys": [], "selected": {}},
+            "tags": {"count": 0, "items": {}},
+            "latest_step": None,
+            "metric_row_count": 0,
+            "metric_count": 0,
+            "available_keys": [],
+            "selected_keys": list(metric or DEFAULT_METRIC_KEYS),
+            "latest": {},
+            "series": {},
+        }
+    else:
+        if source in {"auto", "api"}:
+            api_payload, api_checks = _read_mlflow_metrics_via_tunnel(
+                cluster=cluster_name,
+                remote_port=mlflow_port,
+                env=_service_account_env(credentials, project_id=project_id),
+                metric_keys=metric,
+                last=last,
+                timeout_s=api_timeout,
+            )
+            checks.extend(api_checks)
+            if api_payload.get("available") is True or source == "api":
+                metrics_payload = api_payload
+                resolved_source = "api"
+        if metrics_payload is None:
+            sqlite_payload, sqlite_check = _read_mlflow_metrics_from_gcs(
+                db_uri=db_uri,
+                local_db=local_db,
+                credentials=credentials,
+                project_id=project_id,
+                metric_keys=metric,
+                last=last,
+            )
+            checks.append(sqlite_check)
+            metrics_payload = sqlite_payload
+            resolved_source = "sqlite"
+    payload = {
+        "schema_version": "w8-mlflow-metrics-v1",
+        "run_id": run_id,
+        "pipeline": pipeline,
+        "source": resolved_source,
+        "cluster": cluster_name,
+        "mlflow_api": {
+            "remote_port": mlflow_port,
+            "tunnel": "ssh",
+            "available": metrics_payload.get("backend") == "mlflow_api" and metrics_payload.get("available") is True,
+        },
+        "artifact_bucket": artifact_bucket,
+        "mlflow_db_uri": db_uri,
+        "local_db_path": str(local_db),
+        "metrics": metrics_payload,
+        "checks": checks,
+    }
+    if out:
+        _write_json(out, payload)
+    console.print_json(data=payload)
+
+
+def _read_mlflow_metrics_from_gcs(
+    *,
+    db_uri: str,
+    local_db: Path,
+    credentials: str,
+    project_id: str,
+    metric_keys: list[str] | None,
+    last: int,
+) -> tuple[dict[str, object], dict[str, object]]:
+    command = ["gcloud", "storage", "cp", db_uri, str(local_db)]
+    proc = subprocess.run(
+        command,
+        env=_service_account_env(credentials, project_id=project_id),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    check = _gcloud_mlflow_db_check(command, proc=proc)
+    if proc.returncode != 0:
+        return (
+            {
+                "available": False,
+                "reason": "mlflow_db_unavailable",
+                "backend": "mlflow",
+                "tracking_state": "mlflow_db_unavailable",
+                "source": {"path": str(local_db), "size_bytes": None},
+                "experiments": {"count": 0, "items": []},
+                "runs": {"count": 0, "items": []},
+                "run": {"available": False},
+                "params": {"count": 0, "available_keys": [], "selected": {}},
+                "tags": {"count": 0, "items": {}},
+                "latest_step": None,
+                "metric_row_count": 0,
+                "metric_count": 0,
+                "available_keys": [],
+                "selected_keys": list(metric_keys or DEFAULT_METRIC_KEYS),
+                "latest": {},
+                "series": {},
+            },
+            check,
+        )
+    return read_mlflow_metrics(local_db, metric_keys=metric_keys, last=last), check
+
+
+def _gcloud_mlflow_db_check(
+    command: list[str],
+    *,
+    proc: subprocess.CompletedProcess[str] | None = None,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    check: dict[str, object] = {
+        "name": "gcloud_storage_cp:mlflow_db",
+        "command": command,
+        "ok": None if dry_run else proc is not None and proc.returncode == 0,
+        "returncode": None if dry_run or proc is None else proc.returncode,
+        "skipped": dry_run,
+        "timed_out": False,
+        "attempt_count": 1,
+    }
+    if proc is not None and proc.stderr:
+        check["stderr_tail"] = proc.stderr[-2000:]
+    return check
+
+
+def _read_mlflow_metrics_via_tunnel(
+    *,
+    cluster: str,
+    remote_port: int,
+    env: dict[str, str],
+    metric_keys: list[str] | None,
+    last: int,
+    timeout_s: int,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    local_port = _free_local_port()
+    command = _mlflow_tunnel_command(cluster=cluster, local_port=local_port, remote_port=remote_port)
+    check: dict[str, object] = {
+        "name": "ssh_tunnel:mlflow_api",
+        "command": command,
+        "ok": False,
+        "returncode": None,
+        "skipped": False,
+        "timed_out": False,
+        "attempt_count": 1,
+    }
+    proc = subprocess.Popen(
+        command,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    base_url = f"http://127.0.0.1:{local_port}"
+    payload: dict[str, object] = {
+        "available": False,
+        "reason": "mlflow_api_unavailable",
+        "backend": "mlflow_api",
+        "tracking_state": "mlflow_api_unavailable",
+        "source": {"base_url": base_url},
+        "experiments": {"count": 0, "items": []},
+        "runs": {"count": 0, "items": []},
+        "run": {"available": False},
+        "params": {"count": 0, "available_keys": [], "selected": {}},
+        "tags": {"count": 0, "items": {}},
+        "latest_step": None,
+        "metric_row_count": 0,
+        "metric_count": 0,
+        "available_keys": [],
+        "selected_keys": list(metric_keys or DEFAULT_METRIC_KEYS),
+        "latest": {},
+        "series": {},
+    }
+    deadline = time.monotonic() + timeout_s
+    try:
+        while time.monotonic() < deadline:
+            returncode = proc.poll()
+            if returncode is not None:
+                check["returncode"] = returncode
+                _, stderr = proc.communicate(timeout=1)
+                if stderr:
+                    check["stderr_tail"] = stderr[-2000:]
+                payload["reason"] = f"ssh_tunnel_failed:{returncode}"
+                payload["tracking_state"] = payload["reason"]
+                return payload, [check]
+            payload = read_mlflow_api(base_url, metric_keys=metric_keys, last=last, timeout_s=3.0)
+            if payload.get("available") is True:
+                check["ok"] = True
+                return payload, [check]
+            time.sleep(0.5)
+        check["timed_out"] = True
+        payload["reason"] = "mlflow_api_tunnel_timeout"
+        payload["tracking_state"] = "mlflow_api_tunnel_timeout"
+        return payload, [check]
+    finally:
+        _stop_process(proc)
+
+
+def _mlflow_tunnel_command(*, cluster: str, local_port: int | str, remote_port: int) -> list[str]:
+    return [
+        "ssh",
+        "-N",
+        "-L",
+        f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=30",
+        cluster,
+    ]
+
+
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _stop_process(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
 
 
 @ops_app.command("grpo-readiness")
@@ -1586,6 +2640,19 @@ def down(
 
 
 
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "estimating..."
+    total = max(0, int(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
 def _render_options(
     *,
     pipeline: Pipeline,
@@ -1593,6 +2660,8 @@ def _render_options(
     bucket: Optional[str],
     accelerators: Optional[str],
     num_nodes: int,
+    region: str,
+    zone: str,
     disk_size: Optional[int],
     cluster: Optional[str],
     model: Optional[str],
@@ -1619,6 +2688,7 @@ def _render_options(
     export_checkpoint: str,
     sandbox_image: str,
     sandbox_cpu: str,
+    tracking_backends: Optional[list[str]],
     run_id: Optional[str],
     owner: str,
     eval_label: str,
@@ -1639,6 +2709,7 @@ def _render_options(
         raise typer.BadParameter("--grpo-entropy-loss-coef must be non-negative")
     if not 0 < grpo_vllm_gpu_memory_utilization <= 1:
         raise typer.BadParameter("--grpo-vllm-gpu-memory-utilization must be in (0, 1]")
+    normalized_tracking_backends = _normalize_tracking_backends(tracking_backends)
     return RenderOptions(
         pipeline=pipeline,
         project_id=project_id,
@@ -1646,6 +2717,8 @@ def _render_options(
         credentials_path=credentials,
         accelerators=accelerators or default_accelerators,
         num_nodes=num_nodes,
+        region=region,
+        zone=zone,
         disk_size=disk_size,
         cluster_name=cluster,
         model=model,
@@ -1672,6 +2745,7 @@ def _render_options(
         sft_export_checkpoint=export_checkpoint,
         sandbox_image=sandbox_image,
         sandbox_cpu=sandbox_cpu,
+        tracking_backends=normalized_tracking_backends,
         run_id=run_id,
         owner=owner,
         eval_label=eval_label,

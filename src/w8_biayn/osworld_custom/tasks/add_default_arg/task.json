@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nd = Path(\"/home/user/Desktop/custom_defaultarg\")\nshutil.rmtree(d, ignore_errors=True); d.mkdir()\n(d / \"hello.py\").write_text(\"def greet(name):\\n    print(f\\\\\"Hello, {name}!\\\\\")\\n\\ngreet(\\\\\"Alice\\\\\")\\ngreet()\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_defaultarg"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import subprocess\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/custom_defaultarg/hello.py\")\ntry:\n    proc = subprocess.run([\"python3\", str(p)], text=True, capture_output=True, timeout=5)\n    lines = proc.stdout.strip().splitlines()\n    ok = lines == [\"Hello, Alice!\", \"Hello, World!\"]\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847031",
+  "instruction": "Add a default argument name=\"World\" to the greet function so that calling greet() without arguments prints Hello, World! and greet(\"Alice\") still prints Hello, Alice!",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

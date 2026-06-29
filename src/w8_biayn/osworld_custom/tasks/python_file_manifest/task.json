@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nimport shutil\nroot = Path('\"'\"'/home/user/Desktop/project_tree'\"'\"')\nshutil.rmtree(root, ignore_errors=True)\n(root / '\"'\"'src'\"'\"').mkdir(parents=True, exist_ok=True)\n(root / '\"'\"'tests'\"'\"').mkdir(parents=True, exist_ok=True)\n(root / '\"'\"'src'\"'\"' / '\"'\"'app.py'\"'\"').write_text('\"'\"'print(\"hello\")\\n'\"'\"')\n(root / '\"'\"'src'\"'\"' / '\"'\"'utils.py'\"'\"').write_text('\"'\"'def add(a, b):\\n    return a + b\\n'\"'\"')\n(root / '\"'\"'tests'\"'\"' / '\"'\"'test_app.py'\"'\"').write_text('\"'\"'from src.utils import add\\nassert add(2, 3) == 5\\n'\"'\"')\n(root / '\"'\"'README.md'\"'\"').write_text('\"'\"'# Project Tree\\n'\"'\"')\nout = Path('\"'\"'/home/user/Desktop/python_manifest.csv'\"'\"')\nif out.exists():\n    out.unlink()'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'import pyautogui, time; pyautogui.hotkey('\"'\"'ctrl'\"'\"','\"'\"'alt'\"'\"','\"'\"'t'\"'\"'); time.sleep(0.5)'",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nimport csv\nroot = Path('\"'\"'/home/user/Desktop/project_tree'\"'\"')\nout = Path('\"'\"'/home/user/Desktop/python_manifest.csv'\"'\"')\nexpected = [['\"'\"'path'\"'\"', '\"'\"'size'\"'\"']]\nfor p in sorted(root.rglob('\"'\"'*.py'\"'\"'), key=lambda x: x.relative_to(root).as_posix()):\n    expected.append([p.relative_to(root).as_posix(), str(p.stat().st_size)])\ntry:\n    rows = list(csv.reader(out.open(newline='\"'\"''\"'\"')))\nexcept Exception:\n    rows = []\nprint('\"'\"'Evaluation successful.'\"'\"' if rows == expected else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847011",
+  "instruction": "Create Desktop/python_manifest.csv listing every .py file under Desktop/project_tree. The CSV must have columns path and size, sorted by path relative to project_tree.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

@@ -1,0 +1,81 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e112",
+  "snapshot": "libreoffice_calc",
+  "instruction": "Fill the Risk column in the customer renewal sheet using these rules: High if UsagePct is below 40 and DaysLeft is below 30, Medium if either UsagePct is below 60 or DaysLeft is below 45, otherwise Low. Save the spreadsheet.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\np = Path('/home/user/Desktop/renewal_risk.csv')\np.write_text('Customer,UsagePct,DaysLeft,Risk\\nAperture,35,20,\\nBeacon,55,80,\\nCircuit,88,12,\\nDelta,76,75,\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/renewal_risk.csv"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Calc"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\nimport csv\nrows = list(csv.DictReader(Path('/home/user/Desktop/renewal_risk.csv').open(newline='')))\ngot = {row['Customer']: row['Risk'].strip() for row in rows}\nexpected = {'Aperture': 'High', 'Beacon': 'Medium', 'Circuit': 'Medium', 'Delta': 'Low'}\nprint('Evaluation successful.' if got == expected else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "LibreOffice Calc"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}

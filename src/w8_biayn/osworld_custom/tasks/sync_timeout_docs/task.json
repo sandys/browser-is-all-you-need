@@ -1,0 +1,80 @@
+{
+  "id": "b4d54d5f-0acb-4f53-a7a2-21bc10c8e101",
+  "snapshot": "vscode",
+  "instruction": "In the project on the desktop, change the request timeout from 15 seconds to 30 seconds in both the Python config and the README. Do not change the retry delay. Save your changes.",
+  "source": "custom/w8-biayn",
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": [
+          "python3",
+          "-c",
+          "from pathlib import Path\nimport shutil\nroot = Path('/home/user/Desktop/custom_timeout_sync')\nshutil.rmtree(root, ignore_errors=True)\n(root / 'app').mkdir(parents=True)\n(root / 'app' / 'config.py').write_text('REQUEST_TIMEOUT_SECONDS = 15\\nRETRY_DELAY_SECONDS = 5\\n')\n(root / 'README.md').write_text('# Service\\n\\nThe client waits 15 seconds before timing out.\\nRetry delay remains 5 seconds.\\n')"
+        ]
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_timeout_sync"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "trajectory": "trajectories/",
+  "related_apps": [
+    "vscode"
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": [
+        "python3",
+        "-c",
+        "from pathlib import Path\ncfg = Path('/home/user/Desktop/custom_timeout_sync/app/config.py').read_text()\nreadme = Path('/home/user/Desktop/custom_timeout_sync/README.md').read_text()\nok = 'REQUEST_TIMEOUT_SECONDS = 30' in cfg and 'REQUEST_TIMEOUT_SECONDS = 15' not in cfg and 'RETRY_DELAY_SECONDS = 5' in cfg and '30 seconds' in readme and '15 seconds' not in readme and '5 seconds' in readme\nprint('Evaluation successful.' if ok else 'Evaluation failed.')"
+      ]
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "proxy": false,
+  "fixed_ip": false,
+  "possibility_of_env_change": "low"
+}

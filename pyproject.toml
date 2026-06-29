@@ -28,6 +28,18 @@ dev = [
 cpp-perf = [
     "pyarrow>=14.0",
 ]
+sft = [
+    "accelerate>=1.6",
+    "datasets>=3.0",
+    "peft>=0.15",
+    "Pillow>=10.0",
+    "mlflow>=2.12,<4",
+    "qwen-vl-utils>=0.0.8",
+    "torch>=2.6",
+    "torchvision>=0.21",
+    "transformers>=4.51",
+    "wandb>=0.17",
+]
 
 [project.scripts]
 w8-biayn = "w8_biayn.cli:app"

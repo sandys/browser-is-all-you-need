@@ -1,0 +1,56 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; w=256; h=160; data=\"P3\\n{} {}\\n255\\n\".format(w,h)+(\"120 180 240\\n\"*(w*h)); Path(\"/home/user/Desktop/avatar_source.ppm\").write_text(data)'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "gimp",
+          "/home/user/Desktop/avatar_source.ppm"
+        ]
+      },
+      "type": "launch"
+    },
+    {
+      "parameters": {
+        "window_name": "GIMP"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "result": {
+      "command": "python3 -c 'import struct; from pathlib import Path; p=Path(\"/home/user/Desktop/avatar_128.png\"); data=p.read_bytes() if p.exists() else b\"\"; ok=(len(data)>=24 and data[:8]==b\"\\x89PNG\\r\\n\\x1a\\n\" and struct.unpack(\">II\", data[16:24])==(128,128)); print(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847010",
+  "instruction": "Open the image on the Desktop and export a PNG named avatar_128.png on the Desktop with dimensions exactly 128 by 128 pixels.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "gimp"
+  ],
+  "snapshot": "gimp",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

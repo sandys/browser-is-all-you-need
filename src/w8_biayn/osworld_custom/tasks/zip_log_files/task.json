@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nd = Path(\"/home/user/Desktop/logs\")\nshutil.rmtree(d, ignore_errors=True); d.mkdir()\nout = Path(\"/home/user/Desktop/logs_archive.zip\")\nif out.exists(): out.unlink()\n(d / \"app.log\").write_text(\"INFO app started\\n\")\n(d / \"error.log\").write_text(\"ERROR something failed\\n\")\n(d / \"debug.log\").write_text(\"DEBUG verbose output\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import zipfile\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/logs_archive.zip\")\ntry:\n    with zipfile.ZipFile(p) as z:\n        names = {Path(n).name for n in z.namelist()}\n    ok = {\"app.log\", \"error.log\", \"debug.log\"}.issubset(names)\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847039",
+  "instruction": "Archive all .log files in Desktop/logs/ into Desktop/logs_archive.zip using the terminal. All three log files must be present in the archive.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

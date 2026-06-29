@@ -8,12 +8,14 @@ RLLM_REPO = "https://github.com/rllm-org/rllm.git"
 SKYRL_REPO = "https://github.com/NovaSky-AI/SkyRL.git"
 PIE_PERF_REPO = "https://github.com/madaan/pie-perf.git"
 LEARNINGOPT_PIE_REPO = "https://github.com/LearningOpt/pie.git"
+OSWORLD_REPO = "https://github.com/xlang-ai/OSWorld.git"
 SUPERCODER_DATASET = "LLM4Code/llm_superoptimizer_ds"
 
 RLLM_PIN = "9b9e3582b0d73708cea5d1782571c3cc184d248c"
 SKYRL_PIN = "bfa4dc338b0db629f6222364bd1d8645f43baaa2"
 PIE_PERF_PIN = "8f74491065bcd5b66d3913bf31cfba0ecf4ea5f0"
 LEARNINGOPT_PIE_PIN = "eb3d72bc4f3c9095d0f62506340bc8ca0ef27b09"
+OSWORLD_PIN = "705623ca18e0055dd995fd5a350d6588cff2caf5"
 
 DEFAULT_CREDENTIALS_PATH = ".gcp-service-account.json"
 DEFAULT_RENDER_DIR = ".w8-biayn/rendered"
@@ -51,4 +53,5 @@ UPSTREAMS = {
     "skyrl": Upstream("SkyRL", SKYRL_REPO, SKYRL_PIN),
     "pie-perf": Upstream("pie-perf", PIE_PERF_REPO, PIE_PERF_PIN),
     "learningopt-pie": Upstream("LearningOpt-pie", LEARNINGOPT_PIE_REPO, LEARNINGOPT_PIE_PIN),
+    "osworld": Upstream("OSWorld", OSWORLD_REPO, OSWORLD_PIN),
 }

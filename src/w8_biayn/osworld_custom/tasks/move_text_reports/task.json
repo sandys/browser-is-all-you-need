@@ -1,0 +1,57 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; d=Path(\"/home/user/Desktop/inbox\"); d.mkdir(parents=True, exist_ok=True); (d/\"a.txt\").write_text(\"alpha\\n\"); (d/\"b.txt\").write_text(\"beta\\n\"); (d/\"c.log\").write_text(\"keep me\\n\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "python",
+          "-c",
+          "import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)"
+        ]
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "window_name": "Terminal"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "result": {
+      "command": "python3 -c 'from pathlib import Path; d=Path(\"/home/user/Desktop\"); ok=(d/\"reports/a.txt\").exists() and (d/\"reports/b.txt\").exists() and not (d/\"reports/c.log\").exists() and not (d/\"inbox/a.txt\").exists() and not (d/\"inbox/b.txt\").exists() and (d/\"inbox/c.log\").exists(); print(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847001",
+  "instruction": "Create a folder named reports on the Desktop and move all .txt files from Desktop/inbox into it. Leave non-text files in Desktop/inbox.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

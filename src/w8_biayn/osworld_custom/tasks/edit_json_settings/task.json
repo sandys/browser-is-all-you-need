@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; d=Path(\"/home/user/Desktop/custom10_settings\"); d.mkdir(parents=True, exist_ok=True); (d/\"settings.json\").write_text(\"{\\n  \\\"theme\\\": \\\"light\\\",\\n  \\\"autosave\\\": \\\"off\\\",\\n  \\\"editor\\\": {\\n    \\\"tabSize\\\": 4\\n  }\\n}\\n\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom10_settings/settings.json"
+        ]
+      },
+      "type": "launch"
+    },
+    {
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "postconfig": [
+      {
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        },
+        "type": "activate_window"
+      },
+      {
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        },
+        "type": "execute"
+      }
+    ],
+    "result": {
+      "command": "python3 -c 'import json; from pathlib import Path; ok=False\ntry:\n data=json.loads(Path(\"/home/user/Desktop/custom10_settings/settings.json\").read_text()); ok=(data.get(\"theme\")==\"dark\" and data.get(\"autosave\")==\"afterDelay\" and data.get(\"editor\",{}).get(\"tabSize\")==2)\nexcept Exception:\n ok=False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847005",
+  "instruction": "Edit settings.json so theme is dark, autosave is afterDelay, and editor.tabSize is 2.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nimport shutil\nbase = Path('\"'\"'/home/user/Desktop'\"'\"')\nsrc = base / '\"'\"'release_src'\"'\"'\ndst = base / '\"'\"'release_clean'\"'\"'\nshutil.rmtree(src, ignore_errors=True)\nshutil.rmtree(dst, ignore_errors=True)\n(src / '\"'\"'app'\"'\"').mkdir(parents=True, exist_ok=True)\n(src / '\"'\"'build'\"'\"').mkdir(parents=True, exist_ok=True)\n(src / '\"'\"'README.md'\"'\"').write_text('\"'\"'Release readme\\n'\"'\"')\n(src / '\"'\"'app'\"'\"' / '\"'\"'main.py'\"'\"').write_text('\"'\"'print(\"release\")\\n'\"'\"')\n(src / '\"'\"'app'\"'\"' / '\"'\"'config.yaml'\"'\"').write_text('\"'\"'mode: prod\\n'\"'\"')\n(src / '\"'\"'notes.tmp'\"'\"').write_text('\"'\"'scratch\\n'\"'\"')\n(src / '\"'\"'app'\"'\"' / '\"'\"'main.py.bak'\"'\"').write_text('\"'\"'old\\n'\"'\"')\n(src / '\"'\"'build'\"'\"' / '\"'\"'cache.tmp'\"'\"').write_text('\"'\"'cache\\n'\"'\"')'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'import pyautogui, time; pyautogui.hotkey('\"'\"'ctrl'\"'\"','\"'\"'alt'\"'\"','\"'\"'t'\"'\"'); time.sleep(0.5)'",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\nbase = Path('\"'\"'/home/user/Desktop'\"'\"')\ndst = base / '\"'\"'release_clean'\"'\"'\nfiles = sorted(p.relative_to(dst).as_posix() for p in dst.rglob('\"'\"'*'\"'\"') if p.is_file()) if dst.exists() else []\nexpected = ['\"'\"'README.md'\"'\"', '\"'\"'app/config.yaml'\"'\"', '\"'\"'app/main.py'\"'\"']\nprint('\"'\"'Evaluation successful.'\"'\"' if files == expected else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847012",
+  "instruction": "Create Desktop/release_clean from Desktop/release_src, preserving folder structure. Copy only real release files and exclude .tmp and .bak files.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

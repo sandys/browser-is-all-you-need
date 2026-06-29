@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 from w8_biayn import run_status
@@ -69,6 +70,22 @@ def test_extract_log_signals_ignores_benign_setup_warnings():
     assert signals["errors"] == []
 
 
+def test_extract_log_signals_keeps_nccl_timeout_and_ignores_cleanup_idle_kills():
+    signals = _extract_log_signals(
+        [
+            "[2026-06-21 E] Process group watchdog thread terminated with exception: "
+            "Watchdog caught collective operation timeout: WorkNCCL(OpType=BROADCAST)",
+            "(worker1) 2026-06-21 VINFO scripts.py:1254 -- Killed `ray::IDLE \"\" \"\"` (via SIGKILL)",
+        ]
+    )
+
+    assert signals["stage"] == "failed"
+    assert signals["errors"] == [
+        "[2026-06-21 E] Process group watchdog thread terminated with exception: "
+        "Watchdog caught collective operation timeout: WorkNCCL(OpType=BROADCAST)"
+    ]
+
+
 def test_extract_log_signals_ignores_nccl_timeout_env_knob():
     signals = _extract_log_signals(
         [
@@ -91,6 +108,18 @@ def test_extract_log_signals_ignores_multinode_ray_startup_noise():
         ]
     )
 
+    assert signals["errors"] == []
+
+
+def test_extract_log_signals_ignores_printed_exception_handler_source():
+    signals = _extract_log_signals(
+        [
+            "(head, rank=0, pid=7594)     except Exception:",
+            "(head, rank=0, pid=7594) uv pip install \"mlflow>=2.12,<3\"",
+        ]
+    )
+
+    assert signals["stage"] == "dependency_setup"
     assert signals["errors"] == []
 
 
@@ -141,6 +170,34 @@ def test_extract_log_signals_reports_worker_init_stage():
     )
 
     assert signals["stage"] == "worker_init"
+
+
+def test_extract_log_signals_reports_w8_setup_stage_json():
+    signals = run_status._extract_log_signals(
+        [
+            'W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"ref_model_init","event":"start","rank":0}',
+        ]
+    )
+
+    assert signals["stage"] == "ref_model_init"
+    assert signals["setup_events"] == [
+        {"schema_version": "w8-setup-stage-v1", "stage": "ref_model_init", "event": "start", "rank": 0}
+    ]
+    assert signals["stage_events"][0]["stage"] == "ref_model_init"
+
+
+def test_extract_log_signals_ignores_xtrace_setup_stage_template():
+    signals = run_status._extract_log_signals(
+        [
+            '+ printf W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}',
+            'W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"dependency_setup","event":"start"}',
+        ]
+    )
+
+    assert signals["stage"] == "dependency_setup"
+    assert signals["setup_events"] == [
+        {"schema_version": "w8-setup-stage-v1", "stage": "dependency_setup", "event": "start"}
+    ]
 
 
 def test_extract_log_signals_uses_priority_for_combined_stage_lines():
@@ -350,6 +407,59 @@ def test_progress_summary_normalizes_training_throughput_and_metrics():
     assert progress["bottleneck"]["dominant_stage"]["stage"] == "policy_train"
 
 
+def test_progress_summary_prefers_mlflow_params_over_stale_rendered_config():
+    signals = {
+        "config": {
+            "trainer.train_batch_size": 32,
+            "trainer.placement.policy_num_nodes": 2,
+            "trainer.placement.policy_num_gpus_per_node": 8,
+            "trainer.policy.fsdp_config.fsdp_size": 8,
+            "trainer.ref.fsdp_config.fsdp_size": 8,
+            "generator.n_samples_per_prompt": 8,
+            "generator.inference_engine.num_engines": 16,
+            "environment.skyrl_gym.max_env_workers": 256,
+        },
+        "config_sources": ["rendered_yaml"],
+        "metrics": {},
+        "timings": {},
+    }
+    tracking = {
+        "backend": "mlflow_tracking_server",
+        "mlflow": {
+            "available": True,
+            "tracking_state": "metrics_available",
+            "params": {
+                "count": 313,
+                "selected": {
+                    "trainer/train_batch_size": "16",
+                    "trainer/placement/policy_num_nodes": "1",
+                    "trainer/placement/policy_num_gpus_per_node": "8",
+                    "trainer/policy/fsdp_config/fsdp_size": "8",
+                    "trainer/ref/fsdp_config/fsdp_size": "8",
+                    "generator/n_samples_per_prompt": "8",
+                    "generator/inference_engine/num_engines": "8",
+                    "environment/skyrl_gym/max_env_workers": "128",
+                },
+            },
+            "latest": {},
+            "series": {},
+        },
+    }
+
+    merged = run_status._with_tracking_metrics(log_signals=signals, tracking=tracking)
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=merged, artifacts={})
+
+    assert merged["config_sources"] == ["rendered_yaml", "mlflow_params"]
+    assert progress["grpo_config"]["train_batch_size"] == 16
+    assert progress["grpo_config"]["effective_samples_per_step"] == 128
+    assert progress["grpo_config"]["policy_num_nodes"] == 1
+    assert progress["grpo_config"]["total_gpu_count"] == 8
+    assert progress["grpo_config"]["rollout_engine_count"] == 8
+    assert progress["grpo_config"]["max_env_workers"] == 128
+    assert progress["grpo_config"]["fsdp_mesh_shape"] == {"ddp": 1, "fsdp": 8}
+    assert progress["grpo_config"]["hsdp_active"] is False
+
+
 def test_progress_summary_flags_grpo_entropy_collapse():
     signals = _extract_log_signals(
         [
@@ -413,6 +523,93 @@ def test_progress_summary_flags_deterministic_low_gradient_with_checkpoint():
     assert progress["training_health"]["signals"]["checkpoint_resumable"] is True
 
 
+def test_progress_summary_uses_mlflow_tracking_metrics_for_learning_signal():
+    signals = {"metrics": {}, "timings": {}, "config": {}, "policy_health_events": [], "grpo_health_events": []}
+    tracking = {
+        "backend": "mlflow_tracking_server",
+        "mlflow": {
+            "available": True,
+            "latest_step": 3,
+            "metric_count": 5,
+            "selected_keys": [],
+            "source": {"gcs_uri": "gs://bucket/run/tracking/mlflow/mlflow.db"},
+            "latest": {
+                "loss/avg_final_rewards": {"step": 3, "value": 0.8, "timestamp_ms": 30},
+                "reward/avg_pass_at_8": {"step": 3, "value": 0.75, "timestamp_ms": 30},
+                "policy/policy_entropy": {"step": 3, "value": 0.0001, "timestamp_ms": 30},
+                "policy/grad_norm": {"step": 3, "value": 0.0, "timestamp_ms": 30},
+                "loss/avg_raw_advantages_abs": {"step": 3, "value": 0.0, "timestamp_ms": 30},
+            },
+            "series": {
+                "policy/policy_entropy": [
+                    {"step": 1, "value": 0.0001, "timestamp_ms": 10},
+                    {"step": 2, "value": 0.0001, "timestamp_ms": 20},
+                    {"step": 3, "value": 0.0001, "timestamp_ms": 30},
+                ],
+                "policy/grad_norm": [
+                    {"step": 1, "value": 0.0, "timestamp_ms": 10},
+                    {"step": 2, "value": 0.0, "timestamp_ms": 20},
+                    {"step": 3, "value": 0.0, "timestamp_ms": 30},
+                ],
+            },
+        },
+    }
+    merged = run_status._with_tracking_metrics(log_signals=signals, tracking=tracking)
+    artifacts = {"checkpoint": {"latest": {"step": 3, "resumable": True}}}
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=merged, artifacts=artifacts)
+
+    assert progress["tracking"]["available"] is True
+    assert progress["metrics"]["policy/policy_entropy"] == 0.0001
+    assert progress["metrics"]["reward"]["avg_pass_at_8"] == 0.75
+    assert progress["training_health"]["verdict"] == "deterministic_low_gradient"
+    assert progress["learning_signal"]["verdict"] == "deterministic_convergence_risk"
+    assert progress["learning_signal"]["trends"]["policy_entropy"]["available"] is True
+
+
+def test_tracking_status_prefers_live_mlflow_api_for_running_job(monkeypatch):
+    def fake_tunnel(**kwargs):
+        return (
+            {
+                "available": True,
+                "reason": None,
+                "backend": "mlflow_api",
+                "tracking_state": "metrics_available",
+                "source": {"base_url": "http://127.0.0.1:12345"},
+                "latest_step": 1,
+                "metric_count": 1,
+                "metric_row_count": 1,
+                "available_keys": ["loss/avg_final_rewards"],
+                "selected_keys": ["loss/avg_final_rewards"],
+                "latest": {"loss/avg_final_rewards": {"step": 1, "value": 0.25}},
+                "series": {},
+            },
+            [{"name": "ssh_tunnel:mlflow_api", "ok": True}],
+        )
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("GCS SQLite fallback should not be used when live API is available")
+
+    monkeypatch.setattr(run_status, "_read_tracking_via_tunnel", fake_tunnel)
+    monkeypatch.setattr(run_status, "_run", fail_run)
+
+    tracking = run_status._tracking_status(
+        cluster="w8-biayn-cpp-grpo-rtest",
+        pipeline="cpp-grpo",
+        active_job={"status": "RUNNING"},
+        run_gcs_prefix="gs://bucket/runs/cpp-perf/rtest/cpp-grpo",
+        env={},
+        timeout_s=30,
+        retries=0,
+        dry_run=False,
+    )
+
+    assert tracking["available"] is True
+    assert tracking["mlflow"]["backend"] == "mlflow_api"
+    assert tracking["mlflow"]["latest_step"] == 1
+    assert tracking["checks"] == [{"name": "ssh_tunnel:mlflow_api", "ok": True}]
+
+
 def test_progress_summary_does_not_flag_single_low_gradient_event():
     signals = _extract_log_signals(
         [
@@ -428,6 +625,47 @@ def test_progress_summary_does_not_flag_single_low_gradient_event():
 
     assert progress["training_health"]["verdict"] == "healthy_or_insufficient_collapse_signal"
     assert progress["training_health"]["should_stop"] is False
+
+
+def test_progress_summary_uses_w8_grpo_health_learning_signal():
+    signals = _extract_log_signals(
+        [
+            'W8_GRPO_HEALTH {"schema_version": "w8-grpo-health-v1", "step": 200, "metrics": {'
+            '"loss/avg_final_rewards": 0.795, "reward/avg_pass_at_8": 0.875, '
+            '"policy/policy_entropy": 0.000248, "policy/grad_norm": 0.011, '
+            '"policy/policy_loss": -0.000035, "policy/policy_kl": 0.042, '
+            '"loss/avg_raw_advantages_abs": 0.015, '
+            '"w8/reward_group_variance_mean": 0.0001, '
+            '"w8/zero_variance_group_fraction": 0.82, '
+            '"w8/zero_advantage_token_fraction": 0.79, '
+            '"timing/step": 265.5, "timing/generate": 124.1, "timing/policy_train": 137.0}}',
+            'W8_GRPO_HEALTH {"schema_version": "w8-grpo-health-v1", "step": 207, "metrics": {'
+            '"loss/avg_final_rewards": 0.8295, "reward/avg_pass_at_8": 0.9375, '
+            '"policy/policy_entropy": 0.000251, "policy/grad_norm": 0.009, '
+            '"policy/policy_loss": -0.000031, "policy/policy_kl": 0.045, '
+            '"loss/avg_raw_advantages_abs": 0.014, '
+            '"w8/reward_group_variance_mean": 0.00008, '
+            '"w8/zero_variance_group_fraction": 0.86, '
+            '"w8/zero_advantage_token_fraction": 0.81, '
+            '"timing/step": 260.0, "timing/generate": 120.0, "timing/policy_train": 134.0}}',
+        ]
+    )
+    artifacts = {"checkpoint": {"latest": {"step": 200, "resumable": True}}}
+
+    progress = run_status._progress_summary(pipeline="cpp-grpo", log_signals=signals, artifacts=artifacts)
+
+    assert signals["grpo_health_events"][-1]["step"] == 207
+    assert progress["metrics"]["policy/policy_kl"] == 0.045
+    assert progress["learning_signal"]["available"] is True
+    assert progress["learning_signal"]["verdict"] == "deterministic_convergence_risk"
+    assert progress["learning_signal"]["recommended_action"] == "evaluate_checkpoint"
+    assert progress["learning_signal"]["kl"]["policy_kl"] == 0.045
+    assert progress["learning_signal"]["variance"]["zero_variance_group_fraction"] == 0.86
+    assert progress["learning_signal"]["trends"]["avg_final_reward"]["delta"] == 0.0345
+    assert progress["training_health"]["verdict"] == "deterministic_convergence_risk"
+    assert progress["training_health"]["should_stop"] is False
+    assert progress["training_health"]["recommended_action"] == "evaluate_checkpoint"
+    assert progress["phase_timing"]["groups"][0]["group"] in {"policy_update", "rollout"}
 
 
 def test_sft_progress_summary_uses_last_step_metrics_and_expected_final_step():
@@ -825,6 +1063,120 @@ def test_pipeline_state_ignores_old_failed_jobs_after_successful_retry():
     )
 
     assert state == "complete"
+
+
+def test_pipeline_state_marks_pre_metric_tracking_without_live_backend_failed():
+    state = run_status._derive_pipeline_state(
+        queue={"jobs": []},
+        artifacts={"checkpoint": {"latest_marker": None}, "export": {"final_export_exists": False}},
+        log_signals={"errors": []},
+        instances=[],
+        tracking={
+            "mlflow": {
+                "tracking_state": "run_active_no_metrics",
+                "metric_count": 0,
+                "metric_row_count": 0,
+            }
+        },
+    )
+
+    assert state == "failed"
+
+
+def test_pipeline_state_keeps_live_pre_metric_tracking_running():
+    state = run_status._derive_pipeline_state(
+        queue={"jobs": [{"status": "RUNNING"}]},
+        artifacts={"checkpoint": {"latest_marker": None}, "export": {"final_export_exists": False}},
+        log_signals={"errors": []},
+        instances=[{"status": "RUNNING"}],
+        tracking={
+            "mlflow": {
+                "tracking_state": "run_active_no_metrics",
+                "metric_count": 0,
+                "metric_row_count": 0,
+            }
+        },
+    )
+
+    assert state == "running"
+
+
+def test_run_retries_nonzero_read_only_checks(monkeypatch):
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(args=args[0], returncode=255, stdout="", stderr="ssh failed")
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(run_status.subprocess, "run", fake_run)
+
+    result = run_status._run(["sky", "logs"], env={}, timeout_s=10, retries=1, dry_run=False)
+
+    assert result.ok is True
+    assert result.stdout == "ok"
+    assert result.attempt_count == 2
+    assert len(calls) == 2
+
+
+def test_run_summary_prefers_failed_pipeline_when_no_active_job():
+    summary = run_status._run_summary(
+        pipelines=[
+            {
+                "pipeline": "cpp-sft",
+                "cluster": "sft",
+                "state": "not_started",
+                "progress": {"primary": None},
+            },
+            {
+                "pipeline": "cpp-grpo",
+                "cluster": "grpo",
+                "state": "failed",
+                "active_job": {"status": "FAILED"},
+                "phase": {"current": "failed"},
+                "progress": {"primary": {"completed": 0}},
+            },
+        ],
+        dataset={"state": "available"},
+        instances=[],
+        cleanup={"safe_to_cleanup": True},
+    )
+
+    assert summary["state"] == "failed"
+    assert summary["current_pipeline"] == "cpp-grpo"
+    assert summary["current_phase"] == {"current": "failed"}
+
+
+def test_phase_summary_marks_terminal_queue_failure_without_logs():
+    phase = run_status._phase_summary(
+        log_signals={"stage": None, "errors": []},
+        node_health=None,
+        artifacts={},
+        active_job={"status": "FAILED"},
+    )
+
+    assert phase["current"] == "failed"
+    assert phase["source"] == "queue"
+    assert phase["failed"] is True
+
+
+def test_phase_summary_marks_pre_metric_tracking_failure_without_logs():
+    phase = run_status._phase_summary(
+        log_signals={"stage": None, "errors": []},
+        node_health=None,
+        artifacts={},
+        active_job=None,
+        pipeline_state="failed",
+        startup={"recommended_action": "inspect_failed_startup_or_relaunch"},
+    )
+
+    assert phase["current"] == "failed"
+    assert phase["source"] == "tracking"
+    assert phase["failed"] is True
+    assert phase["message"] == (
+        "MLflow registered the run but no scalar training metrics were recorded before backend resources disappeared."
+    )
 
 
 def test_pipeline_status_reads_logs_for_selected_active_retry(monkeypatch):
@@ -1361,6 +1713,123 @@ def test_parse_node_health_marks_mounted_model_stage_activity():
     )
 
     assert payload["activity"] == "model_stage"
+
+
+def test_parse_node_health_reports_ref_model_init_startup():
+    payload = run_status._parse_node_health(
+        "\n".join(
+            [
+                "__W8_GPU__",
+                "0, 100, 8850, 40960",
+                "__W8_DF__",
+                "Filesystem 1024-blocks Used Available Capacity Mounted on",
+                "/dev/root 1041235968 463470592 577765376 45% /",
+                "__W8_PS__",
+                "PID ELAPSED %CPU %MEM CMD",
+                "15010 3330 199.0 2.3 ray::FSDPRefWorkerBase.init_model",
+                "14193 3349 1.1 0.1 ray::FSDPPolicyWorkerBase",
+            ]
+        )
+    )
+
+    assert payload["activity"] == "model_init"
+    assert payload["startup"]["available"] is True
+    assert payload["startup"]["active_stage"] == "ref_model_init"
+    assert payload["startup"]["long_running"] is True
+    ref_group = payload["startup"]["groups"][0]
+    assert ref_group["stage"] == "ref_model_init"
+    assert ref_group["process_count"] == 1
+    assert ref_group["max_elapsed_s"] == 3330
+
+
+def test_parse_node_health_marks_ref_model_init_long_running_at_15_minutes():
+    payload = run_status._parse_node_health(
+        "\n".join(
+            [
+                "__W8_GPU__",
+                "0, 100, 8850, 40960",
+                "__W8_DF__",
+                "Filesystem 1024-blocks Used Available Capacity Mounted on",
+                "/dev/root 1041235968 463470592 577765376 45% /",
+                "__W8_PS__",
+                "PID ELAPSED %CPU %MEM CMD",
+                "15010 901 199.0 2.3 ray::FSDPRefWorkerBase.init_model",
+            ]
+        )
+    )
+
+    assert payload["startup"]["active_stage"] == "ref_model_init"
+    assert payload["startup"]["long_running"] is True
+    assert payload["startup"]["long_running_threshold_s"] == 900
+
+
+def test_startup_progress_warns_when_mlflow_has_no_scalars():
+    node_health = {
+        "startup": {
+            "available": True,
+            "active_stage": "ref_model_init",
+            "long_running": True,
+            "max_elapsed_s": 3330,
+            "groups": [],
+        }
+    }
+    tracking = {
+        "mlflow": {
+            "tracking_state": "run_active_no_metrics",
+            "metric_count": 0,
+            "metric_row_count": 0,
+        }
+    }
+
+    progress = run_status._startup_progress_summary(node_health=node_health, tracking=tracking, pipeline_state="running")
+
+    assert progress["active_stage"] == "ref_model_init"
+    assert progress["scalar_metrics_available"] is False
+    assert progress["severity"] == "warning"
+    assert progress["recommended_action"] == "inspect_startup_stage"
+
+
+def test_startup_progress_marks_pre_metric_after_teardown_as_failed_startup():
+    tracking = {
+        "mlflow": {
+            "tracking_state": "run_active_no_metrics",
+            "metric_count": 0,
+            "metric_row_count": 0,
+        }
+    }
+
+    progress = run_status._startup_progress_summary(
+        node_health=None,
+        tracking=tracking,
+        pipeline_state="failed",
+        active_job=None,
+        instances=[],
+    )
+
+    assert progress["scalar_metrics_available"] is False
+    assert progress["severity"] == "error"
+    assert progress["recommended_action"] == "inspect_failed_startup_or_relaunch"
+
+
+def test_startup_progress_keeps_live_pre_metric_action_as_node_health_poll():
+    tracking = {
+        "mlflow": {
+            "tracking_state": "run_active_no_metrics",
+            "metric_count": 0,
+            "metric_row_count": 0,
+        }
+    }
+
+    progress = run_status._startup_progress_summary(
+        node_health=None,
+        tracking=tracking,
+        pipeline_state="running",
+        active_job={"status": "RUNNING"},
+        instances=[{"status": "RUNNING"}],
+    )
+
+    assert progress["severity"] == "warning"
+    assert progress["recommended_action"] == "poll_with_node_health"
 
 
 def test_parse_node_health_marks_reward_compile_activity():

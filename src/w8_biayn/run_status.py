@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import subprocess
+import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .mlflow_metrics import read_mlflow_api, read_mlflow_metrics
 
 PIPELINES = ("cpp-sft", "cpp-grpo", "cpp-eval")
 CHECKPOINT_PIPELINES = {"cpp-sft", "cpp-grpo"}
@@ -32,13 +36,22 @@ HF_EXPORT_RE = re.compile(
     r"(Saving final HF model|Saved HF model weights|save_hf_model|HF export)",
     re.IGNORECASE,
 )
+W8_SETUP_STAGE_RE = re.compile(r"W8_SETUP_STAGE\s+(\{.*\})")
 STAGE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("host_preflight", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"host_preflight"', re.IGNORECASE)),
     ("container_pull", re.compile(r"(docker pull|Pulling from|Pull complete|Download complete)", re.IGNORECASE)),
     ("container_start", re.compile(r"\bdocker run\b", re.IGNORECASE)),
     ("data_restore", re.compile(r"gcloud storage cp --recursive .*datasets/.*/skyrl", re.IGNORECASE)),
     ("model_stage", re.compile(r"gcloud storage cp --recursive .*runs/.*/exports/.*/policy", re.IGNORECASE)),
     ("dependency_setup", re.compile(r"(uv sync|pip install|Resolved \d+ packages|Installed \d+ packages|huggingface-hub==)", re.IGNORECASE)),
+    ("mlflow_setup", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"mlflow_setup"', re.IGNORECASE)),
+    ("ray_cluster", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"ray_cluster"', re.IGNORECASE)),
+    ("ray_worker_join", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"ray_worker_join"', re.IGNORECASE)),
+    ("skyrl_entrypoint", re.compile(r'W8_SETUP_STAGE .*"stage":\s*"skyrl_entrypoint"', re.IGNORECASE)),
     ("worker_init", re.compile(r"(Started a local Ray instance|Initializing process group|Initialized process group|Mesh Ranks)", re.IGNORECASE)),
+    ("ref_model_init", re.compile(r"(FSDPRefWorkerBase\.init_model|\"stage\":\s*\"ref_model_init\")", re.IGNORECASE)),
+    ("policy_model_init", re.compile(r"(FSDPPolicyWorkerBase\.init_model|\"stage\":\s*\"policy_model_init\")", re.IGNORECASE)),
+    ("critic_model_init", re.compile(r"(FSDPCriticWorkerBase\.init_model|\"stage\":\s*\"critic_model_init\")", re.IGNORECASE)),
     ("model_init", re.compile(r"(Initializing new inference client|init policy/ref/critic models done|create_inference_servers)", re.IGNORECASE)),
     ("weight_sync", re.compile(r"(init_weight_sync_state|sync_weights|Initialized weight sync state)", re.IGNORECASE)),
     ("checkpoint_load", re.compile(r"(load_checkpoint|Loading checkpoint|Loaded checkpoint|restore checkpoint)", re.IGNORECASE)),
@@ -54,11 +67,11 @@ STAGE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("job_complete", re.compile(r"Job finished|SUCCEEDED", re.IGNORECASE)),
 )
 ERROR_RE = re.compile(
-    r"(Traceback \(most recent call last\)|\|\s*ERROR\b|\bERROR:|\b[A-Za-z]*(?:Error|Exception):|\bfailed\b|No space|out of memory|\bkilled\b|CUDA out|ClusterNotUpError|nccl.*(error|failed|timeout))",
+    r"(Traceback \(most recent call last\)|\|\s*ERROR\b|\bERROR:|\b[A-Za-z]*(?:Error|Exception):|\bfailed\b|No space|out of memory|\bkilled\b|CUDA out|ClusterNotUpError|nccl.*(error|failed|timeout)|collective operation timeout|process group watchdog)",
     re.IGNORECASE,
 )
 BENIGN_ERROR_RE = re.compile(
-    r"(warning: Failed to hardlink files|Downloading nvidia-nccl|Downloaded nvidia-nccl|[+-]\s+nvidia-nccl|weight_sync_backend:\s*nccl|SKYRL_WORKER_NCCL_TIMEOUT_IN_S|Unclosed client session|Unclosed connector|FutureWarning: Tip:.*error message|job will not be killed|echo\s+['\"].*\bfailed\b.*['\"]|Failed to establish connection to the (event\+metrics exporter|metrics exporter) agent|Failed to connect to GCS at address .* within \d+ seconds|Failed to get cluster ID from GCS server: TimedOut|Running out of retries to initialize the metrics agent|cleanup_old_checkpoints.*Failed to remove old checkpoint.*(404|notFound|specified key does not exist))",
+    r"(warning: Failed to hardlink files|Downloading nvidia-nccl|Downloaded nvidia-nccl|[+-]\s+nvidia-nccl|weight_sync_backend:\s*nccl|SKYRL_WORKER_NCCL_TIMEOUT_IN_S|Unclosed client session|Unclosed connector|FutureWarning: Tip:.*error message|job will not be killed|echo\s+['\"].*\bfailed\b.*['\"]|(?:^|\)\s*)\s*except\s+Exception:\s*$|Failed to establish connection to the (event\+metrics exporter|metrics exporter) agent|Failed to connect to GCS at address .* within \d+ seconds|Failed to get cluster ID from GCS server: TimedOut|Running out of retries to initialize the metrics agent|cleanup_old_checkpoints.*Failed to remove old checkpoint.*(404|notFound|specified key does not exist)|VINFO scripts\.py:\d+ -- Killed `ray::IDLE)",
     re.IGNORECASE,
 )
 DISTRIBUTED_STATE_FAILURE_RE = re.compile(
@@ -79,12 +92,20 @@ ACTIVE_INSTANCE_STATUSES = {"RUNNING", "PROVISIONING", "STAGING", "REPAIRING"}
 PROVISIONING_INSTANCE_STATUSES = {"PROVISIONING", "STAGING", "REPAIRING"}
 WORKING_PIPELINE_STATES = {"provisioning", "running", "checkpointing"}
 STAGE_GROUPS = {
+    "host_preflight": "setup",
     "container_pull": "setup",
     "container_start": "setup",
     "data_restore": "setup",
     "model_stage": "setup",
     "dependency_setup": "setup",
+    "mlflow_setup": "setup",
+    "ray_cluster": "startup",
+    "ray_worker_join": "startup",
+    "skyrl_entrypoint": "startup",
     "worker_init": "startup",
+    "ref_model_init": "startup",
+    "policy_model_init": "startup",
+    "critic_model_init": "startup",
     "model_init": "startup",
     "checkpoint_load": "startup",
     "weight_sync": "synchronization",
@@ -123,14 +144,30 @@ STAGE_PRIORITY = {
     "eval_generation": 57,
     "evaluation": 55,
     "weight_sync": 50,
+    "ref_model_init": 49,
+    "policy_model_init": 49,
+    "critic_model_init": 49,
     "model_init": 45,
+    "skyrl_entrypoint": 43,
     "worker_init": 40,
+    "ray_cluster": 39,
+    "ray_worker_join": 39,
     "dependency_setup": 35,
+    "mlflow_setup": 34,
     "model_stage": 30,
     "data_restore": 25,
+    "host_preflight": 23,
     "container_start": 20,
     "container_pull": 15,
 }
+STARTUP_LONG_RUNNING_THRESHOLDS_S = {
+    "ref_model_init": 900,
+    "policy_model_init": 900,
+    "critic_model_init": 900,
+    "model_init": 900,
+    "skyrl_entrypoint": 1200,
+}
+DEFAULT_STARTUP_LONG_RUNNING_THRESHOLD_S = 1800
 CONFIG_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("trainer.ckpt_interval", re.compile(r"trainer\.ckpt_interval=([0-9-]+)")),
     ("trainer.hf_save_interval", re.compile(r"trainer\.hf_save_interval=([0-9-]+)")),
@@ -174,6 +211,7 @@ TRAINER_POLICY_METRIC_RE = re.compile(
     r"['\"](policy_entropy|grad_norm|policy_loss|response_length)['\"]\s*:\s*"
     r"([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
 )
+W8_GRPO_HEALTH_RE = re.compile(r"W8_GRPO_HEALTH\s+({.*})")
 TRAINER_POLICY_METRIC_KEYS = {
     "policy_entropy": "policy/policy_entropy",
     "grad_norm": "policy/grad_norm",
@@ -405,6 +443,17 @@ def _pipeline_status(
         retries=retries,
         dry_run=dry_run,
     )
+    tracking = _tracking_status(
+        cluster=cluster,
+        pipeline=pipeline,
+        active_job=active_job,
+        run_gcs_prefix=run_gcs_prefix,
+        env=env,
+        timeout_s=timeout_s,
+        retries=retries,
+        dry_run=dry_run,
+    )
+    log_signals = _with_tracking_metrics(log_signals=log_signals, tracking=tracking)
     node_health = None
     progress = _progress_summary(
         pipeline=pipeline,
@@ -416,6 +465,14 @@ def _pipeline_status(
         queue=queue,
         artifacts=artifacts,
         log_signals=log_signals,
+        instances=instances,
+        tracking=tracking,
+    )
+    progress["startup"] = _startup_progress_summary(
+        node_health=None,
+        tracking=tracking,
+        pipeline_state=pipeline_state,
+        active_job=active_job,
         instances=instances,
     )
     commands = _pipeline_commands(cluster=cluster, job=active_job)
@@ -430,8 +487,16 @@ def _pipeline_status(
             "queue": queue,
         },
         "artifacts": artifacts,
+        "tracking": tracking,
         "logs": log_signals,
-        "phase": _phase_summary(log_signals=log_signals, node_health=None, artifacts=artifacts, active_job=active_job),
+        "phase": _phase_summary(
+            log_signals=log_signals,
+            node_health=None,
+            artifacts=artifacts,
+            active_job=active_job,
+            pipeline_state=pipeline_state,
+            startup=progress.get("startup"),
+        ),
         "progress": progress,
         "speed_comparison": _speed_comparison(
             pipeline=pipeline,
@@ -450,7 +515,7 @@ def _pipeline_status(
             log_signals=log_signals,
             commands=commands,
         ),
-        "checks": [queue_check, log_check],
+        "checks": [queue_check, log_check] + list(tracking.get("checks", [])),
     }
     if include_node_health:
         node_health = _node_health(
@@ -465,11 +530,20 @@ def _pipeline_status(
         )
         payload["node_health"] = node_health
         payload["checks"].extend(node_health.pop("checks", []))
+        payload["progress"]["startup"] = _startup_progress_summary(
+            node_health=node_health,
+            tracking=tracking,
+            pipeline_state=pipeline_state,
+            active_job=active_job,
+            instances=instances,
+        )
         payload["phase"] = _phase_summary(
             log_signals=log_signals,
             node_health=node_health,
             artifacts=artifacts,
             active_job=active_job,
+            pipeline_state=pipeline_state,
+            startup=payload["progress"].get("startup"),
         )
         payload["resources"] = _resource_summary(instances=instances, node_health=node_health)
     return payload
@@ -649,6 +723,252 @@ def _artifact_status(
         payload["eval_outputs"] = _eval_output_detail(run_gcs_prefix, eval_listing)
         payload["checks"].append(eval_check)
     return payload
+
+
+def _tracking_status(
+    *,
+    cluster: str,
+    pipeline: str,
+    active_job: dict[str, Any] | None,
+    run_gcs_prefix: str,
+    env: dict[str, str],
+    timeout_s: int,
+    retries: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    if pipeline not in CHECKPOINT_PIPELINES:
+        return {
+            "available": False,
+            "reason": "pipeline_has_no_training_tracking",
+            "backend": "mlflow_tracking_server",
+            "mlflow": {"available": False, "reason": "pipeline_has_no_training_tracking"},
+            "checks": [],
+        }
+    db_uri = f"{run_gcs_prefix}/tracking/mlflow/mlflow.db"
+    checks: list[dict[str, Any]] = []
+    if not dry_run and str((active_job or {}).get("status") or "").upper() in ACTIVE_JOB_STATUSES:
+        api_mlflow, api_checks = _read_tracking_via_tunnel(cluster=cluster, env=env, timeout_s=min(timeout_s, 30))
+        checks.extend(api_checks)
+        if api_mlflow.get("available") is True:
+            return {
+                "available": True,
+                "reason": api_mlflow.get("reason"),
+                "backend": "mlflow_tracking_server",
+                "mlflow": api_mlflow,
+                "checks": checks,
+            }
+    with tempfile.TemporaryDirectory(prefix="w8-mlflow-") as tempdir:
+        local_db = Path(tempdir) / "mlflow.db"
+        result = _run(
+            ["gcloud", "storage", "cp", db_uri, str(local_db)],
+            env=env,
+            timeout_s=timeout_s,
+            retries=retries,
+            dry_run=dry_run,
+        )
+        if result.ok is True:
+            mlflow = read_mlflow_metrics(local_db, last=100)
+        else:
+            mlflow = {
+                "available": False,
+                "reason": "mlflow_db_unavailable" if not dry_run else "dry_run",
+                "backend": "mlflow",
+                "source": {"path": str(local_db), "size_bytes": None, "gcs_uri": db_uri},
+                "latest_step": None,
+                "metric_count": 0,
+                "available_keys": [],
+                "selected_keys": [],
+                "latest": {},
+                "series": {},
+            }
+        source = mlflow.get("source") if isinstance(mlflow.get("source"), dict) else {}
+        source["gcs_uri"] = db_uri
+        mlflow["source"] = source
+    checks.append(result.check(f"gcloud_storage_cp:{db_uri}", include_stdout=False))
+    return {
+        "available": mlflow.get("available") is True,
+        "reason": mlflow.get("reason"),
+        "backend": "mlflow_tracking_server",
+        "mlflow": mlflow,
+        "checks": checks,
+    }
+
+
+def _read_tracking_via_tunnel(*, cluster: str, env: dict[str, str], timeout_s: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    local_port = _free_local_port()
+    command = [
+        "ssh",
+        "-N",
+        "-L",
+        f"127.0.0.1:{local_port}:127.0.0.1:5000",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=30",
+        cluster,
+    ]
+    check: dict[str, Any] = {
+        "name": "ssh_tunnel:mlflow_api",
+        "command": command,
+        "ok": False,
+        "returncode": None,
+        "skipped": False,
+        "timed_out": False,
+        "attempt_count": 1,
+    }
+    base_url = f"http://127.0.0.1:{local_port}"
+    payload: dict[str, Any] = {
+        "available": False,
+        "reason": "mlflow_api_unavailable",
+        "backend": "mlflow_api",
+        "tracking_state": "mlflow_api_unavailable",
+        "source": {"base_url": base_url},
+        "latest_step": None,
+        "metric_row_count": 0,
+        "metric_count": 0,
+        "available_keys": [],
+        "selected_keys": [],
+        "latest": {},
+        "series": {},
+    }
+    proc = subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + timeout_s
+    try:
+        while time.monotonic() < deadline:
+            returncode = proc.poll()
+            if returncode is not None:
+                check["returncode"] = returncode
+                _, stderr = proc.communicate(timeout=1)
+                if stderr:
+                    check["stderr_tail"] = stderr[-2000:]
+                payload["reason"] = f"ssh_tunnel_failed:{returncode}"
+                payload["tracking_state"] = payload["reason"]
+                return payload, [check]
+            payload = read_mlflow_api(base_url, last=100, timeout_s=3.0)
+            if payload.get("available") is True:
+                check["ok"] = True
+                return payload, [check]
+            time.sleep(0.5)
+        check["timed_out"] = True
+        payload["reason"] = "mlflow_api_tunnel_timeout"
+        payload["tracking_state"] = "mlflow_api_tunnel_timeout"
+        return payload, [check]
+    finally:
+        _stop_process(proc)
+
+
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _stop_process(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
+
+
+def _with_tracking_metrics(*, log_signals: dict[str, Any], tracking: dict[str, Any]) -> dict[str, Any]:
+    mlflow = tracking.get("mlflow") if isinstance(tracking.get("mlflow"), dict) else {}
+    if mlflow.get("available") is not True:
+        return log_signals
+    payload = dict(log_signals)
+    params = mlflow.get("params") if isinstance(mlflow.get("params"), dict) else {}
+    compact_params = {
+        "count": params.get("count"),
+        "selected": params.get("selected") if isinstance(params.get("selected"), dict) else {},
+    }
+    payload["tracking"] = {
+        "backend": tracking.get("backend"),
+        "available": True,
+        "mlflow": {
+            "available": True,
+            "tracking_state": mlflow.get("tracking_state"),
+            "latest_step": mlflow.get("latest_step"),
+            "run": mlflow.get("run"),
+            "params": compact_params,
+            "metric_count": mlflow.get("metric_count"),
+            "metric_row_count": mlflow.get("metric_row_count"),
+            "selected_keys": mlflow.get("selected_keys"),
+            "source": mlflow.get("source"),
+        },
+    }
+    mlflow_config = _mlflow_params_config(compact_params.get("selected"))
+    if mlflow_config:
+        config = dict(payload.get("config") if isinstance(payload.get("config"), dict) else {})
+        config.update(mlflow_config)
+        payload["config"] = config
+        sources = list(payload.get("config_sources") if isinstance(payload.get("config_sources"), list) else [])
+        if "mlflow_params" not in sources:
+            sources.append("mlflow_params")
+        payload["config_sources"] = sources
+    metrics = dict(payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {})
+    latest = mlflow.get("latest") if isinstance(mlflow.get("latest"), dict) else {}
+    for key, item in latest.items():
+        if not isinstance(item, dict):
+            continue
+        value = _to_float(item.get("value"))
+        if value is not None:
+            _record_metric(metrics, str(key), value)
+    payload["metrics"] = metrics
+    payload["metrics_source"] = "logs+mlflow" if log_signals.get("metrics") else "mlflow"
+
+    series = mlflow.get("series") if isinstance(mlflow.get("series"), dict) else {}
+    tracking_events = _grpo_health_events_from_mlflow_series(series)
+    if tracking_events:
+        existing = payload.get("grpo_health_events") if isinstance(payload.get("grpo_health_events"), list) else []
+        payload["grpo_health_events"] = (existing + tracking_events)[-100:]
+        existing_policy = (
+            payload.get("policy_health_events") if isinstance(payload.get("policy_health_events"), list) else []
+        )
+        policy_events = [
+            policy_event
+            for event in tracking_events
+            if (policy_event := _policy_event_from_canonical_metrics(event.get("metrics", {})))
+        ]
+        payload["policy_health_events"] = (existing_policy + policy_events)[-100:]
+    return payload
+
+
+def _mlflow_params_config(selected_params: Any) -> dict[str, Any]:
+    if not isinstance(selected_params, dict):
+        return {}
+    config: dict[str, Any] = {}
+    for key, value in selected_params.items():
+        if not isinstance(key, str) or "/" not in key:
+            continue
+        config[key.replace("/", ".")] = value
+    return config
+
+
+def _grpo_health_events_from_mlflow_series(series: dict[str, Any]) -> list[dict[str, Any]]:
+    by_step: dict[int, dict[str, float]] = {}
+    for key, points in series.items():
+        if not isinstance(points, list):
+            continue
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            step = _to_int(point.get("step"))
+            value = _to_float(point.get("value"))
+            if step is None or value is None:
+                continue
+            by_step.setdefault(step, {})[str(key)] = value
+    return [
+        {
+            "schema_version": "w8-grpo-health-v1",
+            "step": step,
+            "metrics": metrics,
+            "source": "mlflow",
+        }
+        for step, metrics in sorted(by_step.items())
+    ]
 
 
 def _eval_output_detail(prefix: str, listing: str) -> dict[str, Any]:
@@ -833,7 +1153,8 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
     export_events: list[str] = []
     errors: list[str] = []
     stage = None
-    stage_events: list[dict[str, str]] = []
+    stage_events: list[dict[str, Any]] = []
+    setup_events: list[dict[str, Any]] = []
     trajectory_progress = None
     evaluation_progress = None
     training_progress = None
@@ -846,12 +1167,29 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
     config: dict[str, Any] = {}
     metrics: dict[str, Any] = {}
     policy_health_events: list[dict[str, float]] = []
+    grpo_health_events: list[dict[str, Any]] = []
     for line in lines:
+        if setup_event := _parse_setup_stage_event(line):
+            setup_events.append(setup_event)
+            event_stage = setup_event.get("stage")
+            if isinstance(event_stage, str) and event_stage:
+                stage = event_stage
+                stage_events.append({"stage": event_stage, "line": line, "event": setup_event})
         stage_matches = _stage_matches(line)
         if stage_matches:
             stage = _select_stage(stage_matches)
             stage_events.append({"stage": stage, "line": line, "matched_stages": stage_matches})
         _record_config_matches(config, line)
+        if grpo_health_event := _parse_grpo_health_event(line):
+            grpo_health_events.append(grpo_health_event)
+            event_metrics = grpo_health_event.get("metrics")
+            if isinstance(event_metrics, dict):
+                for metric_name, metric_value in event_metrics.items():
+                    numeric = _to_float(metric_value)
+                    if numeric is not None:
+                        _record_metric(metrics, str(metric_name), numeric)
+                if policy_event := _policy_event_from_canonical_metrics(event_metrics):
+                    policy_health_events.append(policy_event)
         for metric_match in METRIC_RE.finditer(line):
             _record_metric(metrics, metric_match.group(1), float(metric_match.group(2)))
         if policy_health_event := _parse_policy_health_event(line):
@@ -934,9 +1272,70 @@ def _extract_log_signals(lines: list[str]) -> dict[str, Any]:
         "timings": timings,
         "config": config,
         "metrics": metrics,
+        "setup_events": setup_events[-50:],
         "policy_health_events": policy_health_events[-20:],
+        "grpo_health_events": grpo_health_events[-20:],
         "errors": errors[-20:],
     }
+
+
+def _parse_setup_stage_event(line: str) -> dict[str, Any] | None:
+    match = W8_SETUP_STAGE_RE.search(line)
+    if match is None:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    stage = payload.get("stage")
+    event = payload.get("event")
+    if not isinstance(stage, str) or not isinstance(event, str):
+        return None
+    if stage == "%s" or event == "%s":
+        return None
+    return payload
+
+
+def _parse_grpo_health_event(line: str) -> dict[str, Any] | None:
+    match = W8_GRPO_HEALTH_RE.search(line)
+    if match is None:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or payload.get("schema_version") != "w8-grpo-health-v1":
+        return None
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        metrics = {}
+    clean_metrics: dict[str, int | float] = {}
+    for key, value in metrics.items():
+        numeric = _to_float(value)
+        if numeric is not None:
+            clean_metrics[str(key)] = int(numeric) if numeric.is_integer() else numeric
+    return {
+        "schema_version": "w8-grpo-health-v1",
+        "step": _to_int(payload.get("step")),
+        "metrics": clean_metrics,
+    }
+
+
+def _policy_event_from_canonical_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+    mapping = {
+        "policy_entropy": "policy/policy_entropy",
+        "grad_norm": "policy/grad_norm",
+        "policy_loss": "policy/policy_loss",
+        "response_length": "policy/response_length",
+    }
+    event: dict[str, float] = {}
+    for event_key, metric_key in mapping.items():
+        numeric = _to_float(metrics.get(metric_key))
+        if numeric is not None:
+            event[event_key] = numeric
+    return event
 
 
 def _with_rendered_config_fallback(*, pipeline: str, log_signals: dict[str, Any]) -> dict[str, Any]:
@@ -1106,6 +1505,7 @@ def _node_health(
                     "gpus": health.get("gpus", []),
                     "filesystems": health.get("filesystems", []),
                     "processes": health.get("processes", []),
+                    "startup": health.get("startup"),
                 }
             )
         sampled_count = sum(1 for node in nodes if node.get("sampled"))
@@ -1131,6 +1531,7 @@ def _node_health(
             "gpus": aggregate_gpus,
             "filesystems": aggregate_filesystems,
             "processes": aggregate_processes,
+            "startup": _startup_summary_from_processes(aggregate_processes),
             "activity": _select_node_activity([node.get("activity") for node in nodes]),
             "nodes": nodes,
             "checks": checks,
@@ -1169,6 +1570,7 @@ def _node_health(
             "gpus": health.get("gpus", []),
             "filesystems": health.get("filesystems", []),
             "processes": health.get("processes", []),
+            "startup": health.get("startup"),
         }
     ]
     return health
@@ -1207,6 +1609,7 @@ def _parse_node_health(text: str) -> dict[str, Any]:
         "filesystems": _parse_df_health(sections.get("__W8_DF__", "")),
         "processes": processes,
         "activity": _derive_node_activity(processes),
+        "startup": _startup_summary_from_processes(processes),
     }
 
 
@@ -1324,6 +1727,184 @@ def _derive_node_activity(processes: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _startup_process_stage(command: str) -> str | None:
+    cmd = command.lower()
+    if "fsdprefworkerbase.init_model" in cmd:
+        return "ref_model_init"
+    if "fsdppolicyworkerbase.init_model" in cmd:
+        return "policy_model_init"
+    if "fsdpcriticworkerbase.init_model" in cmd:
+        return "critic_model_init"
+    if "vllm::enginecore" in cmd:
+        return "vllm_engine"
+    if "vllmserveractor" in cmd:
+        return "vllm_actor"
+    if "fsdprefworkerbase" in cmd:
+        return "ref_model_worker"
+    if "fsdppolicyworkerbase" in cmd:
+        return "policy_model_worker"
+    if "skyrl_cpp_perf_main" in cmd or "skyrl_entrypoint" in cmd:
+        return "skyrl_entrypoint"
+    if "ray start --head" in cmd:
+        return "ray_cluster"
+    if "ray start --address" in cmd:
+        return "ray_worker_join"
+    if "uv sync" in cmd or "pip install" in cmd:
+        return "dependency_setup"
+    if "gcloud.py storage cp" in cmd and ("data/skyrl" in cmd or "/model" in cmd or "/exports" in cmd):
+        return _derive_node_activity([{"cmd": command}])
+    return None
+
+
+def _startup_summary_from_processes(processes: list[dict[str, Any]]) -> dict[str, Any]:
+    groups: dict[str, dict[str, Any]] = {}
+    for process in processes:
+        stage = _startup_process_stage(str(process.get("cmd", "")))
+        if not stage:
+            continue
+        group = groups.setdefault(
+            stage,
+            {
+                "stage": stage,
+                "process_count": 0,
+                "max_elapsed_s": None,
+                "avg_elapsed_s": None,
+                "max_cpu_percent": None,
+                "avg_cpu_percent": None,
+                "nodes": set(),
+                "roles": set(),
+                "sample_pids": [],
+            },
+        )
+        group["process_count"] += 1
+        elapsed = _to_float(process.get("elapsed_s"))
+        cpu = _to_float(process.get("cpu_percent"))
+        if elapsed is not None:
+            group.setdefault("_elapsed_values", []).append(elapsed)
+        if cpu is not None:
+            group.setdefault("_cpu_values", []).append(cpu)
+        if elapsed is not None:
+            current_max = _to_float(group.get("max_elapsed_s"))
+            group["max_elapsed_s"] = int(elapsed) if current_max is None else int(max(current_max, elapsed))
+        if cpu is not None:
+            current_max_cpu = _to_float(group.get("max_cpu_percent"))
+            group["max_cpu_percent"] = round(cpu, 3) if current_max_cpu is None else round(max(current_max_cpu, cpu), 3)
+        if process.get("node_name"):
+            group["nodes"].add(str(process["node_name"]))
+        if process.get("role"):
+            group["roles"].add(str(process["role"]))
+        if len(group["sample_pids"]) < 20 and process.get("pid") is not None:
+            group["sample_pids"].append(process.get("pid"))
+
+    normalized_groups = []
+    for group in groups.values():
+        elapsed_values = group.pop("_elapsed_values", [])
+        cpu_values = group.pop("_cpu_values", [])
+        if elapsed_values:
+            group["avg_elapsed_s"] = round(sum(elapsed_values) / len(elapsed_values), 3)
+        if cpu_values:
+            group["avg_cpu_percent"] = round(sum(cpu_values) / len(cpu_values), 3)
+        group["nodes"] = sorted(group["nodes"])
+        group["roles"] = sorted(group["roles"])
+        normalized_groups.append(group)
+
+    normalized_groups.sort(key=lambda item: (STAGE_PRIORITY.get(str(item["stage"]), 0), item["max_elapsed_s"] or 0), reverse=True)
+    active_stage = str(normalized_groups[0]["stage"]) if normalized_groups else None
+    max_elapsed = max(
+        (_to_int(group.get("max_elapsed_s")) or 0 for group in normalized_groups),
+        default=None,
+    )
+    active_elapsed = _to_int(normalized_groups[0].get("max_elapsed_s")) if normalized_groups else None
+    long_running_threshold_s = STARTUP_LONG_RUNNING_THRESHOLDS_S.get(
+        active_stage or "",
+        DEFAULT_STARTUP_LONG_RUNNING_THRESHOLD_S,
+    )
+    return {
+        "available": bool(normalized_groups),
+        "active_stage": active_stage,
+        "active_stage_group": STAGE_GROUPS.get(active_stage, "startup") if active_stage else None,
+        "long_running": bool(active_elapsed is not None and active_elapsed >= long_running_threshold_s),
+        "long_running_threshold_s": long_running_threshold_s if normalized_groups else None,
+        "max_elapsed_s": max_elapsed,
+        "groups": normalized_groups,
+    }
+
+
+def _startup_progress_summary(
+    *,
+    node_health: dict[str, Any] | None,
+    tracking: dict[str, Any] | None,
+    pipeline_state: str | None = None,
+    active_job: dict[str, Any] | None = None,
+    instances: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    startup = (
+        dict(node_health.get("startup"))
+        if isinstance(node_health, dict) and isinstance(node_health.get("startup"), dict)
+        else {"available": False, "reason": "node_health_not_requested_or_unavailable"}
+    )
+    mlflow = tracking.get("mlflow") if isinstance(tracking, dict) and isinstance(tracking.get("mlflow"), dict) else {}
+    metric_count = _to_int(mlflow.get("metric_count")) or 0
+    metric_row_count = _to_int(mlflow.get("metric_row_count")) or 0
+    tracking_state = mlflow.get("tracking_state")
+    scalar_metrics_available = metric_count > 0 or metric_row_count > 0
+    startup["tracking_state"] = tracking_state
+    startup["scalar_metrics_available"] = scalar_metrics_available
+    startup["metric_count"] = metric_count
+    startup["metric_row_count"] = metric_row_count
+    active_stage = startup.get("active_stage")
+    live_backend = _has_live_pipeline_backend(
+        pipeline_state=pipeline_state,
+        active_job=active_job,
+        instances=instances or [],
+    )
+    if startup.get("available") and not scalar_metrics_available:
+        startup["message"] = (
+            f"SkyRL startup is still in {active_stage}; first scalar metric has not been logged."
+            if active_stage
+            else "SkyRL startup activity is visible, but first scalar metric has not been logged."
+        )
+        if startup.get("long_running"):
+            startup["severity"] = "warning"
+            startup["recommended_action"] = "inspect_startup_stage"
+    elif not startup.get("available") and tracking_state == "run_active_no_metrics":
+        if live_backend:
+            startup["message"] = "MLflow run is active with params but no scalar metrics; enable --node-health to identify setup activity."
+            startup["severity"] = "warning"
+            startup["recommended_action"] = "poll_with_node_health"
+        else:
+            startup["message"] = (
+                "MLflow has a run with params but no scalar metrics, and no live backend resources remain; "
+                "the job stopped before the first training metric or logs are unavailable after teardown."
+            )
+            startup["severity"] = "error"
+            startup["recommended_action"] = "inspect_failed_startup_or_relaunch"
+    elif scalar_metrics_available:
+        startup["message"] = "Training has logged scalar metrics; use learning_signal and phase_timing for progress."
+        startup["severity"] = "info"
+    return startup
+
+
+def _tracking_state(tracking: dict[str, Any] | None) -> str | None:
+    mlflow = tracking.get("mlflow") if isinstance(tracking, dict) and isinstance(tracking.get("mlflow"), dict) else {}
+    state = mlflow.get("tracking_state")
+    return str(state) if state is not None else None
+
+
+def _has_live_pipeline_backend(
+    *,
+    pipeline_state: str | None,
+    active_job: dict[str, Any] | None,
+    instances: list[dict[str, Any]],
+) -> bool:
+    job_status = str((active_job or {}).get("status") or "").upper()
+    if job_status in ACTIVE_JOB_STATUSES:
+        return True
+    if pipeline_state in WORKING_PIPELINE_STATES or pipeline_state == "cluster_up":
+        return True
+    return any(str(instance.get("status") or "").upper() in ACTIVE_INSTANCE_STATUSES for instance in instances)
+
+
 def _gcp_instances(
     *,
     project_id: str,
@@ -1431,6 +2012,7 @@ def _run(
         return CommandResult(command=args, returncode=None, stdout="", stderr="", skipped=True)
     attempts = max(1, retries + 1)
     last_timeout: CommandResult | None = None
+    last_result: CommandResult | None = None
     for attempt in range(1, attempts + 1):
         try:
             proc = subprocess.run(args, env=env, check=False, capture_output=True, text=True, timeout=timeout_s)
@@ -1447,14 +2029,24 @@ def _run(
                 attempt_count=attempt,
             )
             continue
-        return CommandResult(
+        except OSError as exc:
+            return CommandResult(
+                command=args,
+                returncode=-1,
+                stdout="",
+                stderr=str(exc),
+                attempt_count=attempt,
+            )
+        last_result = CommandResult(
             command=args,
             returncode=proc.returncode,
             stdout=proc.stdout,
             stderr=proc.stderr,
             attempt_count=attempt,
         )
-    return last_timeout or CommandResult(
+        if proc.returncode == 0 or attempt == attempts:
+            return last_result
+    return last_result or last_timeout or CommandResult(
         command=args,
         returncode=-1,
         stdout="",
@@ -1470,6 +2062,7 @@ def _derive_pipeline_state(
     artifacts: dict[str, Any],
     log_signals: dict[str, Any],
     instances: list[dict[str, Any]],
+    tracking: dict[str, Any] | None = None,
 ) -> str:
     jobs = queue.get("jobs") if isinstance(queue.get("jobs"), list) else []
     statuses = {str(job.get("status")).upper() for job in jobs if isinstance(job, dict)}
@@ -1496,6 +2089,8 @@ def _derive_pipeline_state(
         return "cluster_up"
     if latest_marker:
         return "checkpointed"
+    if _tracking_state(tracking) == "run_active_no_metrics" and not (instance_statuses & ACTIVE_INSTANCE_STATUSES):
+        return "failed"
     if latest_status == "SUCCEEDED":
         return "succeeded"
     return "not_started"
@@ -1514,7 +2109,13 @@ def _run_summary(
         if pipeline.get("state") in WORKING_PIPELINE_STATES
         or str((pipeline.get("active_job") or {}).get("status", "")).upper() in ACTIVE_JOB_STATUSES
     ]
-    current = active[0] if active else pipelines[0] if pipelines else {}
+    failed = [
+        pipeline
+        for pipeline in pipelines
+        if pipeline.get("state") == "failed"
+        or str((pipeline.get("active_job") or {}).get("status", "")).upper() in TERMINAL_UNHEALTHY_JOB_STATUSES
+    ]
+    current = active[0] if active else failed[0] if failed else pipelines[0] if pipelines else {}
     pipeline_states = {str(pipeline.get("state")) for pipeline in pipelines if pipeline.get("state")}
     if any(state == "failed" for state in pipeline_states):
         state = "failed"
@@ -1540,8 +2141,13 @@ def _run_summary(
             "trajectory": progress.get("trajectory"),
             "throughput": progress.get("throughput"),
             "training_health": progress.get("training_health"),
+            "learning_signal": progress.get("learning_signal"),
+            "phase_timing": progress.get("phase_timing"),
+            "tracking": progress.get("tracking"),
+            "startup": progress.get("startup"),
         },
         "training_health": progress.get("training_health"),
+        "learning_signal": progress.get("learning_signal"),
         "speed_comparison": current.get("speed_comparison"),
         "recovery": current.get("recovery"),
         "resources": current_resources or _resource_summary(instances=instances, node_health=None),
@@ -1583,20 +2189,35 @@ def _phase_summary(
     node_health: dict[str, Any] | None,
     artifacts: dict[str, Any] | None = None,
     active_job: dict[str, Any] | None = None,
+    pipeline_state: str | None = None,
+    startup: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     log_stage = log_signals.get("stage")
     node_activity = node_health.get("activity") if isinstance(node_health, dict) else None
     artifact_activity = _artifact_activity(artifacts=artifacts, active_job=active_job)
     errors = log_signals.get("errors") if isinstance(log_signals.get("errors"), list) else []
-    current = "failed" if errors else node_activity or artifact_activity or log_stage
+    terminal_job_failed = str((active_job or {}).get("status") or "").upper() in TERMINAL_UNHEALTHY_JOB_STATUSES
+    startup_failed = (
+        pipeline_state == "failed"
+        and isinstance(startup, dict)
+        and startup.get("recommended_action") == "inspect_failed_startup_or_relaunch"
+    )
+    current = "failed" if errors or terminal_job_failed or startup_failed else node_activity or artifact_activity or log_stage
     group = STAGE_GROUPS.get(str(current), "unknown") if current else "unknown"
     source = "logs"
     if node_activity and not errors:
         source = "node_health"
     elif artifact_activity and not errors:
         source = "artifacts"
+    elif terminal_job_failed and not errors:
+        source = "queue"
+    elif startup_failed and not errors:
+        source = "tracking"
     elif not current:
         source = "none"
+    message = _phase_message(current, group)
+    if startup_failed and not errors:
+        message = "MLflow registered the run but no scalar training metrics were recorded before backend resources disappeared."
     return {
         "current": current,
         "group": group,
@@ -1604,8 +2225,8 @@ def _phase_summary(
         "log_stage": log_stage,
         "node_activity": node_activity,
         "artifact_activity": artifact_activity,
-        "failed": bool(errors),
-        "message": _phase_message(current, group),
+        "failed": bool(errors or terminal_job_failed or startup_failed),
+        "message": message,
     }
 
 
@@ -1807,12 +2428,21 @@ def _progress_summary(
         "grpo_config": grpo_config,
         "sft_config": sft_config,
         "metrics": metrics,
+        "tracking": log_signals.get("tracking"),
         "training_health": _training_health_summary(
             pipeline=pipeline,
             metrics=metrics,
             policy_health_events=log_signals.get("policy_health_events"),
             checkpoint_artifacts=artifacts.get("checkpoint") if isinstance(artifacts, dict) else None,
         ),
+        "learning_signal": _learning_signal_summary(
+            pipeline=pipeline,
+            metrics=metrics,
+            grpo_config=grpo_config,
+            grpo_health_events=log_signals.get("grpo_health_events"),
+            checkpoint_artifacts=artifacts.get("checkpoint") if isinstance(artifacts, dict) else None,
+        ),
+        "phase_timing": _phase_timing_summary(metrics=metrics, timings=timings),
         "bottleneck": _bottleneck_summary(metrics=metrics, timings=timings),
         "throughput": throughput,
     }
@@ -1931,6 +2561,263 @@ def _grpo_config_summary(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _learning_signal_summary(
+    *,
+    pipeline: str,
+    metrics: dict[str, Any],
+    grpo_config: dict[str, Any],
+    grpo_health_events: Any = None,
+    checkpoint_artifacts: Any = None,
+) -> dict[str, Any]:
+    if pipeline != "cpp-grpo":
+        return {"available": False, "reason": "pipeline_has_no_grpo_learning_signal"}
+
+    reward_metrics = metrics.get("reward") if isinstance(metrics.get("reward"), dict) else {}
+    events = _recent_grpo_health_events(grpo_health_events)
+    avg_final_reward = _to_float(metrics.get("loss/avg_final_rewards"))
+    pass_rate = _max_pass_rate(reward_metrics)
+    train = {
+        "avg_final_reward": avg_final_reward,
+        "avg_raw_reward": _to_float(metrics.get("reward/avg_raw_reward")) or _to_float(reward_metrics.get("avg_raw_reward")),
+        "max_pass_rate": pass_rate,
+        "avg_response_length": _to_float(metrics.get("policy/response_length"))
+        or _to_float(metrics.get("generate/avg_num_tokens")),
+    }
+    policy = {
+        "entropy": _to_float(metrics.get("policy/policy_entropy")),
+        "grad_norm": _to_float(metrics.get("policy/grad_norm")),
+        "policy_loss": _to_float(metrics.get("policy/policy_loss")),
+        "mean_abs_advantage": _to_float(metrics.get("loss/avg_raw_advantages_abs")),
+        "zero_advantage_token_fraction": _to_float(metrics.get("w8/zero_advantage_token_fraction")),
+    }
+    kl_value = _to_float(metrics.get("policy/policy_kl"))
+    entropy_value = policy["entropy"]
+    kl_coef = _to_float(grpo_config.get("kl_loss_coef"))
+    entropy_coef = _to_float(grpo_config.get("entropy_loss_coef"))
+    kl = {
+        "available": kl_value is not None,
+        "policy_kl": kl_value,
+        "loss_term_estimate": round(kl_value * kl_coef, 9) if kl_value is not None and kl_coef is not None else None,
+        "loss_term_source": "metric_times_config" if kl_value is not None and kl_coef is not None else None,
+    }
+    entropy = {
+        "available": entropy_value is not None,
+        "policy_entropy": entropy_value,
+        "loss_term_estimate": round(entropy_value * entropy_coef, 9)
+        if entropy_value is not None and entropy_coef is not None
+        else None,
+        "loss_term_source": "metric_times_config" if entropy_value is not None and entropy_coef is not None else None,
+    }
+    variance = {
+        "available": _to_float(metrics.get("w8/reward_group_variance_mean")) is not None,
+        "reward_group_variance_mean": _to_float(metrics.get("w8/reward_group_variance_mean")),
+        "reward_group_variance_max": _to_float(metrics.get("w8/reward_group_variance_max")),
+        "zero_variance_group_fraction": _to_float(metrics.get("w8/zero_variance_group_fraction")),
+        "reward_group_count": _to_int(metrics.get("w8/reward_group_count")),
+    }
+    validation = _validation_signal(metrics)
+    trends = {
+        "avg_final_reward": _event_trend(events, "loss/avg_final_rewards"),
+        "max_pass_rate": _event_trend(events, _best_event_pass_key(events)),
+        "policy_entropy": _event_trend(events, "policy/policy_entropy"),
+        "grad_norm": _event_trend(events, "policy/grad_norm"),
+        "mean_abs_advantage": _event_trend(events, "loss/avg_raw_advantages_abs"),
+    }
+    history = _learning_history(events)
+    verdict, recommended_action, severity, reasons = _learning_signal_verdict(
+        train=train,
+        policy=policy,
+        variance=variance,
+        validation=validation,
+        checkpoint_resumable=_has_resumable_checkpoint(checkpoint_artifacts),
+    )
+    available = any(
+        value is not None
+        for group in (train, policy)
+        for value in group.values()
+    ) or bool(events)
+    return {
+        "available": available,
+        "reason": None if available else "no_grpo_learning_metrics",
+        "verdict": verdict,
+        "severity": severity,
+        "recommended_action": recommended_action,
+        "reasons": reasons,
+        "train": train,
+        "policy": policy,
+        "kl": kl,
+        "entropy": entropy,
+        "variance": variance,
+        "validation": validation,
+        "trends": trends,
+        "history": history,
+    }
+
+
+def _learning_signal_verdict(
+    *,
+    train: dict[str, Any],
+    policy: dict[str, Any],
+    variance: dict[str, Any],
+    validation: dict[str, Any],
+    checkpoint_resumable: bool,
+) -> tuple[str, str, str, list[str]]:
+    reasons: list[str] = []
+    entropy = _to_float(policy.get("entropy"))
+    grad_norm = _to_float(policy.get("grad_norm"))
+    mean_abs_advantage = _to_float(policy.get("mean_abs_advantage"))
+    avg_reward = _to_float(train.get("avg_final_reward"))
+    pass_rate = _to_float(train.get("max_pass_rate"))
+    zero_variance_fraction = _to_float(variance.get("zero_variance_group_fraction"))
+    low_entropy = entropy is not None and entropy <= 1e-3
+    tiny_gradient = grad_norm is not None and grad_norm <= 0.02
+    tiny_advantage = mean_abs_advantage is not None and mean_abs_advantage <= 0.02
+    high_train_reward = (avg_reward is not None and avg_reward >= 0.5) or (pass_rate is not None and pass_rate >= 0.5)
+    if low_entropy:
+        reasons.append("policy_entropy_near_zero")
+    if tiny_gradient:
+        reasons.append("grad_norm_tiny")
+    if tiny_advantage:
+        reasons.append("mean_abs_advantage_tiny")
+    if zero_variance_fraction is not None and zero_variance_fraction >= 0.75:
+        reasons.append("most_prompt_groups_have_zero_reward_variance")
+    if validation.get("available") is not True:
+        reasons.append("held_out_validation_metrics_missing")
+    elif _validation_lags_train(train=train, validation=validation):
+        reasons.append("held_out_validation_lags_training_reward")
+        return "possible_overfit", "evaluate_checkpoint", "warning", reasons
+    if low_entropy and high_train_reward and (tiny_gradient or tiny_advantage or zero_variance_fraction == 1.0):
+        reasons.append("high_train_reward_but_learning_signal_is_weak")
+        return (
+            "deterministic_convergence_risk",
+            "evaluate_checkpoint" if checkpoint_resumable else "continue_until_checkpoint",
+            "warning",
+            reasons,
+        )
+    if validation.get("available") is True and high_train_reward and not reasons:
+        return "learning_signal_ok", "continue", "ok", reasons
+    if high_train_reward and validation.get("available") is not True:
+        return "needs_validation", "evaluate_checkpoint" if checkpoint_resumable else "continue_until_eval", "warning", reasons
+    if not reasons:
+        return "insufficient_signal", "continue_monitoring", "ok", reasons
+    return "watch", "continue_monitoring", "warning", reasons
+
+
+def _validation_lags_train(*, train: dict[str, Any], validation: dict[str, Any]) -> bool:
+    pass_rate = _to_float(train.get("max_pass_rate"))
+    validation_pass = _to_float(validation.get("max_pass_rate"))
+    if pass_rate is not None and validation_pass is not None and pass_rate - validation_pass >= 0.25:
+        return True
+    train_reward = _to_float(train.get("avg_final_reward")) or _to_float(train.get("avg_raw_reward"))
+    validation_score = _to_float(validation.get("max_avg_score"))
+    return train_reward is not None and validation_score is not None and train_reward - validation_score >= 0.25
+
+
+def _validation_signal(metrics: dict[str, Any]) -> dict[str, Any]:
+    datasets: dict[str, dict[str, float]] = {}
+    for key, value in metrics.items():
+        if not isinstance(key, str) or not key.startswith("eval/"):
+            continue
+        parts = key.split("/", 2)
+        if len(parts) != 3:
+            continue
+        numeric = _to_float(value)
+        if numeric is None:
+            continue
+        datasets.setdefault(parts[1], {})[parts[2]] = numeric
+    pass_rates = [
+        value
+        for dataset in datasets.values()
+        for key, value in dataset.items()
+        if key.startswith("pass_at_")
+    ]
+    avg_scores = [dataset["avg_score"] for dataset in datasets.values() if "avg_score" in dataset]
+    return {
+        "available": bool(datasets),
+        "datasets": datasets,
+        "max_pass_rate": max(pass_rates) if pass_rates else None,
+        "max_avg_score": max(avg_scores) if avg_scores else None,
+    }
+
+
+def _recent_grpo_health_events(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    events = []
+    for item in value:
+        if isinstance(item, dict) and isinstance(item.get("metrics"), dict):
+            events.append(item)
+    return events
+
+
+def _event_trend(events: list[dict[str, Any]], metric_key: str | None) -> dict[str, Any]:
+    if not metric_key:
+        return {"available": False, "reason": "metric_key_unavailable"}
+    series = []
+    for event in events:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        value = _to_float(metrics.get(metric_key))
+        step = _to_int(event.get("step"))
+        if value is not None:
+            series.append({"step": step, "value": value})
+    if len(series) < 2:
+        return {"available": False, "reason": "fewer_than_two_points", "points": series[-5:]}
+    first = series[0]
+    last = series[-1]
+    step_delta = (
+        int(last["step"]) - int(first["step"])
+        if first.get("step") is not None and last.get("step") is not None
+        else len(series) - 1
+    )
+    value_delta = float(last["value"]) - float(first["value"])
+    return {
+        "available": True,
+        "first": first,
+        "last": last,
+        "delta": round(value_delta, 9),
+        "per_step": round(value_delta / step_delta, 9) if step_delta else None,
+        "points": series[-20:],
+    }
+
+
+def _best_event_pass_key(events: list[dict[str, Any]]) -> str | None:
+    pass_keys: set[str] = set()
+    for event in events:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        pass_keys.update(key for key in metrics if isinstance(key, str) and key.startswith("reward/avg_pass_at_"))
+    if not pass_keys:
+        return None
+    return sorted(pass_keys, key=lambda key: _to_int(key.rsplit("_", 1)[-1]) or 0)[-1]
+
+
+def _learning_history(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    history = []
+    pass_key = _best_event_pass_key(events)
+    for event in events[-20:]:
+        metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+        history.append(
+            {
+                "step": _to_int(event.get("step")),
+                "avg_final_reward": _to_float(metrics.get("loss/avg_final_rewards")),
+                "max_pass_rate": _to_float(metrics.get(pass_key)) if pass_key else None,
+                "policy_entropy": _to_float(metrics.get("policy/policy_entropy")),
+                "grad_norm": _to_float(metrics.get("policy/grad_norm")),
+                "mean_abs_advantage": _to_float(metrics.get("loss/avg_raw_advantages_abs")),
+                "reward_group_variance_mean": _to_float(metrics.get("w8/reward_group_variance_mean")),
+            }
+        )
+    return history
+
+
+def _max_pass_rate(reward_metrics: dict[str, Any]) -> float | None:
+    pass_rates = [
+        _to_float(value)
+        for key, value in reward_metrics.items()
+        if isinstance(key, str) and key.startswith("avg_pass_at_")
+    ]
+    return max([value for value in pass_rates if value is not None], default=None)
+
+
 def _training_health_summary(
     *,
     pipeline: str,
@@ -2032,6 +2919,35 @@ def _training_health_summary(
                 "If a complete checkpoint is available, stop training and evaluate that checkpoint before spending more GPU time."
             ),
         }
+    avg_advantage_abs = _to_float(metrics.get("loss/avg_raw_advantages_abs"))
+    zero_variance_group_fraction = _to_float(metrics.get("w8/zero_variance_group_fraction"))
+    high_train_reward = (avg_final_reward is not None and avg_final_reward >= 0.5) or (
+        pass_rate is not None and pass_rate >= 0.5
+    )
+    weak_learning_signal = (
+        (grad_norm is not None and grad_norm <= 0.02)
+        or (avg_advantage_abs is not None and avg_advantage_abs <= 0.02)
+        or (zero_variance_group_fraction is not None and zero_variance_group_fraction >= 0.75)
+    )
+    if low_entropy and high_train_reward and weak_learning_signal:
+        signals["checkpoint_resumable"] = checkpoint_resumable
+        signals["avg_raw_advantages_abs"] = avg_advantage_abs
+        signals["zero_variance_group_fraction"] = zero_variance_group_fraction
+        return {
+            "available": True,
+            "verdict": "deterministic_convergence_risk",
+            "severity": "warning",
+            "should_stop": False,
+            "recommended_action": "evaluate_checkpoint" if checkpoint_resumable else "continue_until_checkpoint",
+            "action_reason": "low_entropy_high_reward_weak_learning_signal",
+            "checkpoint_step": checkpoint_step,
+            "reason": "low_entropy_high_reward_weak_learning_signal",
+            "signals": signals,
+            "message": (
+                "GRPO reward is high, but entropy is near zero and gradient/advantage variance is weak. "
+                "Evaluate the latest checkpoint before assuming more GPU time will improve held-out uplift."
+            ),
+        }
     return {
         "available": True,
         "verdict": "healthy_or_insufficient_collapse_signal",
@@ -2042,6 +2958,34 @@ def _training_health_summary(
         "checkpoint_step": checkpoint_step,
         "reason": "collapse_guard_not_triggered",
         "signals": signals,
+    }
+
+
+def _phase_timing_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
+    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+    stages = _timing_stage_breakdown(metrics=metrics, timings=timings, step_s=step_s)
+    stage_groups: dict[str, float] = {}
+    for item in stages:
+        group = _timing_stage_group(str(item["stage"]))
+        stage_groups[group] = stage_groups.get(group, 0.0) + float(item["seconds"])
+    groups = [
+        {
+            "group": group,
+            "seconds": round(seconds, 6),
+            "step_percent": round(100.0 * seconds / step_s, 3) if step_s else None,
+        }
+        for group, seconds in sorted(stage_groups.items(), key=lambda item: item[1], reverse=True)
+    ]
+    return {
+        "available": bool(stages),
+        "step_seconds": round(step_s, 6) if step_s is not None else None,
+        "stages": stages,
+        "groups": groups,
+        "message": (
+            "Use phase timing with node_health.activity; instantaneous GPU samples are phase-dependent."
+            if stages
+            else "No phase timing breakdown is available in the scanned logs."
+        ),
     }
 
 
@@ -2111,8 +3055,7 @@ def _hsdp_active(
     )
 
 
-def _bottleneck_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
-    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+def _timing_stage_breakdown(*, metrics: dict[str, Any], timings: dict[str, Any], step_s: float | None) -> list[dict[str, Any]]:
     stages: dict[str, float] = {}
     for key, value in metrics.items():
         if not isinstance(key, str) or not key.startswith("timing/") or key == "timing/step":
@@ -2135,6 +3078,30 @@ def _bottleneck_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> 
         }
         for stage, seconds in sorted(stages.items(), key=lambda item: item[1], reverse=True)
     ]
+    return breakdown
+
+
+def _timing_stage_group(stage: str) -> str:
+    if stage == "generate":
+        return "rollout"
+    if stage == "postprocess_generator_output":
+        return "reward"
+    if stage in {"train_critic_and_policy", "policy_train", "critic_train", "compute_advantages_and_returns"}:
+        return "policy_update"
+    if stage in {"fwd_logprobs_values_reward", "apply_reward_kl_penalty", "convert_to_training_input"}:
+        return "forward_or_assembly"
+    if stage in {"sync_weights", "update_ref_with_policy"}:
+        return "synchronization"
+    if stage == "save_checkpoints":
+        return "checkpoint"
+    if stage == "save_hf_model":
+        return "export"
+    return "other"
+
+
+def _bottleneck_summary(*, metrics: dict[str, Any], timings: dict[str, Any]) -> dict[str, Any]:
+    step_s = _to_float(metrics.get("timing/step")) or _to_float(timings.get("last_step_duration_s"))
+    breakdown = _timing_stage_breakdown(metrics=metrics, timings=timings, step_s=step_s)
     dominant = breakdown[0] if breakdown else None
     if dominant is None:
         verdict = "unknown"
@@ -2258,6 +3225,8 @@ def _resource_summary(
     gpu_utils = [gpu.get("utilization_gpu_percent") for gpu in gpus if gpu.get("utilization_gpu_percent") is not None]
     gpu_mem_used = [gpu.get("memory_used_mib") for gpu in gpus if gpu.get("memory_used_mib") is not None]
     gpu_mem_total = [gpu.get("memory_total_mib") for gpu in gpus if gpu.get("memory_total_mib") is not None]
+    avg_gpu_utilization = round(sum(gpu_utils) / len(gpu_utils), 3) if gpu_utils else None
+    node_activity = node_health.get("activity") if isinstance(node_health, dict) else None
     return {
         "total_instance_count": len(instances),
         "active_instance_count": sum(1 for item in instances if item.get("status") in ACTIVE_INSTANCE_STATUSES),
@@ -2276,12 +3245,51 @@ def _resource_summary(
         "failed_node_count": node_health.get("failed_node_count")
         if isinstance(node_health, dict) and node_health.get("failed_node_count") is not None
         else None,
-        "node_health_activity": node_health.get("activity") if isinstance(node_health, dict) else None,
+        "node_health_activity": node_activity,
         "sampled_gpu_count": len(gpus),
-        "avg_gpu_utilization_percent": round(sum(gpu_utils) / len(gpu_utils), 3) if gpu_utils else None,
+        "avg_gpu_utilization_percent": avg_gpu_utilization,
         "max_gpu_utilization_percent": max(gpu_utils) if gpu_utils else None,
         "avg_gpu_memory_used_mib": round(sum(gpu_mem_used) / len(gpu_mem_used), 3) if gpu_mem_used else None,
         "avg_gpu_memory_total_mib": round(sum(gpu_mem_total) / len(gpu_mem_total), 3) if gpu_mem_total else None,
+        "gpu_sample_interpretation": _gpu_sample_interpretation(
+            activity=node_activity,
+            avg_gpu_utilization_percent=avg_gpu_utilization,
+            sample_scope=node_health.get("sample_scope") if isinstance(node_health, dict) else None,
+        ),
+    }
+
+
+def _gpu_sample_interpretation(
+    *,
+    activity: Any,
+    avg_gpu_utilization_percent: float | None,
+    sample_scope: Any,
+) -> dict[str, Any]:
+    if avg_gpu_utilization_percent is None:
+        return {
+            "available": False,
+            "message": "No GPU utilization sample is available.",
+        }
+    group = STAGE_GROUPS.get(str(activity), "unknown") if activity else "unknown"
+    if group in {"reward", "setup", "checkpoint", "export", "artifact"}:
+        message = (
+            "GPU utilization may be low in this phase; use phase timing to decide whether reward, checkpoint, "
+            "or export work is the bottleneck."
+        )
+    elif group in {"training", "rollout"}:
+        message = (
+            "GPU utilization is expected to be phase-dependent here; this sample supports current activity "
+            "but does not prove end-to-end throughput or learning quality."
+        )
+    else:
+        message = "Interpret this instantaneous GPU sample with phase_timing and node_health.activity."
+    return {
+        "available": True,
+        "sample_scope": sample_scope,
+        "activity": activity,
+        "activity_group": group,
+        "avg_gpu_utilization_percent": avg_gpu_utilization_percent,
+        "message": message,
     }
 
 

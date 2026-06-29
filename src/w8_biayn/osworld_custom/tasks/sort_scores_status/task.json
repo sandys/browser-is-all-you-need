@@ -1,0 +1,75 @@
+{
+  "config": [
+    {
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; Path(\"/home/user/Desktop/scores_status.csv\").write_text(\"Name,Score,Status\\nMina,64,\\nOmar,91,\\nLee,73,\\nAna,58,\\n\")'",
+        "shell": true
+      },
+      "type": "execute"
+    },
+    {
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--calc",
+          "/home/user/Desktop/scores_status.csv"
+        ]
+      },
+      "type": "launch"
+    },
+    {
+      "parameters": {
+        "window_name": "scores_status.csv - LibreOffice Calc"
+      },
+      "type": "activate_window"
+    }
+  ],
+  "evaluator": {
+    "expected": {
+      "rules": {
+        "exclude": [
+          "Evaluation failed."
+        ],
+        "include": [
+          "Evaluation successful."
+        ]
+      },
+      "type": "rule"
+    },
+    "func": "check_include_exclude",
+    "postconfig": [
+      {
+        "parameters": {
+          "window_name": "scores_status.csv - LibreOffice Calc"
+        },
+        "type": "activate_window"
+      },
+      {
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        },
+        "type": "execute"
+      }
+    ],
+    "result": {
+      "command": "python3 -c 'import csv; ok=False\ntry:\n rows=list(csv.DictReader(open(\"/home/user/Desktop/scores_status.csv\", newline=\"\"))); order=[r[\"Name\"] for r in rows]; statuses={r[\"Name\"]:r[\"Status\"] for r in rows}; ok=(order==[\"Omar\",\"Lee\",\"Mina\",\"Ana\"] and statuses=={\"Omar\":\"Pass\",\"Lee\":\"Pass\",\"Mina\":\"Review\",\"Ana\":\"Review\"})\nexcept Exception:\n ok=False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true,
+      "type": "vm_command_line"
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847008",
+  "instruction": "Sort the spreadsheet rows by Score from highest to lowest. Add a Status column with Pass for scores 70 or higher and Review for lower scores. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "libreoffice_calc"
+  ],
+  "snapshot": "libreoffice_calc",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

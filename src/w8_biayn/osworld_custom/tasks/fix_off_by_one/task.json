@@ -1,0 +1,74 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path; import shutil\nd = Path(\"/home/user/Desktop/custom_offbyone\")\nshutil.rmtree(d, ignore_errors=True); d.mkdir()\n(d / \"sum.py\").write_text(\"n = 10\\ntotal = 0\\nfor i in range(1, n):\\n    total += i\\nprint(f\\\\\"Sum 1 to {n}: {total}\\\\\")\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "code",
+          "/home/user/Desktop/custom_offbyone"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Visual Studio Code"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import subprocess\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/custom_offbyone/sum.py\")\ntry:\n    proc = subprocess.run([\"python3\", str(p)], text=True, capture_output=True, timeout=5)\n    ok = proc.stdout.strip() == \"Sum 1 to 10: 55\"\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    },
+    "postconfig": [
+      {
+        "type": "activate_window",
+        "parameters": {
+          "window_name": "Visual Studio Code"
+        }
+      },
+      {
+        "type": "execute",
+        "parameters": {
+          "command": [
+            "python",
+            "-c",
+            "import pyautogui, time; pyautogui.hotkey('ctrl','s'); time.sleep(0.5)"
+          ]
+        }
+      }
+    ]
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847027",
+  "instruction": "The script has an off-by-one error in the range call \u2014 it should sum from 1 to n inclusive. Fix the range so the script prints Sum 1 to 10: 55.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "vscode"
+  ],
+  "snapshot": "vscode",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

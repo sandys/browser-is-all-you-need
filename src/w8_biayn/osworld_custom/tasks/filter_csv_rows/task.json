@@ -1,0 +1,54 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\nPath(\"/home/user/Desktop/users.csv\").write_text(\"Name,Email,Status\\nAlice,alice@example.com,active\\nBob,bob@example.com,inactive\\nCarol,carol@example.com,active\\nDave,dave@example.com,suspended\\nEve,eve@example.com,active\\n\")'",
+        "shell": true
+      }
+    },
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c \"import pyautogui, time; pyautogui.hotkey('ctrl','alt','t'); time.sleep(0.5)\"",
+        "shell": true
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "Terminal"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'import csv\nfrom pathlib import Path\np = Path(\"/home/user/Desktop/active_users.csv\")\ntry:\n    rows = list(csv.DictReader(p.open()))\n    names = sorted(r[\"Name\"] for r in rows)\n    statuses = all(r[\"Status\"] == \"active\" for r in rows)\n    ok = names == [\"Alice\", \"Carol\", \"Eve\"] and statuses\nexcept Exception:\n    ok = False\nprint(\"Evaluation successful.\" if ok else \"Evaluation failed.\")'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847038",
+  "instruction": "Filter Desktop/users.csv to only keep rows where Status is active and write them to Desktop/active_users.csv. Include the header row.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "os"
+  ],
+  "snapshot": "os",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

@@ -1,0 +1,57 @@
+{
+  "config": [
+    {
+      "type": "execute",
+      "parameters": {
+        "command": "python3 -c 'from pathlib import Path\np = Path('\"'\"'/home/user/Desktop/meeting_minutes.txt'\"'\"')\np.write_text('\"'\"'PROJECT MEETING\\n\\nDate: TODO\\n\\nWe discussed Pipeshift osworld task automation.\\n\\nTODO: add action items.\\n'\"'\"')'",
+        "shell": true
+      }
+    },
+    {
+      "type": "launch",
+      "parameters": {
+        "command": [
+          "libreoffice",
+          "--writer",
+          "/home/user/Desktop/meeting_minutes.txt"
+        ]
+      }
+    },
+    {
+      "type": "activate_window",
+      "parameters": {
+        "window_name": "LibreOffice Writer"
+      }
+    }
+  ],
+  "evaluator": {
+    "func": "check_include_exclude",
+    "result": {
+      "type": "vm_command_line",
+      "command": "python3 -c 'from pathlib import Path\ntext = Path('\"'\"'/home/user/Desktop/meeting_minutes.txt'\"'\"').read_text()\nlines = [line.strip() for line in text.splitlines() if line.strip()]\nfirst = lines[0] if lines else '\"'\"''\"'\"'\nok = (first == '\"'\"'Project Meeting Minutes - June 2026'\"'\"' and '\"'\"'Pipeshift OSWorld'\"'\"' in text and '\"'\"'## Action Items'\"'\"' in text and '\"'\"'TODO'\"'\"' not in text and '\"'\"'Pipeshift osworld'\"'\"' not in text)\nprint('\"'\"'Evaluation successful.'\"'\"' if ok else '\"'\"'Evaluation failed.'\"'\"')'",
+      "shell": true
+    },
+    "expected": {
+      "type": "rule",
+      "rules": {
+        "include": [
+          "Evaluation successful."
+        ],
+        "exclude": [
+          "Evaluation failed."
+        ]
+      }
+    }
+  },
+  "fixed_ip": false,
+  "id": "7b77f2a1-1e64-4c6b-9b29-0dcbcf847019",
+  "instruction": "Edit the meeting minutes so the title is Project Meeting Minutes - June 2026, the product name is Pipeshift OSWorld, there is a ## Action Items section, and all TODO markers are removed. Save the file.",
+  "possibility_of_env_change": "low",
+  "proxy": false,
+  "related_apps": [
+    "libreoffice_writer"
+  ],
+  "snapshot": "libreoffice_writer",
+  "source": "custom/w8-biayn",
+  "trajectory": "trajectories/"
+}

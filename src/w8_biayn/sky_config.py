@@ -32,6 +32,11 @@ GRPO_MIN_SAMPLES_PER_GPU_STEP = 16
 GRPO_MULTINODE_RESUME_MIN_DISK_GB = 2048
 SKYRL_RAY_PG_TIMEOUT_S = 1800
 SKYRL_WORKER_NCCL_TIMEOUT_S = 3600
+SUPPORTED_TRACKING_BACKENDS = ("console", "mlflow")
+DEFAULT_TRAINING_TRACKING_BACKENDS = ("console", "mlflow")
+DEFAULT_TRACKING_BACKENDS = ("console",)
+MLFLOW_TRACKING_PORT = 5000
+MLFLOW_PACKAGE_SPEC = "mlflow>=2.12,<3"
 
 
 class LiteralStr(str):
@@ -53,6 +58,8 @@ class RenderOptions:
     credentials_path: str = DEFAULT_CREDENTIALS_PATH
     accelerators: str = DEFAULT_CPP_SMOKE_ACCELERATORS
     num_nodes: int = 1
+    region: str = ""
+    zone: str = ""
     disk_size: int | None = None
     cluster_name: str | None = None
     model: str | None = None
@@ -80,7 +87,7 @@ class RenderOptions:
     sft_export_checkpoint: str = ""
     sandbox_image: str = DEFAULT_DOCKER_IMAGE
     sandbox_cpu: str = DEFAULT_CPU
-    logger: str = "console"
+    tracking_backends: tuple[str, ...] | None = None
     run_id: str | None = None
     owner: str = "sss"
     eval_label: str = "model"
@@ -100,6 +107,15 @@ class RenderOptions:
     @property
     def data_gcs_prefix(self) -> str:
         return self.dataset_gcs_prefix or f"{self.artifact_bucket}/datasets/cpp-perf/{CPP_DATA_SCHEMA_VERSION}/skyrl"
+
+    @property
+    def infra(self) -> str:
+        if self.zone:
+            region = self.region or self.zone.rsplit("-", 1)[0]
+            return f"gcp/{region}/{self.zone}"
+        if self.region:
+            return f"gcp/{self.region}"
+        return "gcp"
 
     @property
     def effective_model(self) -> str:
@@ -177,6 +193,36 @@ class RenderOptions:
             "owner": _label_value(self.owner),
             "ttl": "training",
         }
+
+    @property
+    def effective_tracking_backends(self) -> tuple[str, ...]:
+        default = (
+            DEFAULT_TRAINING_TRACKING_BACKENDS
+            if self.pipeline in {"cpp-sft", "cpp-grpo"} and not self.sft_export_checkpoint
+            else DEFAULT_TRACKING_BACKENDS
+        )
+        requested = self.tracking_backends or default
+        normalized: list[str] = []
+        for backend in requested:
+            value = backend.strip().lower()
+            if value not in SUPPORTED_TRACKING_BACKENDS:
+                raise ValueError(f"unsupported tracking backend: {backend}")
+            if value not in normalized:
+                normalized.append(value)
+        if self.pipeline in {"cpp-sft", "cpp-grpo"} and "console" not in normalized:
+            normalized.insert(0, "console")
+        return tuple(normalized or DEFAULT_TRACKING_BACKENDS)
+
+    @property
+    def uses_mlflow_tracking(self) -> bool:
+        return "mlflow" in self.effective_tracking_backends
+
+    @property
+    def logger(self) -> str:
+        backends = self.effective_tracking_backends
+        if len(backends) == 1:
+            return backends[0]
+        return "[" + ",".join(backends) + "]"
 
 
 def gpu_count_from_accelerators(accelerators: str) -> int:
@@ -310,9 +356,14 @@ PY
 def training_prelude(options: RenderOptions) -> str:
     runtime_prelude = ""
     if options.pipeline in {"cpp-grpo", "cpp-eval"}:
-        runtime_prelude = f"""uv run w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+        runtime_prelude = f"""w8_stage host_preflight start
+uv run w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options.sandbox_cpu}"
+w8_stage host_preflight end
 """
     prelude = f"""set -euxo pipefail
+w8_stage() {{
+  printf 'W8_SETUP_STAGE {{"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}}\\n' "$1" "$2" "$(date -u +%FT%TZ)"
+}}
 {gcp_env_exports(options)}
 export ARTIFACT_BUCKET="{options.artifact_bucket}"
 export W8_BIAYN_PIPELINE="{options.pipeline}"
@@ -327,18 +378,61 @@ export W8_ARTIFACT_DIR="$HOME/.w8-biayn/runs/{options.run_id or options.pipeline
 export W8_CKPT_PATH="{options.ckpt_path}"
 export W8_EXPORT_PATH="{options.export_path}"
 export W8_SFT_EXPORT_CHECKPOINT="{options.sft_export_checkpoint}"
+export W8_ENABLE_MLFLOW_TRACKING="{"1" if options.uses_mlflow_tracking else "0"}"
+export W8_TRACKING_DIR="$W8_ARTIFACT_DIR/tracking"
+export W8_MLFLOW_DB="$W8_TRACKING_DIR/mlflow/mlflow.db"
 export SKYRL_RAY_PG_TIMEOUT_IN_S="${{SKYRL_RAY_PG_TIMEOUT_IN_S:-{SKYRL_RAY_PG_TIMEOUT_S}}}"
 export SKYRL_WORKER_NCCL_TIMEOUT_IN_S="${{SKYRL_WORKER_NCCL_TIMEOUT_IN_S:-{SKYRL_WORKER_NCCL_TIMEOUT_S}}}"
 export W8_GLOO_SOCKET_IFNAME="${{GLOO_SOCKET_IFNAME:-$(ip route show default 2>/dev/null | awk '{{print $5; exit}}')}}"
 mkdir -p "$W8_DATA_DIR"
 rm -rf "$W8_ARTIFACT_DIR"
-mkdir -p "$W8_ARTIFACT_DIR/ckpts" "$W8_ARTIFACT_DIR/exports"
+mkdir -p "$W8_ARTIFACT_DIR/ckpts" "$W8_ARTIFACT_DIR/exports" "$W8_TRACKING_DIR/mlflow"
 if [ "$W8_CKPT_PATH" = "~/ckpts/" ]; then
   export W8_CKPT_PATH="/artifacts/ckpts"
 fi
 if [ "$W8_EXPORT_PATH" = "~/exports/" ]; then
   export W8_EXPORT_PATH="/artifacts/exports"
 fi
+sync_mlflow_tracking_once() {{
+  if [ "${{W8_ENABLE_MLFLOW_TRACKING:-0}}" != "1" ] || [ "${{SKYPILOT_NODE_RANK:-0}}" != "0" ]; then
+    return 0
+  fi
+  if [ ! -f "$W8_MLFLOW_DB" ]; then
+    return 0
+  fi
+  local snapshot="$W8_TRACKING_DIR/mlflow/mlflow.snapshot.db"
+  python3 - "$W8_MLFLOW_DB" "$snapshot" <<'PY'
+import sqlite3
+import sys
+
+source, target = sys.argv[1:]
+with sqlite3.connect("file:" + source + "?mode=ro", uri=True) as src:
+    with sqlite3.connect(target) as dst:
+        src.backup(dst)
+PY
+  gcloud storage cp "$snapshot" "$W8_RUN_GCS_PREFIX/tracking/mlflow/mlflow.db"
+}}
+start_mlflow_tracking_sync() {{
+  if [ "${{W8_ENABLE_MLFLOW_TRACKING:-0}}" != "1" ] || [ "${{SKYPILOT_NODE_RANK:-0}}" != "0" ]; then
+    return 0
+  fi
+  (
+    while true; do
+      sync_mlflow_tracking_once || true
+      sleep 60
+    done
+  ) &
+  export W8_MLFLOW_SYNC_PID=$!
+}}
+stop_mlflow_tracking_sync() {{
+  if [ -n "${{W8_MLFLOW_SYNC_PID:-}}" ]; then
+    kill "$W8_MLFLOW_SYNC_PID" >/dev/null 2>&1 || true
+    wait "$W8_MLFLOW_SYNC_PID" 2>/dev/null || true
+    unset W8_MLFLOW_SYNC_PID
+  fi
+  sync_mlflow_tracking_once || true
+}}
+trap stop_mlflow_tracking_sync EXIT
 {runtime_prelude.rstrip()}
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is required on the SkyPilot host to restore dataset cache from GCS" >&2
@@ -414,10 +508,12 @@ PY
 }}
 """
     if options.sft_export_checkpoint:
-        data_restore = f"""echo "{options.pipeline} export-only: skipping dataset restore"
+        data_restore = f"""w8_stage data_restore skipped
+echo "{options.pipeline} export-only: skipping dataset restore"
 """
     else:
-        data_restore = """if [ -f "$W8_DATA_DIR/.w8_data_gcs_prefix" ] \\
+        data_restore = """w8_stage data_restore start
+if [ -f "$W8_DATA_DIR/.w8_data_gcs_prefix" ] \\
   && [ "$(cat "$W8_DATA_DIR/.w8_data_gcs_prefix")" = "$W8_DATA_GCS_PREFIX" ] \\
   && [ -f "$W8_DATA_DIR/_w8_data_manifest.json" ] \\
   && [ -d "$W8_DATA_DIR/tasks" ]; then
@@ -430,12 +526,14 @@ else
 fi
 test -f "$W8_DATA_DIR/_w8_data_manifest.json"
 test -d "$W8_DATA_DIR/tasks"
+w8_stage data_restore end
 """
     return (
         prelude
         + data_restore
         + f"""
 if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
+  w8_stage model_stage start
   export W8_BIAYN_MODEL_SOURCE="$W8_BIAYN_MODEL_PATH"
   export W8_BIAYN_MODEL_PATH="$(resolve_gcs_model_export "$W8_BIAYN_MODEL_PATH")"
   echo "resolved GCS model export: $W8_BIAYN_MODEL_SOURCE -> $W8_BIAYN_MODEL_PATH"
@@ -446,17 +544,76 @@ if [[ "$W8_BIAYN_MODEL_PATH" == gs://* ]]; then
   assert_local_hf_model "$W8_LOCAL_MODEL_DIR"
   normalize_local_hf_tokenizer_config "$W8_LOCAL_MODEL_DIR"
   export W8_BIAYN_MODEL_PATH="/artifacts/model"
+  w8_stage model_stage end
 fi
+w8_stage container_pull start
 docker pull "$W8_GPU_CONTAINER_IMAGE"
 if [ "{options.sandbox_image}" != "{DEFAULT_DOCKER_IMAGE}" ]; then
   docker pull "{options.sandbox_image}"
 fi
+w8_stage container_pull end
 """
     )
 
 
 def training_container_prefix(options: RenderOptions) -> str:
-    return """docker run --rm --gpus all --network host --shm-size=32g \\
+    mlflow_install = f'uv pip install "{MLFLOW_PACKAGE_SPEC}"\n' if options.uses_mlflow_tracking else ""
+    mlflow_start = (
+        """setup_mlflow_tracking_server() {
+  if [ "${W8_ENABLE_MLFLOW_TRACKING:-0}" != "1" ]; then
+    return 0
+  fi
+  w8_stage mlflow_setup start
+  read -r W8_MLFLOW_HEAD_IP _ <<< "${SKYPILOT_NODE_IPS:-127.0.0.1}"
+  if [ -z "$W8_MLFLOW_HEAD_IP" ]; then
+    W8_MLFLOW_HEAD_IP=127.0.0.1
+  fi
+  export MLFLOW_TRACKING_URI="http://${W8_MLFLOW_HEAD_IP}:${W8_MLFLOW_PORT:-5000}"
+  mkdir -p "$W8_TRACKING_DIR/mlflow/artifacts"
+  if [ "${SKYPILOT_NODE_RANK:-0}" = "0" ]; then
+    mlflow server \\
+      --host 0.0.0.0 \\
+      --port "${W8_MLFLOW_PORT:-5000}" \\
+      --backend-store-uri "$W8_MLFLOW_BACKEND_STORE_URI" \\
+      --default-artifact-root "$W8_MLFLOW_DEFAULT_ARTIFACT_ROOT" \\
+      > "$W8_TRACKING_DIR/mlflow/server.log" 2>&1 &
+    export W8_MLFLOW_SERVER_PID=$!
+  fi
+  python - <<'PY'
+import os
+import sys
+import time
+from urllib.request import urlopen
+
+uri = os.environ["MLFLOW_TRACKING_URI"].rstrip("/") + "/health"
+for _ in range(120):
+    try:
+        with urlopen(uri, timeout=2) as response:
+            if response.status < 500:
+                print(f"MLflow tracking server ready at {uri}")
+                raise SystemExit(0)
+    except Exception:
+        time.sleep(2)
+print(f"MLflow tracking server did not become ready at {uri}", file=sys.stderr)
+raise SystemExit(2)
+PY
+  w8_stage mlflow_setup end
+}
+cleanup_mlflow_tracking_server() {
+  if [ -n "${W8_MLFLOW_SERVER_PID:-}" ]; then
+    kill "$W8_MLFLOW_SERVER_PID" >/dev/null 2>&1 || true
+    wait "$W8_MLFLOW_SERVER_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup_mlflow_tracking_server EXIT
+setup_mlflow_tracking_server
+"""
+        if options.uses_mlflow_tracking
+        else ""
+    )
+    return """start_mlflow_tracking_sync
+w8_stage container_start start
+docker run --rm --gpus all --network host --shm-size=32g \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -v /tmp:/tmp \\
   -v "$PWD":/workspace \\
@@ -475,6 +632,11 @@ def training_container_prefix(options: RenderOptions) -> str:
   -e W8_CKPT_PATH="$W8_CKPT_PATH" \\
   -e W8_EXPORT_PATH="$W8_EXPORT_PATH" \\
   -e W8_SFT_EXPORT_CHECKPOINT="$W8_SFT_EXPORT_CHECKPOINT" \\
+  -e W8_ENABLE_MLFLOW_TRACKING="$W8_ENABLE_MLFLOW_TRACKING" \\
+  -e W8_TRACKING_DIR=/artifacts/tracking \\
+  -e W8_MLFLOW_BACKEND_STORE_URI=sqlite:////artifacts/tracking/mlflow/mlflow.db \\
+  -e W8_MLFLOW_DEFAULT_ARTIFACT_ROOT=/artifacts/tracking/mlflow/artifacts \\
+  -e W8_MLFLOW_PORT=5000 \\
   -e SKYRL_RAY_PG_TIMEOUT_IN_S="$SKYRL_RAY_PG_TIMEOUT_IN_S" \\
   -e SKYRL_WORKER_NCCL_TIMEOUT_IN_S="$SKYRL_WORKER_NCCL_TIMEOUT_IN_S" \\
   -e NCCL_IB_DISABLE=1 \\
@@ -489,6 +651,9 @@ def training_container_prefix(options: RenderOptions) -> str:
   -w /workspace \\
   "$W8_GPU_CONTAINER_IMAGE" bash -lc '
 set -euxo pipefail
+w8_stage() {
+  printf '"'"'W8_SETUP_STAGE {"schema_version":"w8-setup-stage-v1","stage":"%s","event":"%s","ts_utc":"%s"}\n'"'"' "$1" "$2" "$(date -u +%FT%TZ)"
+}
 if ! command -v docker >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
@@ -499,6 +664,7 @@ if ! command -v docker >/dev/null 2>&1; then
   fi
 fi
 docker version
+w8_stage dependency_setup start
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
@@ -510,11 +676,14 @@ uv pip install -e /root/.cache/w8-biayn/upstreams/rllm
 cd /root/.cache/w8-biayn/upstreams/SkyRL
 python -m w8_biayn.integrations.skyrl_io_patch
 python -m w8_biayn.integrations.skyrl_vllm_logprob_patch
+python -m w8_biayn.integrations.skyrl_grpo_health_patch
+python -m w8_biayn.integrations.skyrl_startup_patch
 uv sync --active --extra fsdp --extra gcp
 cd /workspace
-uv pip install gcsfs
+""" + mlflow_install + """uv pip install gcsfs
 uv pip install --no-deps -e /workspace
-"""
+w8_stage dependency_setup end
+""" + mlflow_start
 
 
 def training_artifact_upload_script() -> str:
@@ -523,6 +692,7 @@ if [ "${SKYPILOT_NODE_RANK:-0}" != "0" ]; then
   echo "skipping artifact upload on worker rank ${SKYPILOT_NODE_RANK:-unknown}"
   exit 0
 fi
+sync_mlflow_tracking_once || true
 if find "$W8_ARTIFACT_DIR/exports" -mindepth 1 -print -quit | grep -q .; then
   gcloud storage cp --recursive "$W8_ARTIFACT_DIR/exports" "$W8_RUN_GCS_PREFIX/"
 else
@@ -532,6 +702,11 @@ if find "$W8_ARTIFACT_DIR/ckpts" -mindepth 1 -print -quit | grep -q .; then
   gcloud storage cp --recursive "$W8_ARTIFACT_DIR/ckpts" "$W8_RUN_GCS_PREFIX/"
 else
   echo "no checkpoints found under $W8_ARTIFACT_DIR/ckpts" >&2
+fi
+if find "$W8_ARTIFACT_DIR/tracking" -mindepth 1 -print -quit | grep -q .; then
+  gcloud storage cp --recursive "$W8_ARTIFACT_DIR/tracking" "$W8_RUN_GCS_PREFIX/"
+else
+  echo "no tracking artifacts found under $W8_ARTIFACT_DIR/tracking" >&2
 fi
 """
 
@@ -622,17 +797,22 @@ start_ray_worker() {{
 read -r W8_RAY_HEAD_IP _ <<< "${{SKYPILOT_NODE_IPS:-127.0.0.1}}"
 export RAY_RUNTIME_ENV_HOOK=ray._private.runtime_env.uv_runtime_env_hook.hook
 if [ "${{SKYPILOT_NODE_RANK:-0}}" = "0" ]; then
+  w8_stage ray_cluster start
   if ! ray status --address 127.0.0.1:6479 >/dev/null 2>&1; then
     ray start --head --disable-usage-stats --port 6479 --num-gpus {options.gpu_count}
   fi
   wait_for_ray 127.0.0.1:6479
+  w8_stage ray_cluster end
   export RAY_ADDRESS=127.0.0.1:6479
   cleanup_ray() {{ ray stop --force || true; }}
   trap cleanup_ray EXIT
+  w8_stage skyrl_entrypoint start
 {indented_train}
 else
+  w8_stage ray_worker_join start
   start_ray_worker "$W8_RAY_HEAD_IP:6479"
   wait_for_ray "$W8_RAY_HEAD_IP:6479"
+  w8_stage ray_worker_join end
   echo "worker rank ${{SKYPILOT_NODE_RANK:-unknown}} joined Ray at $W8_RAY_HEAD_IP:6479"
   while ray status --address "$W8_RAY_HEAD_IP:6479" >/dev/null 2>&1; do
     sleep 30
@@ -693,6 +873,7 @@ python -m skyrl.train.main_sft \\
         + training_container_prefix(options)
         + run_body
         + "\n'\n"
+        + "stop_mlflow_tracking_sync\n"
         + training_artifact_upload_script()
     )
 
@@ -704,6 +885,7 @@ def grpo_run_script(options: RenderOptions) -> LiteralStr:
             + training_container_prefix(options)
             + export_checkpoint_run_body(options)
             + "\n'\n"
+            + "stop_mlflow_tracking_sync\n"
             + training_artifact_upload_script()
         )
     train_command = grpo_multinode_ray_script(options, grpo_training_command(options))
@@ -717,6 +899,7 @@ w8-biayn cpp harness preflight --image "{options.sandbox_image}" --cpu "{options
 {train_command}
 '
 """
+        + "stop_mlflow_tracking_sync\n"
         + training_artifact_upload_script()
     )
 
@@ -792,7 +975,7 @@ def render_sky_yaml(options: RenderOptions) -> str:
     config: dict[str, Any] = {
         "name": options.name,
         "resources": {
-            "infra": "gcp",
+            "infra": options.infra,
             "accelerators": options.accelerators,
             "memory": options.effective_memory,
             "disk_size": options.effective_disk_size,
@@ -809,6 +992,8 @@ def render_sky_yaml(options: RenderOptions) -> str:
             "W8_BIAYN_DATA_GCS_PREFIX": options.data_gcs_prefix,
             "W8_BIAYN_RUN_ID": options.run_id or "",
             "W8_BIAYN_TOTAL_GPU_COUNT": str(options.total_gpu_count),
+            "W8_BIAYN_REGION": options.region,
+            "W8_BIAYN_ZONE": options.zone,
             "W8_BIAYN_EFFECTIVE_SAMPLES_PER_STEP": str(options.effective_samples_per_step),
             "W8_BIAYN_SAMPLES_PER_GPU_PER_STEP": (
                 "" if options.samples_per_gpu_per_step is None else f"{options.samples_per_gpu_per_step:.6g}"
