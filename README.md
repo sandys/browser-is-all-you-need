@@ -6,6 +6,27 @@ The active project is C++ only: train an open-weight model that rewrites correct
 
 Out of scope for Phase 1: BrowserGym, DOMDiff, Harbor, WebArena, MiniWoB, AndroidWorld, and Go.
 
+## SLIME Moonlight ReTool Handoff
+
+This branch also carries a repo-owned SLIME ReTool Moonlight example for
+handoff/testing work:
+
+- launcher: `examples/slime/retool/retool_moonlight_rl.sh`
+- runbook: `examples/slime/retool/README.md`
+- local smoke data: `examples/slime/retool/moonlight_math_tool_smoke.jsonl`
+
+The ReTool example has no E2B, no external browser sandbox, and no hosted tool
+service. It uses a local Python `code_interpreter` tool, Moonlight-16B-A3B,
+SGLang rollouts, a custom reward hook, Megatron training, W&B when configured,
+and local run receipts with VRAM logs. On first run the launcher can download
+the Moonlight HF checkpoint and convert the Megatron `torch_dist` checkpoint if
+either local path is missing.
+
+The validated profile completed one rollout/train/checkpoint cycle on four
+visible H200 GPUs from an 8x H200 Lium pod with max sampled VRAM `71863 MiB`
+per GPU. The same profile is intended for 4x A100 80 GB, but this branch does
+not claim a completed A100 run or model improvement.
+
 ## Goal
 
 - Data: official PIE C++ slower-to-faster pairs and official/merged/generated tests.
@@ -581,6 +602,15 @@ uv run w8-biayn slime setup
 ```
 
 `slime setup` refreshes the pinned upstream, writes `.w8-biayn/slime/run-container.sh`, and writes `.w8-biayn/slime/bootstrap-inside-container.sh`. The launcher now follows the upstream quick-start Docker flow end-to-end: it does `docker pull`, starts the container with this repo mounted at `/workspace/<repo-name>`, mounts `/var/run/docker.sock` for the Docker sandbox backend, and then runs the in-container bootstrap (`export PYTHONPATH=/root/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}} && cd /root/slime && git pull && pip install -e . --no-deps && python train.py --help`). That `PYTHONPATH` export is required because the image contains `/root/Megatron-LM` but does not expose it by default, and `slime/train.py` imports `megatron.training`. The bootstrap script is still written separately so it can be rerun manually inside the container if needed.
+
+The generated Docker launcher keeps `--ulimit stack=67108864` enabled by
+default, but leaves `--ulimit memlock=-1` off because some managed GPU hosts
+reject that rlimit before the container starts. On hosts that allow locked
+memory, opt in with `SLIME_DOCKER_MEMLOCK_ULIMIT=1 .w8-biayn/slime/run-container.sh`.
+It also raises the in-container open-file soft limit to
+`SLIME_NOFILE_SOFT_LIMIT=65536` before bootstrapping SLIME, which avoids Raylet
+worker-pool crashes on hosts whose Docker daemon starts containers with a low
+soft `nofile` limit.
 
 The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
 

@@ -1,0 +1,3 @@
+jinja2>=3.0.0
+psutil>=5.8.0
+huggingface-hub>=0.24
