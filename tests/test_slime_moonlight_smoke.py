@@ -27,6 +27,9 @@ def test_moonlight_smoke_launcher_uses_local_int4_moe_defaults() -> None:
     assert "vram_peak.txt" in text
     assert "--query-gpu=timestamp,index,name,memory.used,memory.total" in text
     assert 'SLIME_ATTENTION_BACKEND:-' in text
+    assert '"NVTE_DEBUG"' in text
+    assert '"NVTE_DEBUG_LEVEL"' in text
+    assert '"NVTE_UNFUSED_ATTN"' in text
     assert "--attention-backend flash" not in text
     assert "--ci-test" in text
 

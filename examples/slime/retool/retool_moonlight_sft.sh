@@ -211,7 +211,18 @@ env = {
     "NCCL_NVLS_ENABLE": "${HAS_NVLINK}",
     "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
 }
-for key in ("CUDA_HOME", "PATH", "LD_LIBRARY_PATH", "HF_HOME"):
+for key in (
+    "CUDA_HOME",
+    "PATH",
+    "LD_LIBRARY_PATH",
+    "HF_HOME",
+    "NVTE_DEBUG",
+    "NVTE_DEBUG_LEVEL",
+    "NVTE_FLASH_ATTN",
+    "NVTE_FUSED_ATTN",
+    "NVTE_UNFUSED_ATTN",
+    "NVTE_ALLOW_NONDETERMINISTIC_ALGO",
+):
     if key in os.environ:
         env[key] = os.environ[key]
 print(json.dumps({"env_vars": env}))

@@ -318,7 +318,18 @@ env = {
     "OPEN_TRAINING_INT4_FAKE_QAT_FLAG": "1",
     "OPEN_TRAINING_INT4_GROUP_SIZE": "128",
 }
-for key in ("CUDA_HOME", "PATH", "LD_LIBRARY_PATH", "HF_HOME"):
+for key in (
+    "CUDA_HOME",
+    "PATH",
+    "LD_LIBRARY_PATH",
+    "HF_HOME",
+    "NVTE_DEBUG",
+    "NVTE_DEBUG_LEVEL",
+    "NVTE_FLASH_ATTN",
+    "NVTE_FUSED_ATTN",
+    "NVTE_UNFUSED_ATTN",
+    "NVTE_ALLOW_NONDETERMINISTIC_ALGO",
+):
     if key in os.environ:
         env[key] = os.environ[key]
 print(json.dumps({"env_vars": env}))

@@ -32,6 +32,9 @@ def test_retool_launchers_use_moonlight_model_wiring() -> None:
         assert 'HF_CHECKPOINT="${SLIME_HF_CHECKPOINT:-/root/Moonlight-16B-A3B-Instruct}"' in text
         assert 'REF_LOAD_DIR="${SLIME_REF_LOAD_DIR:-${HF_CHECKPOINT}_torch_dist}"' in text
         assert 'SLIME_ATTENTION_BACKEND:-' in text
+        assert '"NVTE_DEBUG"' in text
+        assert '"NVTE_DEBUG_LEVEL"' in text
+        assert '"NVTE_UNFUSED_ATTN"' in text
         assert "--attention-backend flash" not in text
         assert "Qwen" not in text
         assert "qwen" not in text
