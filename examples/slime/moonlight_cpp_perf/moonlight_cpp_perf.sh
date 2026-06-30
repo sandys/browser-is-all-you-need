@@ -393,7 +393,7 @@ stage_args() {
   CUSTOM_ARGS=()
   case "${STAGE}" in
     base-eval)
-      CKPT_ARGS=(--hf-checkpoint "${HF_CHECKPOINT}" --ref-load "${REF_LOAD_DIR}" --load "${REF_LOAD_DIR}" --save "${RUN_ROOT}/checkpoints/base-eval")
+      CKPT_ARGS=(--hf-checkpoint "${HF_CHECKPOINT}" --ref-load "${REF_LOAD_DIR}" --load "${REF_LOAD_DIR}" --save "${RUN_ROOT}/checkpoints/base-eval" --save-interval "${SAVE_INTERVAL}")
       TASK_ARGS=(
         --prompt-data "${DATA_DIR}/grpo/train.jsonl"
         --input-key prompt
@@ -443,7 +443,7 @@ stage_args() {
       ;;
     sft-eval)
       require_checkpoint "${SFT_SAVE_DIR}" "SFT"
-      CKPT_ARGS=(--hf-checkpoint "${HF_CHECKPOINT}" --ref-load "${SFT_SAVE_DIR}" --load "${SFT_SAVE_DIR}" --save "${RUN_ROOT}/checkpoints/sft-eval")
+      CKPT_ARGS=(--hf-checkpoint "${HF_CHECKPOINT}" --ref-load "${SFT_SAVE_DIR}" --load "${SFT_SAVE_DIR}" --save "${RUN_ROOT}/checkpoints/sft-eval" --save-interval "${SAVE_INTERVAL}")
       TASK_ARGS=(
         --prompt-data "${DATA_DIR}/grpo/train.jsonl"
         --input-key prompt
@@ -496,7 +496,7 @@ stage_args() {
       ;;
     grpo-eval)
       require_checkpoint "${GRPO_SAVE_DIR}" "GRPO"
-      CKPT_ARGS=(--hf-checkpoint "${HF_CHECKPOINT}" --ref-load "${GRPO_SAVE_DIR}" --load "${GRPO_SAVE_DIR}" --save "${RUN_ROOT}/checkpoints/grpo-eval")
+      CKPT_ARGS=(--hf-checkpoint "${HF_CHECKPOINT}" --ref-load "${GRPO_SAVE_DIR}" --load "${GRPO_SAVE_DIR}" --save "${RUN_ROOT}/checkpoints/grpo-eval" --save-interval "${SAVE_INTERVAL}")
       TASK_ARGS=(
         --prompt-data "${DATA_DIR}/grpo/train.jsonl"
         --input-key prompt
