@@ -54,6 +54,8 @@ SKIP_CLEANUP="${SLIME_SKIP_CLEANUP:-0}"
 CONVERT_IF_MISSING="${SLIME_CONVERT_IF_MISSING:-1}"
 CONVERT_NPROC="${SLIME_CONVERT_NPROC:-1}"
 DISABLE_EVAL="${SLIME_DISABLE_EVAL:-1}"
+RAY_MEMORY_USAGE_THRESHOLD="${SLIME_RAY_MEMORY_USAGE_THRESHOLD-0.99}"
+RAY_MEMORY_MONITOR_REFRESH_MS="${SLIME_RAY_MEMORY_MONITOR_REFRESH_MS:-}"
 HF_CHECKPOINT_WAS_DOWNLOADED=0
 
 absolute_path() {
@@ -270,6 +272,7 @@ fi
 echo "HAS_NVLINK=${HAS_NVLINK} detected_nvlink_refs=${NVLINK_COUNT}"
 echo "Using Moonlight ReTool prompt data: ${PROMPT_DATA}"
 echo "Eval disabled: ${DISABLE_EVAL}"
+echo "Ray memory usage threshold: ${RAY_MEMORY_USAGE_THRESHOLD:-Ray default}"
 
 CKPT_ARGS=(
   --hf-checkpoint "${HF_CHECKPOINT}"
@@ -426,6 +429,12 @@ cd "${SLIME_ROOT}"
 if [ "${USE_EXTERNAL_RAY}" = "0" ]; then
   export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
   export no_proxy="127.0.0.1,${MASTER_ADDR}"
+  if [ -n "${RAY_MEMORY_USAGE_THRESHOLD}" ]; then
+    export RAY_memory_usage_threshold="${RAY_MEMORY_USAGE_THRESHOLD}"
+  fi
+  if [ -n "${RAY_MEMORY_MONITOR_REFRESH_MS}" ]; then
+    export RAY_memory_monitor_refresh_ms="${RAY_MEMORY_MONITOR_REFRESH_MS}"
+  fi
   ray start --head --node-ip-address "${MASTER_ADDR}" --num-gpus "${NUM_GPUS}" \
     --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 fi
@@ -560,6 +569,8 @@ ray_submit_status=${RAY_SUBMIT_STATUS}
 ray_job_id=${RAY_JOB_ID}
 ray_job_terminal_status=${RAY_JOB_TERMINAL_STATUS}
 ray_status_timeout_seconds=${RAY_STATUS_TIMEOUT_SECONDS}
+ray_memory_usage_threshold=${RAY_MEMORY_USAGE_THRESHOLD:-}
+ray_memory_monitor_refresh_ms=${RAY_MEMORY_MONITOR_REFRESH_MS:-}
 run_root=${RUN_ROOT}
 log_file=${LOG_FILE}
 vram_log=${VRAM_LOG}

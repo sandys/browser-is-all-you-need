@@ -84,6 +84,8 @@ def test_retool_launcher_has_4gpu_memory_controls() -> None:
     assert "--sglang-cuda-graph-max-bs" in text
     assert "--sglang-disable-custom-all-reduce" in text
     assert "--train-memory-margin-bytes" in text
+    assert 'RAY_MEMORY_USAGE_THRESHOLD="${SLIME_RAY_MEMORY_USAGE_THRESHOLD-0.99}"' in text
+    assert 'export RAY_memory_usage_threshold="${RAY_MEMORY_USAGE_THRESHOLD}"' in text
     assert "--no-save-optim" in text
     assert "--no-save-rng" in text
     assert 'SLIME_SAVE_OPTIM_RNG:-0' in text
@@ -101,6 +103,7 @@ def test_retool_launcher_writes_vram_and_run_receipts() -> None:
     assert "--submission-id" in text
     assert "ray job status" in text
     assert "ray_job_terminal_status=${RAY_JOB_TERMINAL_STATUS}" in text
+    assert "ray_memory_usage_threshold=${RAY_MEMORY_USAGE_THRESHOLD:-}" in text
     assert "SLIME_NOFILE_SOFT_LIMIT" in text
     assert "SLIME_RAY_STATUS_TIMEOUT_SECONDS" in text
     assert "Job '.*' succeeded" in text
@@ -166,9 +169,11 @@ def test_retool_readme_is_reproduction_oriented() -> None:
     assert "SLIME_SGLANG_MEM_FRACTION=0.45" in text
     assert "SLIME_SGLANG_CUDA_GRAPH_MAX_BS=16" in text
     assert "SLIME_OPTIMIZER_CPU_OFFLOAD=1" in text
+    assert "SLIME_RAY_MEMORY_USAGE_THRESHOLD=0.99" in text
     assert "SLIME_DISABLE_EVAL=1" in text
     assert "run_receipt.txt" in text
-    assert "71863 MiB" in text
-    assert "runs/elccxpwb" in text
+    assert "39367 MiB" in text
+    assert "runs/ptrj71uh" in text
+    assert "4x NVIDIA A100 80 GB PCIe" in text
     assert "Ray job terminal status `SUCCEEDED`" in text
     assert "does not claim learning improvement" in text

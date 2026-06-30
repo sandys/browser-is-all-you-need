@@ -22,10 +22,12 @@ and local run receipts with VRAM logs. On first run the launcher can download
 the Moonlight HF checkpoint and convert the Megatron `torch_dist` checkpoint if
 either local path is missing.
 
-The validated profile completed one rollout/train/checkpoint cycle on four
-visible H200 GPUs from an 8x H200 Lium pod with max sampled VRAM `71863 MiB`
-per GPU. The same profile is intended for 4x A100 80 GB, but this branch does
-not claim a completed A100 run or model improvement.
+The validated profile completed one rollout/train/checkpoint cycle on a 4x
+NVIDIA A100 80 GB PCIe node with max sampled VRAM `39367 MiB` per GPU. This is
+an infra-readiness claim, not a model-improvement claim: the validated command
+uses one rollout, one sample per prompt, batch size 4, short responses, eval
+disabled, and `SLIME_RAY_MEMORY_USAGE_THRESHOLD=0.99` so Ray does not kill the
+Megatron train actors during the temporary host-RAM spike at checkpoint load.
 
 ## Goal
 

@@ -23,18 +23,20 @@ The runtime profile this launcher encodes was validated from this repo branch:
 - model: `Moonlight-16B-A3B-Instruct`
 - precision path: BF16 HF weights plus converted Megatron `torch_dist`
 - task: repo-owned 16-row AIME-style math JSONL with local Python tool use
-- hardware used for validation: four visible H200 GPUs from an 8x H200 Lium pod
-- max sampled VRAM: `71863 MiB` per GPU
-- W&B run: `https://wandb.ai/ahm-rimer/slime-retool-moonlight/runs/elccxpwb`
+- hardware used for validation: 4x NVIDIA A100 80 GB PCIe
+- max sampled VRAM: `39367 MiB` per GPU
+- W&B run: `https://wandb.ai/sparmar27feb2003-nit-kurukshetra/slime-retool/runs/ptrj71uh`
 - result: Ray job terminal status `SUCCEEDED`, wrapper status `0`, checkpoint
-  saved at `iter_0000001`
+  written under the run checkpoint directory
 
-The same 80 GB memory profile is intended for 4x A100 80 GB, but this patch does
-not claim a completed A100 run. H200 is not a substitute for exact A100
-architecture validation; the useful claim is that the measured peak was below an
-80 GB per-GPU budget on a real four-GPU SLIME/Megatron/SGLang run. This patch
-also does not claim learning improvement: the validated run used one train step,
-`n_samples_per_prompt=1`, short responses, and eval disabled.
+This patch does not claim learning improvement: the validated run used one train
+step, `n_samples_per_prompt=1`, short responses, and eval disabled. It does
+claim that the batch-size-4 AIME-style ReTool profile can complete on a 4x A100
+80 GB node without external sandboxes. VRAM was comfortably below the 80 GB
+budget, but host RAM was tight during Megatron checkpoint initialization and
+weight update. The launcher therefore defaults `SLIME_RAY_MEMORY_USAGE_THRESHOLD`
+to `0.99` so Ray's worker-kill guardrail does not terminate a run that still has
+enough host memory to finish.
 
 The command in the AIME section below is written to reproduce the validated
 profile from this repo path, with actor load defaulting to `SLIME_REF_LOAD_DIR`
@@ -150,6 +152,7 @@ SLIME_SGLANG_CUDA_GRAPH_MAX_BS=16 \
 SLIME_SGLANG_DISABLE_CUSTOM_ALL_REDUCE=1 \
 SLIME_OPTIMIZER_CPU_OFFLOAD=1 \
 SLIME_TRAIN_MEMORY_MARGIN_BYTES=268435456 \
+SLIME_RAY_MEMORY_USAGE_THRESHOLD=0.99 \
 SLIME_CONVERT_NPROC=4 \
 SLIME_DISABLE_EVAL=1 \
 SLIME_SAVE_INTERVAL=1000 \
@@ -164,7 +167,8 @@ Expected local artifacts:
 - `.w8-biayn/slime/retool/moonlight-rl/runs/<timestamp>/run_receipt.txt`
 
 The run passes when `run_receipt.txt` contains `status=0` and
-`ray_job_terminal_status=SUCCEEDED`.
+`ray_job_terminal_status=SUCCEEDED`. The receipt also records
+`ray_memory_usage_threshold`; for this A100 profile it should be `0.99`.
 
 ## AIME 4-GPU Reproduction Profile
 
@@ -183,6 +187,9 @@ runs from the SLIME checkout.
 The profile below intentionally uses batch size `4` to keep host-RAM pressure
 low on 4x80 GB machines. Increase `SLIME_ROLLOUT_BATCH_SIZE` and
 `SLIME_GLOBAL_BATCH_SIZE` only after this conservative run succeeds.
+Keep `SLIME_RAY_MEMORY_USAGE_THRESHOLD=0.99` for 4x A100 80 GB hosts with about
+300 GB system RAM; the default Ray threshold of `0.95` can kill a Megatron actor
+during checkpoint load even though the run later frees enough memory to finish.
 
 ```bash
 cd /workspace/browser-is-all-you-need
@@ -201,6 +208,7 @@ SLIME_SGLANG_CUDA_GRAPH_MAX_BS=16 \
 SLIME_SGLANG_DISABLE_CUSTOM_ALL_REDUCE=1 \
 SLIME_OPTIMIZER_CPU_OFFLOAD=1 \
 SLIME_TRAIN_MEMORY_MARGIN_BYTES=268435456 \
+SLIME_RAY_MEMORY_USAGE_THRESHOLD=0.99 \
 SLIME_CONVERT_NPROC=4 \
 SLIME_DISABLE_EVAL=1 \
 SLIME_SAVE_INTERVAL=1000 \
