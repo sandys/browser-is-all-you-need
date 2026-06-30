@@ -68,6 +68,7 @@ EVAL_TEMPERATURE="${SLIME_EVAL_TEMPERATURE:-0}"
 EVAL_TOP_P="${SLIME_EVAL_TOP_P:-1}"
 
 SAVE_INTERVAL="${SLIME_SAVE_INTERVAL:-1000}"
+EVAL_LR_DECAY_ITERS="${SLIME_EVAL_LR_DECAY_ITERS:-1}"
 USE_EXTERNAL_RAY="${SLIME_USE_EXTERNAL_RAY:-0}"
 SKIP_CLEANUP="${SLIME_SKIP_CLEANUP:-0}"
 RAY_MEMORY_USAGE_THRESHOLD="${SLIME_RAY_MEMORY_USAGE_THRESHOLD-0.99}"
@@ -412,6 +413,7 @@ stage_args() {
         --eval-temperature "${EVAL_TEMPERATURE}"
         --eval-top-p "${EVAL_TOP_P}"
       )
+      OPTIMIZER_ARGS+=(--lr-decay-iters "${EVAL_LR_DECAY_ITERS}")
       CUSTOM_ARGS=(--custom-rm-path w8_biayn.integrations.slime_cpp_perf.reward_func)
       ;;
     sft)
@@ -462,6 +464,7 @@ stage_args() {
         --eval-temperature "${EVAL_TEMPERATURE}"
         --eval-top-p "${EVAL_TOP_P}"
       )
+      OPTIMIZER_ARGS+=(--lr-decay-iters "${EVAL_LR_DECAY_ITERS}")
       CUSTOM_ARGS=(--custom-rm-path w8_biayn.integrations.slime_cpp_perf.reward_func)
       ;;
     grpo)
@@ -515,6 +518,7 @@ stage_args() {
         --eval-temperature "${EVAL_TEMPERATURE}"
         --eval-top-p "${EVAL_TOP_P}"
       )
+      OPTIMIZER_ARGS+=(--lr-decay-iters "${EVAL_LR_DECAY_ITERS}")
       CUSTOM_ARGS=(--custom-rm-path w8_biayn.integrations.slime_cpp_perf.reward_func)
       ;;
     *)

@@ -51,6 +51,8 @@ def test_moonlight_cpp_perf_runner_pins_stage_sequence_and_artifacts() -> None:
     assert '"${SLIME_ROOT}/train.py"' in text
     assert "-u train.py" not in text
     assert text.count('--save-interval "${SAVE_INTERVAL}"') == 5
+    assert 'EVAL_LR_DECAY_ITERS="${SLIME_EVAL_LR_DECAY_ITERS:-1}"' in text
+    assert text.count('--lr-decay-iters "${EVAL_LR_DECAY_ITERS}"') == 3
 
 
 def test_moonlight_cpp_perf_runner_has_base_sft_grpo_slime_modes() -> None:
