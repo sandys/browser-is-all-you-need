@@ -682,7 +682,7 @@ submit_slime_job() {
     --log-style=record \
     --log-color=false \
     --runtime-env-json="${RUNTIME_ENV_JSON}" \
-    -- "${PYTHON_BIN}" -u train.py \
+    -- "${PYTHON_BIN}" -u "${SLIME_ROOT}/train.py" \
     --actor-num-nodes 1 \
     --actor-num-gpus-per-node "${NUM_GPUS}" \
     --colocate \

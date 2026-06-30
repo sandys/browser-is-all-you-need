@@ -48,6 +48,8 @@ def test_moonlight_cpp_perf_runner_pins_stage_sequence_and_artifacts() -> None:
     assert "vram_usage.csv" in text
     assert "vram_peak.txt" in text
     assert "run_receipt.txt" in text
+    assert '"${SLIME_ROOT}/train.py"' in text
+    assert "-u train.py" not in text
 
 
 def test_moonlight_cpp_perf_runner_has_base_sft_grpo_slime_modes() -> None:
