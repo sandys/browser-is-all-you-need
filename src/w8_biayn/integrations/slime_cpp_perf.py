@@ -32,6 +32,7 @@ def build_slime_cpp_perf_datasets(
     eval_splits: Sequence[str] = DEFAULT_EVAL_SPLITS,
     profile: str = "smoke",
     run_id: str | None = None,
+    sort_by_size: bool = False,
     force: bool = False,
 ) -> dict[str, Path]:
     """Write SLIME SFT, GRPO, and eval JSONL files from validated C++ task JSON."""
@@ -50,6 +51,8 @@ def build_slime_cpp_perf_datasets(
     train = [(path, task) for path, task in loaded if task.split == "train"]
     eval_split_names = set(eval_splits)
     eval_rows = [(path, task) for path, task in loaded if task.split in eval_split_names]
+    if sort_by_size:
+        train.sort(key=lambda row: _sft_size_key(row[1]))
     if train_limit is not None:
         train = train[:train_limit]
     if eval_limit is not None:
@@ -88,6 +91,7 @@ def build_slime_cpp_perf_datasets(
             "source_tasks_dir": str(source_root),
             "output_dir": str(output),
             "eval_splits": list(eval_splits),
+            "sort_by_size": sort_by_size,
             "counts": {
                 "train": len(train),
                 "eval": len(eval_rows),
@@ -109,6 +113,10 @@ def _dedupe_task_paths(paths: Iterable[Path]) -> list[Path]:
         seen.add(resolved)
         output.append(path)
     return output
+
+
+def _sft_size_key(task: CppTask) -> tuple[int, str]:
+    return len(build_prompt(task)) + len(sft_output(task)), task.task_id
 
 
 def _copy_selected_tasks(source_root: Path, task_output_root: Path, source_paths: Iterable[Path]) -> dict[Path, str]:
@@ -417,6 +425,7 @@ def _build_data_command(args: argparse.Namespace) -> None:
         eval_splits=tuple(args.eval_splits.split(",")),
         profile=args.profile,
         run_id=args.run_id,
+        sort_by_size=args.sort_by_size,
         force=args.force,
     )
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2, sort_keys=True))
@@ -444,6 +453,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     build_data.add_argument("--eval-splits", default="validation,test")
     build_data.add_argument("--profile", default="smoke")
     build_data.add_argument("--run-id", default=None)
+    build_data.add_argument("--sort-by-size", action="store_true")
     build_data.add_argument("--force", action="store_true")
     build_data.set_defaults(func=_build_data_command)
 

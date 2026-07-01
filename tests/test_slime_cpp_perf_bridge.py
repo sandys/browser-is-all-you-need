@@ -14,6 +14,7 @@ from w8_biayn.integrations.slime_cpp_perf import (
     write_comparison_artifact,
     write_eval_artifacts,
 )
+from w8_biayn.integrations.slime_moonlight_hf_export import moonlight_deepseekv3_alias
 
 
 def sample_task(task_id: str, split: str) -> CppTask:
@@ -49,6 +50,38 @@ def test_build_slime_cpp_perf_datasets_writes_train_and_eval_shapes(tmp_path: Pa
     assert grpo_rows[0]["prompt"].startswith("Optimize the following C++20 program")
     assert eval_rows[0]["metadata"]["task_path"] == "tasks/validation/validation-1.json"
     assert eval_rows[0]["metadata"]["subset"] == "eval"
+    assert manifest["sort_by_size"] is False
+
+
+def test_moonlight_hf_export_aliases_moonlight_kv_layernorm() -> None:
+    assert (
+        moonlight_deepseekv3_alias("module.module.decoder.layers.12.self_attention.kv_layernorm.weight")
+        == "model.layers.12.self_attn.kv_a_layernorm.weight"
+    )
+    assert moonlight_deepseekv3_alias("module.module.decoder.layers.12.input_layernorm.weight") is None
+
+
+def test_build_slime_cpp_perf_datasets_can_sort_train_rows_by_size(tmp_path: Path) -> None:
+    tasks = tmp_path / "tasks"
+    long_task = sample_task("train-long", "train")
+    long_task.prompt_code = long_task.prompt_code * 12
+    sample_task("train-short", "train").write_json(tasks / "train" / "train-short.json")
+    long_task.write_json(tasks / "train" / "train-long.json")
+    sample_task("validation-1", "validation").write_json(tasks / "validation" / "validation-1.json")
+
+    paths = build_slime_cpp_perf_datasets(
+        tasks,
+        tmp_path / "slime",
+        train_limit=1,
+        sort_by_size=True,
+        profile="unit",
+    )
+
+    sft_rows = _read_jsonl(paths["sft_train"])
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+
+    assert sft_rows[0]["task_id"] == "train-short"
+    assert manifest["sort_by_size"] is True
 
 
 def test_reward_func_invalid_format_returns_score_dict_without_running_sandbox(tmp_path: Path, monkeypatch) -> None:
