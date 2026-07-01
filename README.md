@@ -616,6 +616,45 @@ soft `nofile` limit.
 
 The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
 
+### SLIME PIE C++ Path
+
+For the SLIME version of the PIE C++ experiment, keep the normal PIE task build
+and convert those tasks to SLIME JSONL:
+
+```bash
+uv run w8-biayn data slime build \
+  --tasks-dir .w8-biayn/data/tasks-full \
+  --out .w8-biayn/data/slime-pie \
+  --profile full-official \
+  --run-id "$RUN_ID" \
+  --min-train-tasks 1000 \
+  --min-validation-tasks 100
+```
+
+Then launch `examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh` with the AIME
+4-GPU resource profile and the C++ reward hook:
+
+```bash
+SLIME_PROMPT_DATA=.w8-biayn/data/slime-pie/train.jsonl \
+W8_BIAYN_SLIME_TASK_ROOT=.w8-biayn/data/slime-pie \
+SLIME_CUSTOM_GENERATE_FUNCTION_PATH= \
+SLIME_CUSTOM_RM_PATH=generate_with_cpp_perf.reward_func \
+SLIME_REWARD_KEY=score \
+SLIME_NUM_GPUS=4 \
+SLIME_ROLLOUT_BATCH_SIZE=4 \
+SLIME_N_SAMPLES_PER_PROMPT=1 \
+SLIME_GLOBAL_BATCH_SIZE=4 \
+SLIME_MAX_RESPONSE_LEN=256 \
+SLIME_MAX_TOKENS_PER_GPU=4096 \
+bash examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh
+```
+
+`generate_with_cpp_perf.reward_func` lives under `examples/slime/cpp_perf/` and
+calls the repo C++ reward harness, so the SLIME path still compiles, tests, and
+benchmarks candidates against the PIE `v1` oracle. `SLIME_CUSTOM_GENERATE_FUNCTION_PATH=`
+disables the Python-tool ReTool trajectory for C++; SLIME's stock one-turn
+generation is used instead.
+
 ### SLIME Moonlight MoE Smoke
 
 For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses a Moonlight-16B-A3B Instruct checkpoint, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.
@@ -714,6 +753,7 @@ src/w8_biayn/cpp_perf/data.py                downloads, full PIE prep, manifests
 src/w8_biayn/cpp_perf/coverage.py            gcov coverage measurement
 src/w8_biayn/cpp_perf/pie.py                 PIE parsing and task construction
 src/w8_biayn/cpp_perf/skyrl_dataset.py       SkyRL GRPO/SFT dataset builder
+src/w8_biayn/cpp_perf/slime_dataset.py       SLIME prompt/metadata JSONL builder
 src/w8_biayn/cpp_perf/eval.py                eval aggregation
 src/w8_biayn/cpp_perf/judge.py               contest-style stdout comparison
 src/w8_biayn/cpp_perf/sandbox.py             Docker compile/test/runtime harness

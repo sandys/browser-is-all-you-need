@@ -42,7 +42,7 @@ Allowed upstream use:
 
 Phase 1 is C++ only. Do not reintroduce BrowserGym, DOMDiff, Harbor, WebArena, MiniWoB, AndroidWorld, Go workflows, custom GPU kernel labs, or unrelated performance experiments unless the user explicitly starts a later phase.
 
-Use `uv run w8-biayn upstreams clone` for pinned upstream copies under `.cache/upstreams/`. Temporary study clones may live under `/tmp`; do not vendor upstream repos or data. Experimental sidecar frameworks such as SLIME may be pinned for exploration only when explicitly requested; they must not replace the active SkyRL/rLLM C++ training path without an explicit project-phase change. When working on the SLIME sidecar lane, prefer the repo-owned `w8-biayn slime setup` Docker-first flow instead of trying to force SLIME runtime dependencies into the main project virtualenv. For the text-only SLIME bring-up path, prefer the repo-owned DAPO-Math prep script plus `examples/slime/multi_agent/run_multi_agent_text.sh` wrapper instead of editing the upstream example directly.
+Use `uv run w8-biayn upstreams clone` for pinned upstream copies under `.cache/upstreams/`. Temporary study clones may live under `/tmp`; do not vendor upstream repos or data. Experimental sidecar frameworks such as SLIME may be pinned for exploration only when explicitly requested; they must not replace the active SkyRL/rLLM C++ training path without an explicit project-phase change. When working on the SLIME sidecar lane, prefer the repo-owned `w8-biayn slime setup` Docker-first flow instead of trying to force SLIME runtime dependencies into the main project virtualenv. For an explicit SLIME C++ PIE run, build prompt JSONL with `w8-biayn data slime build` and use the separate `examples/slime/cpp_perf/` launcher and `generate_with_cpp_perf.py` reward hook. For the text-only SLIME bring-up path, prefer the repo-owned DAPO-Math prep script plus `examples/slime/multi_agent/run_multi_agent_text.sh` wrapper instead of editing the upstream example directly.
 
 ## Repository Map
 
@@ -54,6 +54,7 @@ Use `uv run w8-biayn upstreams clone` for pinned upstream copies under `.cache/u
 - Coverage measurement: `src/w8_biayn/cpp_perf/coverage.py`
 - PIE parsing/task construction: `src/w8_biayn/cpp_perf/pie.py`
 - SkyRL dataset conversion: `src/w8_biayn/cpp_perf/skyrl_dataset.py`
+- SLIME dataset conversion: `src/w8_biayn/cpp_perf/slime_dataset.py`
 - Eval aggregation: `src/w8_biayn/cpp_perf/eval.py`
 - Contest-style output judging: `src/w8_biayn/cpp_perf/judge.py`
 - Task schema: `src/w8_biayn/cpp_perf/schema.py`
@@ -105,6 +106,8 @@ uv run w8-biayn data pie prepare-full --source-root .w8-biayn/data/pie --out .w8
 uv run w8-biayn data pie measure-coverage --prepared-root .w8-biayn/data/pie-full --out .w8-biayn/data/pie-full/coverage.json --report-out .w8-biayn/data/pie-full/coverage-report.json
 uv run w8-biayn data pie build-full-tasks --prepared-root .w8-biayn/data/pie-full --coverage-json .w8-biayn/data/pie-full/coverage.json --out .w8-biayn/data/tasks-full --min-train 1000 --min-validation 100 --min-test 100 --force
 uv run w8-biayn data skyrl build --tasks-dir .w8-biayn/data/tasks-full --out .w8-biayn/data/skyrl-full --profile full-official --run-id "$RUN_ID" --min-train-tasks 1000 --min-validation-tasks 100
+# Optional explicit SLIME C++ lane; keep prompt-only JSONL plus task metadata for the SLIME reward hook.
+uv run w8-biayn data slime build --tasks-dir .w8-biayn/data/tasks-full --out .w8-biayn/data/slime-pie --profile full-official --run-id "$RUN_ID" --min-train-tasks 1000 --min-validation-tasks 100
 uv run w8-biayn data cache upload --path .w8-biayn/data/skyrl-full --gcs-prefix "gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/full-official/${RUN_ID}/skyrl" --credentials .gcp-service-account.json
 ```
 
