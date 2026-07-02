@@ -61,6 +61,9 @@ ROLLOUT_NUM_GPUS_PER_ENGINE="${SLIME_ROLLOUT_NUM_GPUS_PER_ENGINE:-${NUM_GPUS}}"
 SGLANG_MEM_FRACTION_STATIC="${SLIME_SGLANG_MEM_FRACTION:-0.45}"
 SGLANG_CUDA_GRAPH_MAX_BS="${SLIME_SGLANG_CUDA_GRAPH_MAX_BS:-16}"
 SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK="${SLIME_SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK:-1}"
+SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK="${SLIME_SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK:-0}"
+NVSHMEM_DISABLE_NCCL="${SLIME_NVSHMEM_DISABLE_NCCL:-${NVSHMEM_DISABLE_NCCL:-1}}"
+UPDATE_WEIGHT_BUFFER_SIZE="${SLIME_UPDATE_WEIGHT_BUFFER_SIZE:-}"
 ATTENTION_BACKEND="${SLIME_ATTENTION_BACKEND:-local}"
 LOCAL_LAYER_SPEC_MODULE="${SLIME_LOCAL_LAYER_SPEC_MODULE:-local}"
 LOCAL_LAYER_SPEC_NAME="${SLIME_LOCAL_LAYER_SPEC_NAME:-moonlight_local_decoder_block_spec}"
@@ -100,6 +103,8 @@ USE_EXTERNAL_RAY="${SLIME_USE_EXTERNAL_RAY:-0}"
 SKIP_CLEANUP="${SLIME_SKIP_CLEANUP:-0}"
 RAY_MEMORY_USAGE_THRESHOLD="${SLIME_RAY_MEMORY_USAGE_THRESHOLD-0.999}"
 RAY_MEMORY_MONITOR_REFRESH_MS="${SLIME_RAY_MEMORY_MONITOR_REFRESH_MS:-}"
+COLOCATE="${SLIME_COLOCATE:-1}"
+SFT_COLOCATE="${SLIME_SFT_COLOCATE:-0}"
 if [ -n "${SLIME_OPTIMIZER_CPU_OFFLOAD:-}" ]; then
   OPTIMIZER_CPU_OFFLOAD="${SLIME_OPTIMIZER_CPU_OFFLOAD}"
 else
@@ -543,6 +548,9 @@ base_model_args() {
     --no-save-rng
     --save-debug-rollout-data "${ROLLOUT_DUMP_TEMPLATE}"
   )
+  if [ -n "${UPDATE_WEIGHT_BUFFER_SIZE}" ]; then
+    EXTRA_ARGS+=(--update-weight-buffer-size "${UPDATE_WEIGHT_BUFFER_SIZE}")
+  fi
   if [ "${ATTENTION_BACKEND}" = "local" ] && [ "${SLIME_USE_LOCAL_LAYER_SPEC:-1}" = "1" ]; then
     EXTRA_ARGS+=(--no-persist-layer-norm --spec "${LOCAL_LAYER_SPEC_MODULE}" "${LOCAL_LAYER_SPEC_NAME}")
   fi
@@ -788,7 +796,9 @@ env = {
     "W8_SLIME_CPP_INCLUDE_LOGS": os.environ.get("W8_SLIME_CPP_INCLUDE_LOGS", "0"),
     "W8_SLIME_SKIP_FINAL_TRAIN_SLEEP": "${FINAL_TRAIN_SLEEP_SKIP}",
     "SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK": "${SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK}",
+    "SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK": "${SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK}",
     "SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK": "${SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK}",
+    "NVSHMEM_DISABLE_NCCL": "${NVSHMEM_DISABLE_NCCL}",
 }
 attention_backend = "${ATTENTION_BACKEND}".strip().lower()
 nvte_flags_by_backend = {
@@ -871,6 +881,8 @@ grpo_skip_weight_update=${GRPO_SKIP_WEIGHT_UPDATE}
 grpo_load_weights_only=${GRPO_LOAD_WEIGHTS_ONLY}
 grpo_skip_final_train_sleep=${GRPO_SKIP_FINAL_TRAIN_SLEEP}
 final_train_sleep_skip=${FINAL_TRAIN_SLEEP_SKIP}
+colocate=${COLOCATE}
+sft_colocate=${SFT_COLOCATE}
 distributed_timeout_minutes=${DISTRIBUTED_TIMEOUT_MINUTES}
 megatron_to_hf_mode=${MEGATRON_TO_HF_MODE}
 num_gpus=${NUM_GPUS}
@@ -880,9 +892,12 @@ max_tokens_per_gpu=${MAX_TOKENS_PER_GPU}
 micro_batch_size=${MICRO_BATCH_SIZE}
 seq_length=${SEQ_LENGTH}
 optimizer_cpu_offload=${OPTIMIZER_CPU_OFFLOAD}
+nvshmem_disable_nccl=${NVSHMEM_DISABLE_NCCL}
+update_weight_buffer_size=${UPDATE_WEIGHT_BUFFER_SIZE}
 sglang_mem_fraction=${SGLANG_MEM_FRACTION_STATIC}
 sglang_cuda_graph_max_bs=${SGLANG_CUDA_GRAPH_MAX_BS}
 sglang_disable_tp_memory_inbalance_check=${SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK}
+sglang_enable_tp_memory_inbalance_check=${SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK}
 wandb_project=${SLIME_WANDB_PROJECT:-slime-moonlight-cpp-perf}
 wandb_group=${SLIME_WANDB_GROUP:-${RUN_ID}}
 wandb_run_id=${SLIME_WANDB_RUN_ID:-${RUN_ID}-${STAGE}}
@@ -918,6 +933,15 @@ submit_slime_job() {
   wandb_args
   stage_args
   append_optimizer_offload_args
+
+  local colocate_for_stage="${COLOCATE}"
+  if [ "${STAGE}" = "sft" ]; then
+    colocate_for_stage="${SFT_COLOCATE}"
+  fi
+  COLOCATE_ARGS=()
+  if [ "${colocate_for_stage}" = "1" ]; then
+    COLOCATE_ARGS=(--colocate)
+  fi
 
   if [ "${SLIME_TRACE:-1}" = "1" ]; then
     set -x
@@ -960,7 +984,7 @@ submit_slime_job() {
     -- "${PYTHON_BIN}" -u -m "${SLIME_TRAIN_MODULE}" \
     --actor-num-nodes 1 \
     --actor-num-gpus-per-node "${NUM_GPUS}" \
-    --colocate \
+    "${COLOCATE_ARGS[@]}" \
     "${MODEL_ARGS[@]}" \
     "${CKPT_ARGS[@]}" \
     "${TASK_ARGS[@]}" \
