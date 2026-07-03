@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Moonlight-16B-A3B SLIME runner for PIE C++ base/SFT/GRPO measurement.
+# GLM-4.7-Flash SLIME runner for PIE C++ base/SFT/GRPO measurement.
 
 set -euo pipefail
 
@@ -22,8 +22,8 @@ MEGATRON_DIR="${MEGATRON_DIR:-/root/Megatron-LM}"
 PYTHON_BIN="${SLIME_CPP_PYTHON:-python3}"
 SLIME_TRAIN_MODULE="${SLIME_TRAIN_MODULE:-w8_biayn.integrations.slime_train_entry}"
 
-RUN_ID="${SLIME_RUN_ID:-moonlight_cpp_perf}"
-RUN_ROOT="${SLIME_RUN_ROOT:-${REPO_ROOT}/.w8-biayn/slime/moonlight-cpp-perf/runs/${RUN_ID}}"
+RUN_ID="${SLIME_RUN_ID:-glm47_cpp_perf}"
+RUN_ROOT="${SLIME_RUN_ROOT:-${REPO_ROOT}/.w8-biayn/slime/glm47-cpp-perf/runs/${RUN_ID}}"
 DATA_DIR="${SLIME_CPP_DATA_DIR:-${RUN_ROOT}/data}"
 TASKS_DIR="${SLIME_CPP_TASKS_DIR:-${REPO_ROOT}/.w8-biayn/data/tasks-full}"
 TRAIN_LIMIT="${SLIME_CPP_TRAIN_LIMIT:-2}"
@@ -31,8 +31,9 @@ EVAL_LIMIT="${SLIME_CPP_EVAL_LIMIT:-4}"
 EVAL_SPLITS="${SLIME_CPP_EVAL_SPLITS:-validation,test}"
 SORT_BY_SIZE="${SLIME_CPP_SORT_BY_SIZE:-1}"
 
-HF_CHECKPOINT="${SLIME_HF_CHECKPOINT:-/root/models/Moonlight-16B-A3B-Instruct}"
-HF_MODEL_ID="${SLIME_HF_MODEL_ID:-moonshotai/Moonlight-16B-A3B-Instruct}"
+MODEL_ARGS_SCRIPT="${SLIME_MODEL_ARGS_SCRIPT:-glm4.7-30B-A3B.sh}"
+HF_CHECKPOINT="${SLIME_HF_CHECKPOINT:-/root/models/GLM-4.7-Flash}"
+HF_MODEL_ID="${SLIME_HF_MODEL_ID:-zai-org/GLM-4.7-Flash}"
 DOWNLOAD_HF_CHECKPOINT="${SLIME_DOWNLOAD_HF_CHECKPOINT:-1}"
 REF_LOAD_DIR="${SLIME_REF_LOAD_DIR:-${HF_CHECKPOINT}_torch_dist}"
 SFT_SAVE_DIR="${SLIME_SFT_SAVE_DIR:-${RUN_ROOT}/checkpoints/sft}"
@@ -45,31 +46,41 @@ GRPO_HF_SAVE_TEMPLATE="${SLIME_GRPO_HF_SAVE_TEMPLATE:-${RUN_ROOT}/hf/grpo/rollou
 SFT_HF_CHECKPOINT="${SLIME_SFT_HF_CHECKPOINT:-}"
 GRPO_HF_CHECKPOINT="${SLIME_GRPO_HF_CHECKPOINT:-}"
 CONVERT_IF_MISSING="${SLIME_CONVERT_IF_MISSING:-1}"
-CONVERT_NPROC="${SLIME_CONVERT_NPROC:-1}"
+CONVERT_NPROC="${SLIME_CONVERT_NPROC:-8}"
 HF_CHECKPOINT_WAS_DOWNLOADED=0
 
-NUM_GPUS="${SLIME_NUM_GPUS:-4}"
+NUM_GPUS="${SLIME_NUM_GPUS:-8}"
 TP_SIZE="${SLIME_TENSOR_MODEL_PARALLEL_SIZE:-2}"
-PP_SIZE="${SLIME_PIPELINE_MODEL_PARALLEL_SIZE:-1}"
-CP_SIZE="${SLIME_CONTEXT_PARALLEL_SIZE:-1}"
-EP_SIZE="${SLIME_EXPERT_MODEL_PARALLEL_SIZE:-4}"
+PP_SIZE="${SLIME_PIPELINE_MODEL_PARALLEL_SIZE:-2}"
+CP_SIZE="${SLIME_CONTEXT_PARALLEL_SIZE:-2}"
+EP_SIZE="${SLIME_EXPERT_MODEL_PARALLEL_SIZE:-8}"
 ETP_SIZE="${SLIME_EXPERT_TENSOR_PARALLEL_SIZE:-1}"
-MAX_TOKENS_PER_GPU="${SLIME_MAX_TOKENS_PER_GPU:-4096}"
+DECODER_LAST_PIPELINE_NUM_LAYERS="${SLIME_DECODER_LAST_PIPELINE_NUM_LAYERS:-23}"
+MAX_TOKENS_PER_GPU="${SLIME_MAX_TOKENS_PER_GPU:-8192}"
 MICRO_BATCH_SIZE="${SLIME_MICRO_BATCH_SIZE:-1}"
-SEQ_LENGTH="${SLIME_SEQ_LENGTH:-1024}"
+SEQ_LENGTH="${SLIME_SEQ_LENGTH:-2048}"
 ROLLOUT_NUM_GPUS_PER_ENGINE="${SLIME_ROLLOUT_NUM_GPUS_PER_ENGINE:-${NUM_GPUS}}"
-SGLANG_MEM_FRACTION_STATIC="${SLIME_SGLANG_MEM_FRACTION:-0.45}"
+SGLANG_MEM_FRACTION_STATIC="${SLIME_SGLANG_MEM_FRACTION:-0.70}"
 SGLANG_CUDA_GRAPH_MAX_BS="${SLIME_SGLANG_CUDA_GRAPH_MAX_BS:-16}"
+SGLANG_MAX_RUNNING_REQUESTS="${SLIME_SGLANG_MAX_RUNNING_REQUESTS:-64}"
+SGLANG_DP_SIZE="${SLIME_SGLANG_DP_SIZE:-${NUM_GPUS}}"
+SGLANG_MOE_DENSE_TP_SIZE="${SLIME_SGLANG_MOE_DENSE_TP_SIZE:-1}"
+SGLANG_ENABLE_DP_ATTENTION="${SLIME_SGLANG_ENABLE_DP_ATTENTION:-1}"
+SGLANG_ENABLE_DP_LM_HEAD="${SLIME_SGLANG_ENABLE_DP_LM_HEAD:-1}"
+SGLANG_SPECULATIVE="${SLIME_SGLANG_SPECULATIVE:-1}"
 SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK="${SLIME_SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK:-1}"
 SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK="${SLIME_SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK:-0}"
 NVSHMEM_DISABLE_NCCL="${SLIME_NVSHMEM_DISABLE_NCCL:-${NVSHMEM_DISABLE_NCCL:-1}}"
 UPDATE_WEIGHT_BUFFER_SIZE="${SLIME_UPDATE_WEIGHT_BUFFER_SIZE:-}"
-ATTENTION_BACKEND="${SLIME_ATTENTION_BACKEND:-local}"
-LOCAL_LAYER_SPEC_MODULE="${SLIME_LOCAL_LAYER_SPEC_MODULE:-local}"
-LOCAL_LAYER_SPEC_NAME="${SLIME_LOCAL_LAYER_SPEC_NAME:-moonlight_local_decoder_block_spec}"
+ATTENTION_BACKEND="${SLIME_ATTENTION_BACKEND:-flash}"
 SEQUENCE_PARALLEL="${SLIME_SEQUENCE_PARALLEL:-1}"
-MOE_GROUPED_GEMM="${SLIME_MOE_GROUPED_GEMM:-0}"
-USE_DYNAMIC_BATCH_SIZE="${SLIME_USE_DYNAMIC_BATCH_SIZE:-auto}"
+MOE_GROUPED_GEMM="${SLIME_MOE_GROUPED_GEMM:-1}"
+USE_DYNAMIC_BATCH_SIZE="${SLIME_USE_DYNAMIC_BATCH_SIZE:-1}"
+GLM_MOE_TOKEN_DISPATCHER_TYPE="${SLIME_GLM_MOE_TOKEN_DISPATCHER_TYPE:-flex}"
+GLM_ENABLE_DEEPEP="${SLIME_GLM_ENABLE_DEEPEP:-0}"
+GLM_ENABLE_MTP_TRAINING="${SLIME_GLM_ENABLE_MTP_TRAINING:-1}"
+GLM_MTP_NUM_LAYERS="${SLIME_GLM_MTP_NUM_LAYERS:-1}"
+GLM_MTP_LOSS_SCALING_FACTOR="${SLIME_GLM_MTP_LOSS_SCALING_FACTOR:-0.2}"
 
 GRPO_NUM_ROLLOUT="${SLIME_GRPO_NUM_ROLLOUT:-1}"
 GRPO_ROLLOUT_BATCH_SIZE="${SLIME_GRPO_ROLLOUT_BATCH_SIZE:-2}"
@@ -97,7 +108,7 @@ EVAL_TOP_P="${SLIME_EVAL_TOP_P:-1}"
 
 SAVE_INTERVAL="${SLIME_SAVE_INTERVAL:-1000}"
 EVAL_LR_DECAY_ITERS="${SLIME_EVAL_LR_DECAY_ITERS:-1}"
-DISTRIBUTED_TIMEOUT_MINUTES="${SLIME_DISTRIBUTED_TIMEOUT_MINUTES:-60}"
+DISTRIBUTED_TIMEOUT_MINUTES="${SLIME_DISTRIBUTED_TIMEOUT_MINUTES:-90}"
 MEGATRON_TO_HF_MODE="${SLIME_MEGATRON_TO_HF_MODE:-raw}"
 USE_EXTERNAL_RAY="${SLIME_USE_EXTERNAL_RAY:-0}"
 SKIP_CLEANUP="${SLIME_SKIP_CLEANUP:-0}"
@@ -109,14 +120,15 @@ if [ -n "${SLIME_OPTIMIZER_CPU_OFFLOAD:-}" ]; then
   OPTIMIZER_CPU_OFFLOAD="${SLIME_OPTIMIZER_CPU_OFFLOAD}"
 else
   case "${STAGE}" in
-    sft) OPTIMIZER_CPU_OFFLOAD=0 ;;
-    grpo) OPTIMIZER_CPU_OFFLOAD=0 ;;
+    sft | grpo) OPTIMIZER_CPU_OFFLOAD=1 ;;
     *) OPTIMIZER_CPU_OFFLOAD=0 ;;
   esac
 fi
 HF_EXPORT_CHUNK_SIZE="${SLIME_HF_EXPORT_CHUNK_SIZE:-5368709120}"
 HF_EXPORT_FORCE="${SLIME_HF_EXPORT_FORCE:-1}"
 HF_EXPORT_ADD_MISSING_FROM_ORIGIN="${SLIME_HF_EXPORT_ADD_MISSING_FROM_ORIGIN:-1}"
+HF_EXPORT_MODEL_NAME="${SLIME_HF_EXPORT_MODEL_NAME:-}"
+HF_EXPORT_VOCAB_SIZE="${SLIME_HF_EXPORT_VOCAB_SIZE:-}"
 HF_EXPORT_LOG=""
 HF_EXPORT_STATUS=""
 
@@ -190,13 +202,13 @@ prepare_data() {
   fi
   BUILD_DATA_ARGS=(
     -m w8_biayn.integrations.slime_cpp_perf build-data
-    --tasks-dir "${TASKS_DIR}" \
-    --out "${DATA_DIR}" \
-    --train-limit "${TRAIN_LIMIT}" \
-    --eval-limit "${EVAL_LIMIT}" \
-    --eval-splits "${EVAL_SPLITS}" \
-    --profile "${SLIME_CPP_PROFILE:-moonlight-cpp-perf}" \
-    --run-id "${RUN_ID}" \
+    --tasks-dir "${TASKS_DIR}"
+    --out "${DATA_DIR}"
+    --train-limit "${TRAIN_LIMIT}"
+    --eval-limit "${EVAL_LIMIT}"
+    --eval-splits "${EVAL_SPLITS}"
+    --profile "${SLIME_CPP_PROFILE:-glm47-cpp-perf}"
+    --run-id "${RUN_ID}"
     --force
   )
   if [ "${SORT_BY_SIZE}" = "1" ]; then
@@ -260,8 +272,8 @@ ensure_slime_runtime() {
       exit 2
     fi
   done
-  if [ ! -f "${SLIME_ROOT}/scripts/models/moonlight.sh" ]; then
-    echo "Missing Moonlight model args: ${SLIME_ROOT}/scripts/models/moonlight.sh" >&2
+  if [ ! -f "${SLIME_ROOT}/scripts/models/${MODEL_ARGS_SCRIPT}" ]; then
+    echo "Missing GLM model args: ${SLIME_ROOT}/scripts/models/${MODEL_ARGS_SCRIPT}" >&2
     echo "Refresh the pinned SLIME checkout with: uv run w8-biayn upstreams clone slime" >&2
     exit 2
   fi
@@ -290,7 +302,7 @@ filter_model_args() {
 ensure_base_checkpoint() {
   download_hf_checkpoint_if_missing
   # shellcheck disable=SC1090
-  source "${SLIME_ROOT}/scripts/models/moonlight.sh"
+  source "${SLIME_ROOT}/scripts/models/${MODEL_ARGS_SCRIPT}"
   CONVERT_MODEL_ARGS=("${MODEL_ARGS[@]}")
   filter_model_args
   if checkpoint_ready "${REF_LOAD_DIR}"; then
@@ -331,7 +343,7 @@ require_checkpoint() {
 require_hf_export() {
   local checkpoint_dir="$1"
   local name="$2"
-  if ! hf_export_ready "${checkpoint_dir}"; then
+  if ! hf_export_ready "${checkpoint_dir}" "${name}"; then
     echo "Missing ${name} HuggingFace export: ${checkpoint_dir}" >&2
     echo "Expected config.json and HF weight files in that directory." >&2
     exit 2
@@ -375,16 +387,27 @@ export_hf_checkpoint() {
   input_dir="$(latest_checkpoint_iteration_dir "${checkpoint_dir}")"
   echo "Exporting ${name} Megatron checkpoint to HuggingFace: ${output_dir}" | tee "${HF_EXPORT_LOG}"
   set +e
+  HF_EXPORT_ARGS=(
+    "${SLIME_ROOT}/tools/convert_torch_dist_to_hf.py"
+    --input-dir "${input_dir}"
+    --output-dir "${output_dir}"
+    --origin-hf-dir "${HF_CHECKPOINT}"
+    --chunk-size "${HF_EXPORT_CHUNK_SIZE}"
+  )
+  if [ -n "${HF_EXPORT_MODEL_NAME}" ]; then
+    HF_EXPORT_ARGS+=(--model-name "${HF_EXPORT_MODEL_NAME}")
+  fi
+  if [ -n "${HF_EXPORT_VOCAB_SIZE}" ]; then
+    HF_EXPORT_ARGS+=(--vocab-size "${HF_EXPORT_VOCAB_SIZE}")
+  fi
+  if [ "${HF_EXPORT_FORCE}" = "1" ]; then
+    HF_EXPORT_ARGS+=(--force)
+  fi
+  if [ "${HF_EXPORT_ADD_MISSING_FROM_ORIGIN}" = "1" ]; then
+    HF_EXPORT_ARGS+=(--add-missing-from-origin-hf)
+  fi
   PYTHONPATH="${MEGATRON_DIR}:${SLIME_ROOT}:${REPO_ROOT}/src:${PYTHONPATH:-}" \
-    "${PYTHON_BIN}" -m w8_biayn.integrations.slime_moonlight_hf_export \
-      --input-dir "${input_dir}" \
-      --output-dir "${output_dir}" \
-      --origin-hf-dir "${HF_CHECKPOINT}" \
-      --slime-root "${SLIME_ROOT}" \
-      --chunk-size "${HF_EXPORT_CHUNK_SIZE}" \
-      $([ "${HF_EXPORT_FORCE}" = "1" ] && printf "%s" "--force") \
-      $([ "${HF_EXPORT_ADD_MISSING_FROM_ORIGIN}" = "1" ] && printf "%s" "--add-missing-from-origin-hf") \
-      >>"${HF_EXPORT_LOG}" 2>&1
+    "${PYTHON_BIN}" "${HF_EXPORT_ARGS[@]}" >>"${HF_EXPORT_LOG}" 2>&1
   local export_status="$?"
   set -e
   if [ "${export_status}" = "0" ]; then
@@ -505,6 +528,9 @@ base_model_args() {
     --recompute-num-layers 1
     --seq-length "${SEQ_LENGTH}"
   )
+  if [ -n "${DECODER_LAST_PIPELINE_NUM_LAYERS}" ]; then
+    PERF_ARGS+=(--decoder-last-pipeline-num-layers "${DECODER_LAST_PIPELINE_NUM_LAYERS}")
+  fi
   if [ "${USE_DYNAMIC_BATCH_SIZE}" = "1" ] || { [ "${USE_DYNAMIC_BATCH_SIZE}" = "auto" ] && [ "${ATTENTION_BACKEND}" != "local" ]; }; then
     PERF_ARGS+=(--use-dynamic-batch-size --max-tokens-per-gpu "${MAX_TOKENS_PER_GPU}")
   else
@@ -525,8 +551,28 @@ base_model_args() {
     --rollout-num-gpus-per-engine "${ROLLOUT_NUM_GPUS_PER_ENGINE}"
     --sglang-mem-fraction-static "${SGLANG_MEM_FRACTION_STATIC}"
   )
+  if [ "${SGLANG_ENABLE_DP_ATTENTION}" = "1" ]; then
+    SGLANG_ARGS+=(--sglang-enable-dp-attention --sglang-dp-size "${SGLANG_DP_SIZE}")
+  fi
+  if [ "${SGLANG_ENABLE_DP_LM_HEAD}" = "1" ]; then
+    SGLANG_ARGS+=(--sglang-enable-dp-lm-head)
+  fi
+  if [ -n "${SGLANG_MOE_DENSE_TP_SIZE}" ]; then
+    SGLANG_ARGS+=(--sglang-moe-dense-tp-size "${SGLANG_MOE_DENSE_TP_SIZE}")
+  fi
+  if [ "${SGLANG_SPECULATIVE}" = "1" ]; then
+    SGLANG_ARGS+=(
+      --sglang-speculative-algorithm EAGLE
+      --sglang-speculative-num-steps "${SLIME_SGLANG_SPECULATIVE_NUM_STEPS:-3}"
+      --sglang-speculative-eagle-topk "${SLIME_SGLANG_SPECULATIVE_EAGLE_TOPK:-1}"
+      --sglang-speculative-num-draft-tokens "${SLIME_SGLANG_SPECULATIVE_NUM_DRAFT_TOKENS:-4}"
+    )
+  fi
   if [ -n "${SGLANG_CUDA_GRAPH_MAX_BS}" ]; then
     SGLANG_ARGS+=(--sglang-cuda-graph-max-bs "${SGLANG_CUDA_GRAPH_MAX_BS}")
+  fi
+  if [ -n "${SGLANG_MAX_RUNNING_REQUESTS}" ]; then
+    SGLANG_ARGS+=(--sglang-max-running-requests "${SGLANG_MAX_RUNNING_REQUESTS}")
   fi
   if [ "${SLIME_SGLANG_DISABLE_CUSTOM_ALL_REDUCE:-1}" = "1" ]; then
     SGLANG_ARGS+=(--sglang-disable-custom-all-reduce)
@@ -540,6 +586,20 @@ base_model_args() {
   if [ -n "${ATTENTION_BACKEND}" ]; then
     MISC_ARGS+=(--attention-backend "${ATTENTION_BACKEND}")
   fi
+  if [ -n "${GLM_MOE_TOKEN_DISPATCHER_TYPE}" ]; then
+    MISC_ARGS+=(--moe-token-dispatcher-type "${GLM_MOE_TOKEN_DISPATCHER_TYPE}")
+  fi
+  if [ "${GLM_ENABLE_DEEPEP}" = "1" ]; then
+    MISC_ARGS+=(--moe-enable-deepep)
+  fi
+  MTP_ARGS=()
+  if [ "${GLM_ENABLE_MTP_TRAINING}" = "1" ]; then
+    MTP_ARGS=(
+      --mtp-num-layers "${GLM_MTP_NUM_LAYERS}"
+      --enable-mtp-training
+      --mtp-loss-scaling-factor "${GLM_MTP_LOSS_SCALING_FACTOR}"
+    )
+  fi
   EXTRA_ARGS=(
     --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}"
     --megatron-to-hf-mode "${MEGATRON_TO_HF_MODE}"
@@ -550,9 +610,6 @@ base_model_args() {
   )
   if [ -n "${UPDATE_WEIGHT_BUFFER_SIZE}" ]; then
     EXTRA_ARGS+=(--update-weight-buffer-size "${UPDATE_WEIGHT_BUFFER_SIZE}")
-  fi
-  if [ "${ATTENTION_BACKEND}" = "local" ] && [ "${SLIME_USE_LOCAL_LAYER_SPEC:-1}" = "1" ]; then
-    EXTRA_ARGS+=(--no-persist-layer-norm --spec "${LOCAL_LAYER_SPEC_MODULE}" "${LOCAL_LAYER_SPEC_NAME}")
   fi
   if [ -n "${SLIME_EXTRA_ARGS:-}" ]; then
     read -r -a SLIME_EXTRA_ARGS_ARRAY <<<"${SLIME_EXTRA_ARGS}"
@@ -570,7 +627,7 @@ wandb_args() {
   if [ -n "${WANDB_KEY}" ] || [ "${WANDB_ALREADY_LOGGED_IN}" = "1" ] || [ -n "${SLIME_WANDB_PROJECT:-}" ]; then
     WANDB_ARGS=(
       --use-wandb
-      --wandb-project "${SLIME_WANDB_PROJECT:-slime-moonlight-cpp-perf}"
+      --wandb-project "${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}"
       --wandb-group "${SLIME_WANDB_GROUP:-${RUN_ID}}"
       --wandb-run-id "${SLIME_WANDB_RUN_ID:-${RUN_ID}-${STAGE}}"
       --disable-wandb-random-suffix
@@ -791,7 +848,7 @@ env = {
     "CUDA_DEVICE_MAX_CONNECTIONS": "1",
     "NCCL_NVLS_ENABLE": "${HAS_NVLINK}",
     "W8_BIAYN_DATA_DIR": "${DATA_DIR}",
-    "W8_CPP_SANDBOX_IMAGE": os.environ.get("W8_CPP_SANDBOX_IMAGE", "w8-biayn/cpp-sandbox:latest"),
+    "W8_CPP_SANDBOX_IMAGE": os.environ.get("W8_CPP_SANDBOX_IMAGE", "w8-biayn-cpp-perf:latest"),
     "W8_CPP_SANDBOX_CPU": os.environ.get("W8_CPP_SANDBOX_CPU", "3"),
     "W8_SLIME_CPP_INCLUDE_LOGS": os.environ.get("W8_SLIME_CPP_INCLUDE_LOGS", "0"),
     "W8_SLIME_SKIP_FINAL_TRAIN_SLEEP": "${FINAL_TRAIN_SLEEP_SKIP}",
@@ -857,6 +914,7 @@ tasks_dir=${TASKS_DIR}
 train_limit=${TRAIN_LIMIT}
 eval_limit=${EVAL_LIMIT}
 sort_by_size=${SORT_BY_SIZE}
+model_args_script=${MODEL_ARGS_SCRIPT}
 hf_checkpoint=${HF_CHECKPOINT}
 hf_model_id=${HF_MODEL_ID}
 download_hf_checkpoint=${DOWNLOAD_HF_CHECKPOINT}
@@ -870,6 +928,8 @@ standalone_hf_exports=${STANDALONE_HF_EXPORTS}
 hf_export_force=${HF_EXPORT_FORCE}
 hf_export_add_missing_from_origin=${HF_EXPORT_ADD_MISSING_FROM_ORIGIN}
 hf_export_chunk_size=${HF_EXPORT_CHUNK_SIZE}
+hf_export_model_name=${HF_EXPORT_MODEL_NAME}
+hf_export_vocab_size=${HF_EXPORT_VOCAB_SIZE}
 hf_export_status=${HF_EXPORT_STATUS}
 hf_export_log=${HF_EXPORT_LOG}
 sft_hf_save_template=${SFT_HF_SAVE_TEMPLATE}
@@ -887,24 +947,30 @@ distributed_timeout_minutes=${DISTRIBUTED_TIMEOUT_MINUTES}
 megatron_to_hf_mode=${MEGATRON_TO_HF_MODE}
 num_gpus=${NUM_GPUS}
 tp_size=${TP_SIZE}
+pp_size=${PP_SIZE}
+cp_size=${CP_SIZE}
 ep_size=${EP_SIZE}
+decoder_last_pipeline_num_layers=${DECODER_LAST_PIPELINE_NUM_LAYERS}
 max_tokens_per_gpu=${MAX_TOKENS_PER_GPU}
 micro_batch_size=${MICRO_BATCH_SIZE}
 seq_length=${SEQ_LENGTH}
 optimizer_cpu_offload=${OPTIMIZER_CPU_OFFLOAD}
 nvshmem_disable_nccl=${NVSHMEM_DISABLE_NCCL}
+glm_enable_deepep=${GLM_ENABLE_DEEPEP}
+glm_enable_mtp_training=${GLM_ENABLE_MTP_TRAINING}
 update_weight_buffer_size=${UPDATE_WEIGHT_BUFFER_SIZE}
 sglang_mem_fraction=${SGLANG_MEM_FRACTION_STATIC}
 sglang_cuda_graph_max_bs=${SGLANG_CUDA_GRAPH_MAX_BS}
+sglang_dp_size=${SGLANG_DP_SIZE}
+sglang_enable_dp_attention=${SGLANG_ENABLE_DP_ATTENTION}
+sglang_enable_dp_lm_head=${SGLANG_ENABLE_DP_LM_HEAD}
+sglang_speculative=${SGLANG_SPECULATIVE}
+sglang_max_running_requests=${SGLANG_MAX_RUNNING_REQUESTS}
 sglang_disable_tp_memory_inbalance_check=${SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK}
 sglang_enable_tp_memory_inbalance_check=${SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK}
-wandb_project=${SLIME_WANDB_PROJECT:-slime-moonlight-cpp-perf}
+wandb_project=${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}
 wandb_group=${SLIME_WANDB_GROUP:-${RUN_ID}}
 wandb_run_id=${SLIME_WANDB_RUN_ID:-${RUN_ID}-${STAGE}}
-lora_enabled=${SLIME_LORA_ENABLED:-}
-lora_rank=${SLIME_LORA_RANK:-}
-lora_extra_args=${SLIME_LORA_EXTRA_ARGS:-}
-resolved_lora_extra_args=${W8_RESOLVED_LORA_ARGS:-}
 rollout_dump_template=${ROLLOUT_DUMP_TEMPLATE}
 eval_dump_path=${EVAL_DUMP_PATH}
 EOF
@@ -970,9 +1036,9 @@ submit_slime_job() {
   RAY_JOB_ID="$(printf "%s" "${RAY_JOB_ID}" | tr -c "A-Za-z0-9_-" "-")"
   RAY_JOB_TERMINAL_STATUS="unknown"
   RAY_STATUS_STARTED_AT="$(date +%s)"
-  RAY_STATUS_TIMEOUT_SECONDS="${SLIME_RAY_STATUS_TIMEOUT_SECONDS:-7200}"
+  RAY_STATUS_TIMEOUT_SECONDS="${SLIME_RAY_STATUS_TIMEOUT_SECONDS:-43200}"
 
-  echo "Moonlight C++ SLIME stage: ${STAGE}"
+  echo "GLM-4.7-Flash C++ SLIME stage: ${STAGE}"
   echo "Run root: ${RUN_ROOT}"
   echo "Log: ${LOG_FILE}"
   echo "VRAM log: ${VRAM_LOG}"
@@ -999,6 +1065,7 @@ submit_slime_job() {
     "${SGLANG_ARGS[@]}" \
     "${SGLANG_CONFIG_ARGS[@]}" \
     "${MISC_ARGS[@]}" \
+    "${MTP_ARGS[@]}" \
     "${EXTRA_ARGS[@]}" \
     "${CUSTOM_ARGS[@]}" \
     2>&1 | tee "${LOG_FILE}"

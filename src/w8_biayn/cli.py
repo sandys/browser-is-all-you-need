@@ -9,7 +9,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -58,31 +58,18 @@ from .cpp_perf.sandbox import (
     sandbox_image_build_plan,
 )
 from .cpp_perf.schema import CppTask, TestCase
-from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
-from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
-from .mlflow_metrics import DEFAULT_METRIC_KEYS, read_mlflow_api, read_mlflow_metrics
 from .reporting import build_raw_run_report
-from .run_status import PIPELINES as STATUS_PIPELINES
-from .run_status import build_run_status
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
 from .shell import run_command
-from .sky_config import (
-    GRPO_MIN_SAMPLES_PER_GPU_STEP,
-    GRPO_MULTINODE_RESUME_MIN_DISK_GB,
-    Pipeline,
-    RenderOptions,
-    SUPPORTED_TRACKING_BACKENDS,
-    write_sky_yaml,
-)
 
-app = typer.Typer(help="Command and control for C++ performance RL on rLLM, SkyRL, and GCP.")
+app = typer.Typer(help="Command and control for SLIME-based C++ performance RL.")
 upstreams_app = typer.Typer(help="Manage pinned upstream source clones.")
 slime_app = typer.Typer(help="Inspect and operate the pinned SLIME upstream sidecar.")
 data_app = typer.Typer(help="Download, convert, validate, and cache training datasets.")
 data_pie_app = typer.Typer(help="Prepare PIE C++ data.")
 data_supercoder_app = typer.Typer(help="Download and inspect SuperCoder reference data.")
-data_skyrl_app = typer.Typer(help="Build SkyRL/rLLM dataset files from validated tasks.")
+data_skyrl_app = typer.Typer(help="Legacy SkyRL/rLLM dataset conversion from validated tasks.")
 data_cache_app = typer.Typer(help="Upload and restore versioned dataset bundles from GCS.")
 cpp_app = typer.Typer(help="Build, run, and score C++ performance-RL tasks.")
 task_app = typer.Typer(help="Build PIE-derived C++ task JSON.")
@@ -111,6 +98,95 @@ app.add_typer(gcp_app, name="gcp")
 app.add_typer(ops_app, name="ops")
 app.add_typer(eval_app, name="eval")
 console = Console()
+
+LEGACY_SKYRL_MESSAGE = (
+    "This command belongs to the legacy SkyRL/rLLM/SkyPilot control plane. "
+    "Those files are no longer tracked in the active SLIME/Moonlight/GLM line; "
+    "restore them from an earlier GitHub revision if you need to rerun legacy jobs."
+)
+SUPPORTED_TRACKING_BACKENDS = ("console", "mlflow")
+GRPO_MIN_SAMPLES_PER_GPU_STEP = 16
+GRPO_MULTINODE_RESUME_MIN_DISK_GB = 2048
+
+
+def _legacy_skyrl_unavailable(command: str, exc: ImportError | None = None) -> None:
+    detail = f"{command}: {LEGACY_SKYRL_MESSAGE}"
+    if exc is not None:
+        detail += f" Missing import: {getattr(exc, 'name', None) or exc}."
+    raise typer.BadParameter(detail)
+
+
+def _render_options_class(command: str):
+    try:
+        from .sky_config import RenderOptions
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return RenderOptions
+
+
+def _write_sky_yaml(options: object, output: str | Path | None = None) -> Path:
+    try:
+        from .sky_config import write_sky_yaml
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable("config render/launch", exc)
+    return write_sky_yaml(options, output)
+
+
+def _grpo_readiness_funcs(command: str):
+    try:
+        from .grpo_readiness import build_grpo_readiness, readiness_blocks_launch
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return build_grpo_readiness, readiness_blocks_launch
+
+
+def _status_pipelines(command: str) -> tuple[str, ...]:
+    try:
+        from .run_status import PIPELINES
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return tuple(PIPELINES)
+
+
+def _build_run_status_legacy(command: str, **kwargs: Any) -> dict[str, Any]:
+    try:
+        from .run_status import build_run_status
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return build_run_status(**kwargs)
+
+
+def _default_metric_keys(command: str) -> tuple[str, ...]:
+    try:
+        from .mlflow_metrics import DEFAULT_METRIC_KEYS
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return tuple(DEFAULT_METRIC_KEYS)
+
+
+def _read_mlflow_metrics_legacy(command: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        from .mlflow_metrics import read_mlflow_metrics
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return read_mlflow_metrics(*args, **kwargs)
+
+
+def _read_mlflow_api_legacy(command: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        from .mlflow_metrics import read_mlflow_api
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return read_mlflow_api(*args, **kwargs)
+
+
+def _build_skyrl_datasets_legacy(command: str, *args: Any, **kwargs: Any) -> dict[str, Path]:
+    try:
+        from .cpp_perf.skyrl_dataset import build_skyrl_datasets
+    except ImportError as exc:  # pragma: no cover - exercised only when legacy files are absent
+        _legacy_skyrl_unavailable(command, exc)
+    return build_skyrl_datasets(*args, **kwargs)
+
 
 
 SKYPILOT_GCP_LAUNCH_PERMISSIONS = (
@@ -238,7 +314,7 @@ def _new_run_id() -> str:
     return time.strftime("r%Y%m%d%H%M%S", time.gmtime())
 
 
-def _require_launch_labels(options: RenderOptions) -> None:
+def _require_launch_labels(options: Any) -> None:
     labels = options.labels
     required = {"project", "phase", "pipeline", "run_id", "owner", "ttl"}
     missing = sorted(key for key in required if not labels.get(key))
@@ -246,7 +322,7 @@ def _require_launch_labels(options: RenderOptions) -> None:
         raise typer.BadParameter(f"launch labels missing required keys: {', '.join(missing)}")
 
 
-def _require_grpo_multinode_utilization(options: RenderOptions) -> None:
+def _require_grpo_multinode_utilization(options: Any) -> None:
     if (
         options.pipeline != "cpp-grpo"
         or options.num_nodes <= 1
@@ -274,7 +350,7 @@ def _require_grpo_multinode_utilization(options: RenderOptions) -> None:
     raise typer.BadParameter("; ".join(failures) + f". {hint}")
 
 
-def _require_grpo_multinode_resume_disk(options: RenderOptions) -> None:
+def _require_grpo_multinode_resume_disk(options: Any) -> None:
     if options.pipeline != "cpp-grpo" or options.num_nodes <= 1 or not options.resume_from.strip():
         return
     if options.effective_disk_size >= GRPO_MULTINODE_RESUME_MIN_DISK_GB:
@@ -302,6 +378,7 @@ def _normalize_tracking_backends(backends: Optional[list[str]]) -> tuple[str, ..
 
 
 def _require_grpo_readiness(rendered_config_path: str | Path) -> None:
+    build_grpo_readiness, readiness_blocks_launch = _grpo_readiness_funcs("launch cpp-grpo")
     payload = build_grpo_readiness(rendered_config_path)
     if readiness_blocks_launch(payload):
         console.print_json(data=payload)
@@ -842,9 +919,10 @@ def data_skyrl_build(
     min_train_tasks: int = typer.Option(1, help="Minimum train tasks required."),
     min_validation_tasks: int = typer.Option(1, help="Minimum validation/test tasks required."),
 ) -> None:
-    """Build SkyRL GRPO parquet and SFT JSONL from task JSON."""
+    """Legacy: build SkyRL GRPO parquet and SFT JSONL from task JSON."""
 
-    written = build_skyrl_datasets(
+    written = _build_skyrl_datasets_legacy(
+        "data skyrl build",
         tasks_dir,
         out,
         profile=profile,
@@ -1051,7 +1129,7 @@ def cpp_reward_score(
 
 @config_app.command("render")
 def config_render(
-    pipeline: Pipeline = typer.Argument(..., help="Pipeline to render: cpp-smoke, cpp-sft, cpp-grpo, or cpp-eval."),
+    pipeline: str = typer.Argument(..., help="Legacy SkyRL pipeline to render: cpp-smoke, cpp-sft, cpp-grpo, or cpp-eval."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML path."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
@@ -1168,13 +1246,13 @@ def config_render(
     )
     _require_grpo_multinode_utilization(options)
     _require_grpo_multinode_resume_disk(options)
-    written = write_sky_yaml(options, output)
+    written = _write_sky_yaml(options, output)
     console.print(str(written))
 
 
 @app.command()
 def launch(
-    pipeline: Pipeline = typer.Argument(..., help="Pipeline to launch: cpp-smoke, cpp-sft, cpp-grpo, or cpp-eval."),
+    pipeline: str = typer.Argument(..., help="Legacy SkyRL pipeline to launch: cpp-smoke, cpp-sft, cpp-grpo, or cpp-eval."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     bucket: Optional[str] = typer.Option(None, help="Artifact bucket URI."),
     accelerators: Optional[str] = typer.Option(None, help="Cloud backend accelerator request."),
@@ -1300,7 +1378,7 @@ def launch(
     _require_launch_labels(options)
     _require_grpo_multinode_utilization(options)
     _require_grpo_multinode_resume_disk(options)
-    output = write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
+    output = _write_sky_yaml(options, f"{DEFAULT_RENDER_DIR}/{pipeline}.sky.yaml")
     if options.pipeline == "cpp-grpo" and options.num_nodes > 1 and not options.sft_export_checkpoint:
         _require_grpo_readiness(output)
     env = _service_account_env(credentials, project_id=options.project_id)
@@ -1657,8 +1735,9 @@ def ops_run_status(
 ) -> None:
     """Emit one JSON status snapshot for a run, suitable for dashboards."""
 
-    selected_pipelines = pipeline or list(STATUS_PIPELINES)
-    unknown = sorted(set(selected_pipelines) - set(STATUS_PIPELINES))
+    status_pipelines = _status_pipelines("ops run-status")
+    selected_pipelines = pipeline or list(status_pipelines)
+    unknown = sorted(set(selected_pipelines) - set(status_pipelines))
     if unknown:
         raise typer.BadParameter(f"unknown pipeline(s): {', '.join(unknown)}")
     project_id = _project_id(credentials)
@@ -1669,7 +1748,8 @@ def ops_run_status(
         if isinstance(payload, dict):
             payload["_status_source"] = status_path
             baseline_payloads.append(payload)
-    payload = build_run_status(
+    payload = _build_run_status_legacy(
+        "ops run-status",
         run_id=run_id,
         project_id=project_id,
         artifact_bucket=artifact_bucket,
@@ -1723,7 +1803,9 @@ def ops_metrics(
 ) -> None:
     """Fetch MLflow metrics through live API or synced SQLite and emit headless metric JSON."""
 
-    if pipeline not in STATUS_PIPELINES:
+    status_pipelines = _status_pipelines("ops metrics")
+    default_metric_keys = _default_metric_keys("ops metrics")
+    if pipeline not in status_pipelines:
         raise typer.BadParameter(f"unknown pipeline: {pipeline}")
     if source not in {"auto", "api", "sqlite"}:
         raise typer.BadParameter("source must be one of: auto, api, sqlite")
@@ -1770,7 +1852,7 @@ def ops_metrics(
             "metric_row_count": 0,
             "metric_count": 0,
             "available_keys": [],
-            "selected_keys": list(metric or DEFAULT_METRIC_KEYS),
+            "selected_keys": list(metric or default_metric_keys),
             "latest": {},
             "series": {},
         }
@@ -1858,13 +1940,13 @@ def _read_mlflow_metrics_from_gcs(
                 "metric_row_count": 0,
                 "metric_count": 0,
                 "available_keys": [],
-                "selected_keys": list(metric_keys or DEFAULT_METRIC_KEYS),
+                "selected_keys": list(metric_keys or _default_metric_keys("ops metrics")),
                 "latest": {},
                 "series": {},
             },
             check,
         )
-    return read_mlflow_metrics(local_db, metric_keys=metric_keys, last=last), check
+    return _read_mlflow_metrics_legacy("ops metrics", local_db, metric_keys=metric_keys, last=last), check
 
 
 def _gcloud_mlflow_db_check(
@@ -1930,7 +2012,7 @@ def _read_mlflow_metrics_via_tunnel(
         "metric_row_count": 0,
         "metric_count": 0,
         "available_keys": [],
-        "selected_keys": list(metric_keys or DEFAULT_METRIC_KEYS),
+        "selected_keys": list(metric_keys or _default_metric_keys("ops metrics")),
         "latest": {},
         "series": {},
     }
@@ -1946,7 +2028,7 @@ def _read_mlflow_metrics_via_tunnel(
                 payload["reason"] = f"ssh_tunnel_failed:{returncode}"
                 payload["tracking_state"] = payload["reason"]
                 return payload, [check]
-            payload = read_mlflow_api(base_url, metric_keys=metric_keys, last=last, timeout_s=3.0)
+            payload = _read_mlflow_api_legacy("ops metrics", base_url, metric_keys=metric_keys, last=last, timeout_s=3.0)
             if payload.get("available") is True:
                 check["ok"] = True
                 return payload, [check]
@@ -2011,6 +2093,7 @@ def ops_grpo_readiness(
         status_payload = json.loads(Path(status_json).read_text(encoding="utf-8"))
         if not isinstance(status_payload, dict):
             raise typer.BadParameter("--status-json must contain a JSON object")
+    build_grpo_readiness, readiness_blocks_launch = _grpo_readiness_funcs("ops grpo-readiness")
     payload = build_grpo_readiness(rendered_config, status_payload=status_payload)
     if out:
         _write_json(out, payload)
@@ -2076,7 +2159,7 @@ def down(
 
 def _render_options(
     *,
-    pipeline: Pipeline,
+    pipeline: str,
     credentials: str,
     bucket: Optional[str],
     accelerators: Optional[str],
@@ -2115,7 +2198,8 @@ def _render_options(
     eval_label: str,
     eval_max_tasks: Optional[int],
     allow_low_multinode_utilization: bool,
-) -> RenderOptions:
+) -> object:
+    RenderOptions = _render_options_class("config render/launch")
     project_id = _project_id(credentials)
     is_training = pipeline in ("cpp-sft", "cpp-grpo")
     is_eval = pipeline == "cpp-eval"

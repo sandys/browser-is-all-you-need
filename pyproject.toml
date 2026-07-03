@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "browser-is-all-you-need"
 version = "0.1.0"
-description = "Command and control CLI for C++ performance-RL pipelines on rLLM, SkyRL, and Google Cloud."
+description = "Command and control CLI for SLIME-based C++ performance-RL pipelines."
 requires-python = ">=3.10"
 dependencies = [
     "datasets>=2.19",

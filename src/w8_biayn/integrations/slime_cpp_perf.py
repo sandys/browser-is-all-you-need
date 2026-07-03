@@ -13,7 +13,7 @@ from w8_biayn.cpp_perf.eval import aggregate_eval_records, compare_eval_summarie
 from w8_biayn.cpp_perf.reward import RewardBreakdown, compute_reward
 from w8_biayn.cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE, run_in_sandbox
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult
-from w8_biayn.cpp_perf.skyrl_dataset import DATA_SOURCE, build_prompt, load_tasks, sft_output
+from w8_biayn.cpp_perf.prompts import DATA_SOURCE, build_prompt, load_tasks, sft_output
 
 SLIME_CPP_PERF_DATASET_VERSION = 1
 DEFAULT_EVAL_SPLITS = ("validation", "test")

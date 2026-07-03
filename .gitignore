@@ -24,3 +24,23 @@ task-pools/
 gem5-results/
 perf-results/
 *.parquet
+RUN_REPORT_*.md
+RUN_REPORT_RAW_*.md
+RUN_REPORT_RAW_*_assets/
+
+# Legacy SkyRL/rLLM files retained locally but no longer tracked.
+src/w8_biayn/integrations/cpp_eval_main.py
+src/w8_biayn/integrations/cpp_perf_env.py
+src/w8_biayn/integrations/skyrl_*.py
+tests/test_cpp_perf_integration.py
+tests/test_sft_export.py
+tests/test_skyrl_*.py
+src/w8_biayn/cpp_perf/skyrl_dataset.py
+src/w8_biayn/sky_config.py
+src/w8_biayn/run_status.py
+src/w8_biayn/mlflow_metrics.py
+src/w8_biayn/grpo_readiness.py
+tests/test_sky_config.py
+tests/test_run_status.py
+tests/test_mlflow_metrics.py
+tests/test_grpo_readiness.py
