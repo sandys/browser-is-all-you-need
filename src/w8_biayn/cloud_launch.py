@@ -417,8 +417,12 @@ def build_run_script() -> str:
     remote_cloud_root = '${PWD}/.w8-biayn/slime/glm47-cpp-perf/cloud-runs/${W8_GLM47_RUN_ID}'
     remote_run_root = '${PWD}/.w8-biayn/slime/glm47-cpp-perf/runs/${W8_GLM47_RUN_ID}'
     remote_export_root = '${HOME}/w8-glm47-artifacts/${W8_GLM47_RUN_ID}'
-    container_script = build_container_script()
-    return textwrap.dedent(
+    # The container script is substituted AFTER dedent: interpolating a
+    # column-0 block into the f-string first would make dedent a no-op, leave
+    # the heredoc terminator indented, and let the heredoc swallow the rest of
+    # the script (the docker run included) into the entrypoint file.
+    container_script = "@W8_CONTAINER_SCRIPT@"
+    template = textwrap.dedent(
         f"""\
         set -euo pipefail
         export PATH="$HOME/.local/bin:$PATH"
@@ -507,8 +511,13 @@ def build_run_script() -> str:
           "$W8_GLM47_SLIME_IMAGE" \
           /bin/bash -lc "bash {repo_mount}/.w8-biayn/slime/glm47-cpp-perf/cloud-runs/$W8_GLM47_RUN_ID/container_entrypoint.sh" \
           2>&1 | tee "$W8_REMOTE_CLOUD_ROOT/container_outer.log"
+
+        # The job only counts as succeeded when the lane actually produced its
+        # final comparison artifact; a truncated script must not exit 0.
+        test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"
         """
     )
+    return template.replace("@W8_CONTAINER_SCRIPT@", build_container_script().rstrip())
 
 
 def build_container_script() -> str:

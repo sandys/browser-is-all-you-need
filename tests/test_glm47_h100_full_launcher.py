@@ -63,6 +63,19 @@ def test_launch_module_pins_skypilot_and_tracks_job_to_terminal_state() -> None:
     assert "missing_packages" in text
 
 
+def test_run_script_heredoc_terminates_and_docker_runs_after_it() -> None:
+    from w8_biayn.cloud_launch import build_run_script
+
+    script = build_run_script()
+    # The terminator must sit at column 0 or bash swallows the rest of the
+    # script (docker pull/run included) into the entrypoint file and exits 0.
+    assert "\nW8_GLM47_CONTAINER\n" in script
+    after_heredoc = script.split("\nW8_GLM47_CONTAINER\n", 1)[1]
+    assert "docker pull" in after_heredoc
+    assert "docker run" in after_heredoc
+    assert 'test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"' in after_heredoc
+
+
 def test_launch_module_parallelizes_coverage_and_verifies_wandb() -> None:
     text = LAUNCH_MODULE.read_text(encoding="utf-8")
 
