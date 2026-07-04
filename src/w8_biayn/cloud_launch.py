@@ -441,6 +441,10 @@ def build_run_script() -> str:
           if [ -d "$W8_REMOTE_CLOUD_ROOT" ]; then
             cp -a "$W8_REMOTE_CLOUD_ROOT/." "$W8_REMOTE_EXPORT_ROOT/cloud/"
           fi
+          mkdir -p "$W8_REMOTE_EXPORT_ROOT/data-build"
+          for evidence in .w8-biayn/data/pie-full/coverage-report.json .w8-biayn/data/pie-full/coverage.json .w8-biayn/data/tasks-full/_w8_task_build_report.json; do
+            [ -f "$evidence" ] && cp "$evidence" "$W8_REMOTE_EXPORT_ROOT/data-build/" || true
+          done
           find "$W8_REMOTE_EXPORT_ROOT" -maxdepth 3 -type f | sort > "$W8_REMOTE_EXPORT_ROOT/artifact_manifest.txt" || true
         }}
         trap collect_artifacts EXIT
