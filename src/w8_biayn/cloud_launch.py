@@ -531,6 +531,10 @@ def build_container_script() -> str:
         ulimit -Sn "${SLIME_NOFILE_SOFT_LIMIT:-65536}" 2>/dev/null || true
         export PYTHONUNBUFFERED=1
         export PYTHONPATH=/root/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}}
+        # wandb's pydantic Settings validates any WANDB_* env var that is
+        # merely present; an empty WANDB_BASE_URL/WANDB_ENTITY crashes it.
+        [ -z "${WANDB_ENTITY:-}" ] && unset WANDB_ENTITY || true
+        [ -z "${WANDB_BASE_URL:-}" ] && unset WANDB_BASE_URL || true
         if ! command -v docker >/dev/null 2>&1; then
           if command -v apt-get >/dev/null 2>&1; then
             apt-get update

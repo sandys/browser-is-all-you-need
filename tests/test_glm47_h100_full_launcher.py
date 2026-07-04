@@ -83,6 +83,9 @@ def test_launch_module_parallelizes_coverage_and_verifies_wandb() -> None:
     assert '--min-train "$W8_GLM47_MIN_TRAIN"' in text
     assert "wandb_auth_ok" in text
     assert "WANDB_API_KEY missing inside the training container" in text
+    # Empty WANDB_* env vars crash wandb's pydantic Settings validation.
+    assert "unset WANDB_BASE_URL" in text
+    assert "unset WANDB_ENTITY" in text
 
 
 def test_example_launcher_is_a_shim_that_delegates_to_the_cli() -> None:
