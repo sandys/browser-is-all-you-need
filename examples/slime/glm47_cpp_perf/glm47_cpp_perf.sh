@@ -325,6 +325,17 @@ ensure_base_checkpoint() {
   # shellcheck disable=SC1090
   source "${SLIME_ROOT}/scripts/models/${MODEL_ARGS_SCRIPT}"
   CONVERT_MODEL_ARGS=("${MODEL_ARGS[@]}")
+  # Convert under the training parallel layout: TransformerEngine extra_state
+  # entries are BytesIO object shards that Megatron dist-ckpt cannot reshard
+  # at load time (TypeError: BytesIO has no len), so the checkpoint layout
+  # must already match SFT/GRPO parallelism.
+  CONVERT_MODEL_ARGS+=(
+    --tensor-model-parallel-size "${TP_SIZE}"
+    --pipeline-model-parallel-size "${PP_SIZE}"
+    --expert-model-parallel-size "${EP_SIZE}"
+    --expert-tensor-parallel-size "${ETP_SIZE}"
+    --decoder-last-pipeline-num-layers "${DECODER_LAST_PIPELINE_NUM_LAYERS}"
+  )
   filter_model_args
   if checkpoint_ready "${REF_LOAD_DIR}"; then
     return
