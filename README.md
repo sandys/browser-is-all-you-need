@@ -354,6 +354,36 @@ terminal state before declaring success or tearing down. Implementation:
 (`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py` is a thin
 compatibility shim).
 
+Key launch flags:
+
+- `--accelerators` — `H100:8` (default) or `A100-80GB:8`. On non-Hopper GPUs
+  the lane must use the `alltoall` MoE dispatcher (now the default); DeepEP's
+  `flex` dispatcher is Hopper-only and opt-in via
+  `SLIME_GLM_MOE_TOKEN_DISPATCHER_TYPE=flex`.
+- `--use-spot` — request preemptible capacity (on-demand H100 quota is often 0;
+  spot/preemptible quota is self-service).
+- `--disk-size` — boot disk GB (default 1024). The 30B model is staged ~4x
+  (HF download, torch_dist conversion, SFT checkpoint, HF export); the 256GB
+  default overflows mid-export.
+- `--min-train-tasks` / `--min-validation-tasks` / `--min-test-tasks` — PIE
+  admission gates (defaults 1000/100/100). Lower them for a bounded pilot.
+- `--train-limit` / `--eval-limit` — task caps (default: all admitted).
+
+**Dataset cache.** The launch restores `tasks-full` from a project-scoped,
+gate-keyed GCS path (`gs://<project>-w8-biayn/cache/<version>/tasks-full/...`)
+before building, only builds on a cache miss, and repopulates the cache after.
+The path is a pure function of the cache version and admission gates, so every
+user in the project shares the same cache and different inputs never collide.
+The first run for a given key pays the ~20-minute PIE build; later runs and
+other users restore in seconds. Cache ops use the node's ambient credentials
+and are best-effort — a node without bucket write still trains.
+
+**Progress in W&B.** Alongside the per-stage runs, each launch writes a
+`<run-id>-pipeline` run (group = run id) with timestamped milestones
+(`host_preflight_done`, `data_restore_hit`/`data_build_done`,
+`model_download_finished`, `checkpoint_convert_finished`, `stage_*_started`),
+so the long remote preamble is visible from the W&B UI without reading logs.
+
 ## Moonlight MoE Smoke
 
 For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses a Moonlight-16B-A3B Instruct checkpoint, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.

@@ -234,6 +234,15 @@ dry-run rendering, scoped secrets, downloaded local artifacts, labels, spot
 support via `--use-spot`, and automatic teardown. The W&B key resolves from
 `--wandb-api-key-file`, `WANDB_API_KEY`, or a `WANDB_KEY` entry in `.env`.
 
+The launch restores `tasks-full` from a project-scoped, gate-keyed GCS cache
+(`gs://<project>-w8-biayn/cache/<version>/tasks-full/mintrain..-minval..-mintest..`)
+before building, builds only on a miss, and repopulates the cache after — so
+the PIE build runs once per (cache version, admission gates) and is shared
+across users. It provisions a 1024GB boot disk by default (`--disk-size`): the
+30B model is staged ~4x (HF download, torch_dist conversion, SFT checkpoint,
+HF export) and 256GB overflows mid-export. Each launch also writes a
+`<run-id>-pipeline` W&B run with timestamped preamble milestones.
+
 ## Tool Interlinkage
 
 `w8-biayn` is the single management CLI. It wraps deeper tools; when a cloud
@@ -253,7 +262,18 @@ tool and its documentation:
   Megatron model args come from `scripts/models/*.sh` inside that checkout;
   the SLIME train loop is vendored in
   `src/w8_biayn/integrations/slime_train_entry.py` and must be re-diffed on
-  pin bumps.
+  pin bumps. The GLM container run also fetches/checks out `SLIME_PIN` (no
+  drift to HEAD) and applies an in-place Megatron dist-checkpoint patch (in
+  `cloud_launch.build_container_script`) so converted checkpoints load: TE
+  `_extra_state` objects that HF conversion writes in a format the trainer
+  cannot read are nulled, and `slime_train_entry` disables
+  `ckpt_fully_parallel_load`. Re-verify both on a SLIME/Megatron/TE bump.
+- GLM lane on non-Hopper GPUs: the default `alltoall` MoE dispatcher and
+  `EP=4` (ETP*EP*PP must divide the 8-GPU world) are required on A100; DeepEP
+  `flex` and `EP=8` are Hopper/16-rank only. GLM-4.7-Flash is a thinking model,
+  so response budgets are 2048 and seq-length 4096 (512 truncated 100% of
+  generations). These live in `examples/slime/glm47_cpp_perf/glm47_cpp_perf.sh`
+  with `SLIME_GLM_*`/`SLIME_*` env overrides.
 - GCP accounting and quotas: use `gcloud compute instances list` and the Cloud
   Quotas API with the scoped service-account env (never `gcloud auth
   activate-service-account`). Newer GPU quota limits (H100 class) are visible
