@@ -1,0 +1,39 @@
+_wandb:
+    value:
+        cli_version: 0.28.0
+        e:
+            aqhwbihw3kh6geshmxj6gbezvrjr23l8:
+                args:
+                    - --project
+                    - slime-glm47-cpp-perf
+                    - --run-id
+                    - localtest-debug
+                    - --event
+                    - probe_from_local
+                codePath: scripts/wandb_milestone.py
+                codePathLocal: scripts/wandb_milestone.py
+                executable: /home/sss/.cache/uv/builds-v0/.tmpRZ2KtC/bin/python
+                git:
+                    commit: 64caa836384b17325f05cb260a4aaee6396c9b14
+                    remote: git@github.com:sandys/browser-is-all-you-need.git
+                host: VerdantBrink
+                os: Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.35
+                program: /home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime/scripts/wandb_milestone.py
+                python: CPython 3.12.12
+                root: /home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime
+                startedAt: "2026-07-04T14:12:18.610724Z"
+                writerId: aqhwbihw3kh6geshmxj6gbezvrjr23l8
+        m: []
+        python_version: 3.12.12
+        t:
+            "3":
+                - 2
+                - 13
+                - 14
+                - 62
+            "4": 3.12.12
+            "5": 0.28.0
+            "10":
+                - 19
+            "12": 0.28.0
+            "13": linux-x86_64

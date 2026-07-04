@@ -1,0 +1,24 @@
+{
+  "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+  "python": "CPython 3.12.12",
+  "startedAt": "2026-07-04T14:12:18.610724Z",
+  "args": [
+    "--project",
+    "slime-glm47-cpp-perf",
+    "--run-id",
+    "localtest-debug",
+    "--event",
+    "probe_from_local"
+  ],
+  "program": "/home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime/scripts/wandb_milestone.py",
+  "codePath": "scripts/wandb_milestone.py",
+  "codePathLocal": "scripts/wandb_milestone.py",
+  "git": {
+    "remote": "git@github.com:sandys/browser-is-all-you-need.git",
+    "commit": "64caa836384b17325f05cb260a4aaee6396c9b14"
+  },
+  "root": "/home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime",
+  "host": "VerdantBrink",
+  "executable": "/home/sss/.cache/uv/builds-v0/.tmpRZ2KtC/bin/python",
+  "writerId": "aqhwbihw3kh6geshmxj6gbezvrjr23l8"
+}

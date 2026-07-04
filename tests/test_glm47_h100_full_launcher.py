@@ -76,6 +76,19 @@ def test_run_script_heredoc_terminates_and_docker_runs_after_it() -> None:
     assert 'test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"' in after_heredoc
 
 
+def test_pipeline_milestones_use_the_non_shadowed_script_path() -> None:
+    from w8_biayn.cloud_launch import build_container_script, build_run_script
+
+    # scripts/ placement matters: invoked by path, a script inside
+    # src/w8_biayn/ would shadow stdlib `secrets` with w8_biayn/secrets.py
+    # via sys.path[0] and crash wandb on import.
+    assert "scripts/wandb_milestone.py" in build_run_script()
+    assert "scripts/wandb_milestone.py" in build_container_script()
+    assert "src/w8_biayn/wandb_milestones.py" not in build_run_script()
+    runner_text = RUNNER.read_text(encoding="utf-8")
+    assert "scripts/wandb_milestone.py" in runner_text
+
+
 def test_launch_module_parallelizes_coverage_and_verifies_wandb() -> None:
     text = LAUNCH_MODULE.read_text(encoding="utf-8")
 

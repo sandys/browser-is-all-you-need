@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     run.log({f"pipeline/{event}_at": now})
     run.summary["pipeline/latest"] = event
     run.summary[f"pipeline/{event}_unix"] = now
-    run.finish(quiet=True)
+    run.finish()
     print(f"wandb_milestone_logged: {event}")
     return 0
 

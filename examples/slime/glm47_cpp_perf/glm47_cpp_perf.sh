@@ -203,7 +203,7 @@ run_repo_python() {
 # Best-effort pipeline milestones into the <run-id>-pipeline W&B run.
 w8_milestone() {
   if [ -n "${WANDB_API_KEY:-}${WANDB_KEY:-}" ]; then
-    "${PYTHON_BIN}" "${REPO_ROOT}/src/w8_biayn/wandb_milestones.py" \
+    "${PYTHON_BIN}" "${REPO_ROOT}/scripts/wandb_milestone.py" \
       --project "${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}" \
       --run-id "${RUN_ID}" --event "$1" >/dev/null 2>&1 || true
   fi

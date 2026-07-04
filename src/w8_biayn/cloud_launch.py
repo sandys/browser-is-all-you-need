@@ -456,7 +456,7 @@ def build_run_script() -> str:
 
         # Best-effort pipeline milestones into the <run-id>-pipeline W&B run.
         w8_milestone() {{
-          uv run --with wandb python src/w8_biayn/wandb_milestones.py \
+          uv run --with wandb python scripts/wandb_milestone.py \
             --project "$W8_GLM47_WANDB_PROJECT" --run-id "$W8_GLM47_RUN_ID" --event "$1" >/dev/null 2>&1 || true
         }}
 
@@ -571,7 +571,7 @@ def build_container_script() -> str:
         viewer = wandb.Api(timeout=30).viewer
         print(f"wandb_auth_ok entity={viewer.entity}")
         W8_WANDB_CHECK
-        python "$W8_GLM47_REPO_DIR/src/w8_biayn/wandb_milestones.py" \
+        python "$W8_GLM47_REPO_DIR/scripts/wandb_milestone.py" \
           --project "$W8_GLM47_WANDB_PROJECT" --run-id "$W8_GLM47_RUN_ID" --event container_wandb_ok >/dev/null 2>&1 || true
         cd /root/slime
         git pull
