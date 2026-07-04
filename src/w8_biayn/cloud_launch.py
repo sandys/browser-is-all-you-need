@@ -510,6 +510,7 @@ def build_run_script() -> str:
           -e HF_TOKEN \
           -e HUGGING_FACE_HUB_TOKEN="${{HF_TOKEN:-}}" \
           -e W8_GLM47_RUN_ID \
+          -e W8_GLM47_SLIME_PIN \
           -e W8_GLM47_REPO_DIR={repo_mount} \
           -e W8_GLM47_WANDB_PROJECT \
           -e W8_GLM47_WANDB_GROUP \

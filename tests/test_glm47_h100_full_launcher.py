@@ -92,6 +92,13 @@ def test_glm_lane_disables_fully_parallel_ckpt_load_and_pins_slime() -> None:
     # The container must run the pinned SLIME, not a git-pull moving target.
     assert 'git fetch origin "$W8_GLM47_SLIME_PIN"' in container
     assert "git pull" not in container
+    # Every env the container script reads must be passed through docker run.
+    from w8_biayn.cloud_launch import build_run_script
+    import re
+
+    run_script = build_run_script()
+    for var in sorted(set(re.findall(r"\$\{?(W8_GLM47_[A-Z_]+)", container))):
+        assert f"-e {var}" in run_script or f'-e {var}=' in run_script, f"missing docker passthrough for {var}"
 
 
 def test_pipeline_milestones_use_the_non_shadowed_script_path() -> None:
