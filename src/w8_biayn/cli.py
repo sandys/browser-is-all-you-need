@@ -1589,13 +1589,11 @@ def gcp_cleanup(
     project_id = _project_id(credentials)
     env = _service_account_env(credentials, project_id=project_id)
     console.print(f"cleanup_run_id: {run_id}")
-    for pipeline_name in ("cpp-smoke", "cpp-sft", "cpp-grpo", "cpp-eval"):
-        cluster = f"w8-biayn-{pipeline_name}-{run_id}"
-        run_command(["sky", "down", "-y", cluster], env=env, dry_run=dry_run)
-    label_filter = (
-        f"labels.project=w8-biayn AND labels.phase=cpp-perf-rl "
-        f"AND labels.run_id={run_id.lower()} AND labels.owner={owner.lower()}"
-    )
+    console.print("note: prefer `w8-biayn ops down-run <run-id> --execute` for tag-keyed teardown.")
+    from .cloud_launch import default_cluster_name, run_label_value
+
+    run_command(["sky", "down", "-y", default_cluster_name(run_id)], env=env, dry_run=dry_run)
+    label_filter = f"labels.project=w8-biayn AND labels.run_id={run_label_value(run_id)}"
     run_command(
         [
             "gcloud",
@@ -1727,6 +1725,58 @@ def ops_down(
         args.append("-y")
     args.append(cluster)
     _run_backend_command(args, credentials=credentials, dry_run=dry_run)
+
+
+@ops_app.command("down-run")
+def ops_down_run(
+    run_id: str = typer.Argument(..., help="Run id (same value used for the W&B group)."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    execute: bool = typer.Option(False, "--execute/--dry-run", help="Actually delete (default only prints the plan)."),
+) -> None:
+    """Tear down every GCP resource tagged with this run id.
+
+    Launcher-independent safety net: works even if the launch process died or
+    was killed before its own teardown ran. Downs the SkyPilot cluster by
+    name, then deletes any GCE instance still carrying `labels.run_id=<run>`.
+    """
+
+    from .cloud_launch import default_cluster_name, run_label_value
+
+    project_id = _project_id(credentials)
+    env = _service_account_env(credentials, project_id=project_id)
+    cluster = default_cluster_name(run_id)
+    label = run_label_value(run_id)
+    console.print(f"down_run: run_id={run_id} cluster={cluster} label=run_id={label}")
+
+    # 1. SkyPilot teardown by cluster name (idempotent; no-op if already gone).
+    run_command(["sky", "down", "-y", cluster], env=env, dry_run=not execute)
+
+    # 2. Belt-and-suspenders: delete any instance still tagged with this run,
+    #    which catches boxes a dead/hung launcher never tore down.
+    listing = subprocess.run(
+        [
+            "gcloud", "compute", "instances", "list",
+            "--project", project_id,
+            "--filter", f"labels.run_id={label} AND labels.project=w8-biayn",
+            "--format", "value(name,zone.basename())",
+        ],
+        env={**os.environ, **(env or {})},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    rows = [line.split() for line in listing.stdout.splitlines() if line.strip()]
+    if not rows:
+        console.print("labeled_instances: none remaining")
+        return
+    for name, zone in rows:
+        run_command(
+            ["gcloud", "compute", "instances", "delete", name, "--zone", zone, "--project", project_id, "--quiet"],
+            env=env,
+            dry_run=not execute,
+        )
+    if not execute:
+        console.print("dry run: pass --execute to delete the listed instances")
 
 
 @ops_app.command("gpus")

@@ -76,6 +76,27 @@ def test_run_script_heredoc_terminates_and_docker_runs_after_it() -> None:
     assert 'test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"' in after_heredoc
 
 
+def test_teardown_uses_the_run_id_tag_shared_with_wandb() -> None:
+    from typer.testing import CliRunner
+
+    from w8_biayn.cli import app
+    from w8_biayn.cloud_launch import default_cluster_name, run_label_value
+
+    # The cluster name and the GCE run_id label are both deterministic from the
+    # run id, which is also the W&B group — one id ties launch, tags, and W&B.
+    rid = "w8pilot-a100r-20260704203227"
+    assert default_cluster_name(rid) == f"w8-glm47-h100-{rid}"
+    assert run_label_value(rid) == rid
+    # The launch always tears down anything still live, not just on the success
+    # path (cluster_acquired alone would leak a box that fails mid-wait).
+    src = (ROOT / "src/w8_biayn/cloud_launch.py").read_text(encoding="utf-8")
+    assert "cluster_acquired or cluster_live" in src
+    # down-run is registered and renders a delete plan without executing.
+    result = CliRunner().invoke(app, ["ops", "down-run", "--help"])
+    assert result.exit_code == 0
+    assert "tagged with this run id" in result.output
+
+
 def test_dataset_cache_is_restore_first_and_gate_keyed() -> None:
     from w8_biayn.cloud_launch import TASKS_CACHE_VERSION, LaunchOptions, build_run_script
 

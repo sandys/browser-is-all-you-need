@@ -88,7 +88,7 @@ class LaunchOptions:
         if invalid:
             raise LaunchError(f"regions {invalid} are not in the allowed set {ALLOWED_REGIONS}")
         if not self.cluster_name:
-            self.cluster_name = f"w8-glm47-h100-{_cluster_safe(self.run_id)}"
+            self.cluster_name = default_cluster_name(self.run_id)
 
 
 class Tee:
@@ -246,7 +246,15 @@ def launch_glm47_full(options: LaunchOptions) -> int:
                 print(f"\nTraining/provisioning failed: {exc!r}", flush=True)
                 training_status = 1
             finally:
-                if cluster_acquired:
+                # Never rely on cluster_acquired alone: a failure mid-wait
+                # leaves it False while the cluster is still live and billing.
+                # Always tear down anything that still exists for this run.
+                cluster_live = False
+                try:
+                    cluster_live = _cluster_exists(import_sky(), options.cluster_name)
+                except Exception:  # noqa: BLE001 - teardown must run even if status check fails.
+                    cluster_live = cluster_acquired
+                if cluster_acquired or cluster_live:
                     download_artifacts(
                         cluster_name=options.cluster_name,
                         run_id=options.run_id,
@@ -813,3 +821,15 @@ def _cluster_safe(value: str) -> str:
 
 def default_run_id() -> str:
     return "glm47full-" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+
+
+def default_cluster_name(run_id: str) -> str:
+    """The SkyPilot cluster name for a run id (shared by launch and teardown)."""
+
+    return f"w8-glm47-h100-{_cluster_safe(run_id)}"
+
+
+def run_label_value(run_id: str) -> str:
+    """The GCE `run_id` label value SkyPilot applies (matches the W&B group)."""
+
+    return _label_safe(run_id)
