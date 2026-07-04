@@ -64,6 +64,10 @@ class LaunchOptions:
     local_output_root: str = str(DEFAULT_LOCAL_ROOT)
     train_limit: int = FULL_LIMIT_SENTINEL
     eval_limit: int = FULL_LIMIT_SENTINEL
+    min_train_tasks: int = 1000
+    min_validation_tasks: int = 100
+    min_test_tasks: int = 100
+    coverage_jobs: int = 32
     grpo_num_rollout: int = 8
     grpo_rollout_batch_size: int = 4
     grpo_global_batch_size: int = 4
@@ -279,6 +283,10 @@ def _acquire_and_run(
                     "W8_GLM47_SLIME_IMAGE": options.slime_image,
                     "W8_GLM47_TRAIN_LIMIT": str(options.train_limit),
                     "W8_GLM47_EVAL_LIMIT": str(options.eval_limit),
+                    "W8_GLM47_MIN_TRAIN": str(options.min_train_tasks),
+                    "W8_GLM47_MIN_VALIDATION": str(options.min_validation_tasks),
+                    "W8_GLM47_MIN_TEST": str(options.min_test_tasks),
+                    "W8_GLM47_COVERAGE_JOBS": str(options.coverage_jobs),
                     "W8_GLM47_GRPO_NUM_ROLLOUT": str(options.grpo_num_rollout),
                     "W8_GLM47_GRPO_ROLLOUT_BATCH_SIZE": str(options.grpo_rollout_batch_size),
                     "W8_GLM47_GRPO_GLOBAL_BATCH_SIZE": str(options.grpo_global_batch_size),
@@ -450,14 +458,15 @@ def build_run_script() -> str:
           uv run w8-biayn data pie measure-coverage \
             --prepared-root .w8-biayn/data/pie-full \
             --out .w8-biayn/data/pie-full/coverage.json \
-            --report-out .w8-biayn/data/pie-full/coverage-report.json
+            --report-out .w8-biayn/data/pie-full/coverage-report.json \
+            --jobs "$W8_GLM47_COVERAGE_JOBS"
           uv run w8-biayn data pie build-full-tasks \
             --prepared-root .w8-biayn/data/pie-full \
             --coverage-json .w8-biayn/data/pie-full/coverage.json \
             --out .w8-biayn/data/tasks-full \
-            --min-train 1000 \
-            --min-validation 100 \
-            --min-test 100 \
+            --min-train "$W8_GLM47_MIN_TRAIN" \
+            --min-validation "$W8_GLM47_MIN_VALIDATION" \
+            --min-test "$W8_GLM47_MIN_TEST" \
             --force
         fi
 
@@ -486,6 +495,9 @@ def build_run_script() -> str:
           -e W8_GLM47_WANDB_GROUP \
           -e W8_GLM47_TRAIN_LIMIT \
           -e W8_GLM47_EVAL_LIMIT \
+          -e W8_GLM47_MIN_TRAIN \
+          -e W8_GLM47_MIN_VALIDATION \
+          -e W8_GLM47_MIN_TEST \
           -e W8_GLM47_GRPO_NUM_ROLLOUT \
           -e W8_GLM47_GRPO_ROLLOUT_BATCH_SIZE \
           -e W8_GLM47_GRPO_GLOBAL_BATCH_SIZE \
@@ -516,6 +528,21 @@ def build_container_script() -> str:
           fi
         fi
         docker version
+        # Fail fast when W&B capture cannot work; silent no-metric runs are
+        # worse than an early abort on a paid node.
+        python - <<'W8_WANDB_CHECK'
+        import os
+        import sys
+
+        key = os.environ.get("WANDB_API_KEY", "")
+        if not key:
+            print("WANDB_API_KEY missing inside the training container", file=sys.stderr)
+            sys.exit(2)
+        import wandb
+
+        viewer = wandb.Api(timeout=30).viewer
+        print(f"wandb_auth_ok entity={viewer.entity}")
+        W8_WANDB_CHECK
         cd /root/slime
         git pull
         pip install -e . --no-deps

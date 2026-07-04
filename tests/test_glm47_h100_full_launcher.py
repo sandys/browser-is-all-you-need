@@ -63,6 +63,15 @@ def test_launch_module_pins_skypilot_and_tracks_job_to_terminal_state() -> None:
     assert "missing_packages" in text
 
 
+def test_launch_module_parallelizes_coverage_and_verifies_wandb() -> None:
+    text = LAUNCH_MODULE.read_text(encoding="utf-8")
+
+    assert '--jobs "$W8_GLM47_COVERAGE_JOBS"' in text
+    assert '--min-train "$W8_GLM47_MIN_TRAIN"' in text
+    assert "wandb_auth_ok" in text
+    assert "WANDB_API_KEY missing inside the training container" in text
+
+
 def test_example_launcher_is_a_shim_that_delegates_to_the_cli() -> None:
     text = EXAMPLE_SHIM.read_text(encoding="utf-8")
 
