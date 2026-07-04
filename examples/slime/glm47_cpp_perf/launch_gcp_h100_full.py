@@ -246,7 +246,17 @@ def acquire_and_run(
                     no_setup=False,
                     _need_confirmation=False,
                 )
-                sky.stream_and_get(request_id)
+                launch_result = sky.stream_and_get(request_id)
+                # On API-server SkyPilot builds, launch resolves at job SUBMISSION,
+                # not completion; block until the job actually reaches a terminal
+                # state or teardown would kill a freshly started run.
+                job_id = launch_result[0] if isinstance(launch_result, tuple) and launch_result else None
+                if job_id is None:
+                    raise RuntimeError("SkyPilot launch returned no job id; cannot track run completion.")
+                print(f"Job {job_id} submitted on {cluster_name}; waiting for terminal job state.", flush=True)
+                final_status = _wait_for_job_completion(sky, cluster_name, job_id)
+                if not final_status.endswith("SUCCEEDED"):
+                    raise RuntimeError(f"Remote GLM job {job_id} finished with status {final_status}.")
                 print(f"Completed remote GLM run on {cluster_name} in {region}", flush=True)
                 return True
             except KeyboardInterrupt:
@@ -281,6 +291,35 @@ def acquire_and_run(
         print(f"Sleeping {args.retry_sleep_seconds}s before next provisioning pass.", flush=True)
         time.sleep(args.retry_sleep_seconds)
     return False
+
+
+TERMINAL_JOB_STATUS_SUFFIXES = ("SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "CANCELLED")
+
+
+def _wait_for_job_completion(sky: Any, cluster_name: str, job_id: int, *, poll_seconds: int = 30) -> str:
+    """Stream job logs and poll status until the job reaches a terminal state."""
+
+    while True:
+        try:
+            request_id = sky.tail_logs(cluster_name=cluster_name, job_id=job_id, follow=True)
+            sky.stream_and_get(request_id)
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:  # noqa: BLE001 - log streams drop on long runs; status poll is authoritative.
+            print(f"Log stream interrupted ({exc!r}); re-checking job status.", flush=True)
+        status_name = ""
+        try:
+            request_id = sky.job_status(cluster_name, job_ids=[job_id])
+            statuses = sky.stream_and_get(request_id)
+            status = statuses.get(job_id)
+            status_name = getattr(status, "name", "") or (str(status) if status is not None else "")
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:  # noqa: BLE001 - transient API-server errors should not abort tracking.
+            print(f"Job status check failed ({exc!r}); retrying in {poll_seconds}s.", flush=True)
+        if status_name and any(status_name.endswith(suffix) for suffix in TERMINAL_JOB_STATUS_SUFFIXES):
+            return status_name
+        time.sleep(poll_seconds)
 
 
 def build_setup_script() -> str:
