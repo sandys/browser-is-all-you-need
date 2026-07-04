@@ -48,6 +48,18 @@ def test_launcher_downloads_artifacts_and_tears_down_cluster() -> None:
     assert "<redacted>" in text
 
 
+def test_launcher_pins_skypilot_and_tracks_job_to_terminal_state() -> None:
+    text = LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'SKYPILOT_PIN = "skypilot-nightly[gcp]==' in text
+    assert "use_spot=args.use_spot" in text
+    assert "_wait_for_job_completion(" in text
+    assert 'final_status.endswith("SUCCEEDED")' in text
+    # Setup must probe for preinstalled tools instead of blanket apt installs;
+    # docker.io conflicts with the docker-ce shipped on SkyPilot GPU images.
+    assert "missing_packages" in text
+
+
 def test_glm_runner_keeps_wandb_files_inside_run_root() -> None:
     text = RUNNER.read_text(encoding="utf-8")
 

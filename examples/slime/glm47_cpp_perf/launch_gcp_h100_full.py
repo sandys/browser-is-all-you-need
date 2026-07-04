@@ -24,6 +24,7 @@ import time
 from typing import IO, Any
 
 
+SKYPILOT_PIN = "skypilot-nightly[gcp]==1.0.0.dev20260516"
 ALLOWED_REGIONS = ("asia-southeast1", "asia-south1", "asia-south2")
 DEFAULT_REGION = "asia-southeast1"
 DEFAULT_ACCELERATORS = "H100:8"
@@ -541,7 +542,8 @@ def _import_sky() -> Any:
     except ModuleNotFoundError as exc:
         raise SystemExit(
             "SkyPilot with GCP support is required. Run: "
-            "uv run --with 'skypilot[gcp]' python examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py"
+            f"uv run --with '{SKYPILOT_PIN}' python examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py "
+            "(keep the pin matched to any locally running sky API server)"
         ) from exc
     return sky
 

@@ -228,8 +228,12 @@ Use local receipts (`run.log`, `run_receipt.txt`, `vram_usage.csv`,
 summaries for evidence. The paid GCP GLM full launcher is
 `examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; keep it as a
 provisioning wrapper around the repo-owned GLM SLIME lane, with dry-run
-rendering, scoped secrets, downloaded local artifacts, labels, and automatic
-`sky.down` teardown.
+rendering, scoped secrets, downloaded local artifacts, labels, spot support via
+`--use-spot`, and automatic `sky.down` teardown. SkyPilot manages the cloud
+hardware only; SLIME runs the training. Invoke the launcher with the pinned
+SkyPilot client from its `SKYPILOT_PIN` constant
+(`uv run --with '<SKYPILOT_PIN>' python …`), and never treat `sky.launch`
+returning as run completion — the launcher waits for a terminal job state.
 
 ## Git And Artifact Hygiene
 

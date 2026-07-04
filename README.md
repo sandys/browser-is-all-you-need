@@ -336,7 +336,19 @@ GCP `H100:8` full run, use
 in `asia-southeast1` by default (pass `--use-spot` when the project only holds
 preemptible GPU quota), runs base eval, SFT, SFT eval, GRPO, GRPO eval,
 and compare, copies W&B/local artifacts under `.w8-biayn/slime/glm47-cpp-perf/`,
-and tears the SkyPilot cluster down.
+and tears the SkyPilot cluster down. SkyPilot manages the cloud hardware only;
+the training itself is pure SLIME inside the lane container. Invoke the
+launcher with the pinned SkyPilot client from its `SKYPILOT_PIN` constant:
+
+```bash
+uv run --with "skypilot-nightly[gcp]==1.0.0.dev20260516" \
+  python examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py --dry-run
+```
+
+The launcher tracks the submitted job to a terminal state before declaring
+success or tearing down (`sky.launch` resolves at submission on API-server
+SkyPilot builds), and its setup installs only tools missing from the SkyPilot
+GPU image.
 
 ## Moonlight MoE Smoke
 

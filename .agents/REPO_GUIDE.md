@@ -209,8 +209,12 @@ Use W&B when configured by the lane; otherwise rely on local receipts,
 dumps, and eval summaries under `.w8-biayn/slime/...`. The paid GCP GLM full
 launcher is `examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; keep it as
 a provisioning wrapper around the repo-owned GLM SLIME lane, with dry-run
-rendering, scoped secrets, downloaded local artifacts, labels, and automatic
-`sky.down` teardown.
+rendering, scoped secrets, downloaded local artifacts, labels, spot support via
+`--use-spot`, and automatic `sky.down` teardown. SkyPilot manages the cloud
+hardware only; all training runs through SLIME inside the lane container. The
+launcher must invoke SkyPilot at the pin recorded in its `SKYPILOT_PIN`
+constant and must wait for a terminal job state after `sky.launch` (API-server
+builds resolve the launch request at job submission, not completion).
 
 For Moonlight local attention/RMSNorm compatibility, keep the `src/local.py`
 Megatron layer-spec shim in sync with lane defaults.
@@ -232,13 +236,17 @@ deleting the working-tree file.
 
 ## Cloud Rules
 
-Cloud usage is not the default active path, but any cloud helper must:
+The cloud architecture is fixed: SkyPilot manages the cloud hardware
+(provision, sync, artifact download, teardown) and SLIME runs the training on
+that hardware. Any cloud helper must:
 
 - support dry-run rendering before paid launches;
 - use `.gcp-service-account.json` through scoped env vars;
 - avoid `gcloud auth activate-service-account`;
 - avoid mutating global `gcloud config`;
 - avoid printing credential contents;
+- pin the SkyPilot client version it invokes and treat `sky.launch` as
+  submission-only, waiting for a terminal job state before any teardown;
 - label paid resources with project, phase, pipeline, run id, owner, and TTL
   when resources are created.
 
