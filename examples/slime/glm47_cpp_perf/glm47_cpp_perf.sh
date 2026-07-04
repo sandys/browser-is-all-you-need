@@ -263,15 +263,26 @@ download_hf_checkpoint_if_missing() {
   mkdir -p "$(dirname -- "${HF_CHECKPOINT}")"
   echo "Downloading ${HF_MODEL_ID} to ${HF_CHECKPOINT}"
   w8_milestone model_download_started
+  # hf_transfer does parallel range requests per file; without it each file is
+  # a single ~25-80MB/s TCP stream and a 10Gbps NIC sits mostly idle.
+  "${PYTHON_BIN}" -m pip install --quiet hf_transfer >/dev/null 2>&1 || true
   "${PYTHON_BIN}" - "${HF_MODEL_ID}" "${HF_CHECKPOINT}" <<'PY'
+import os
 import sys
 from pathlib import Path
+
+try:
+    import hf_transfer  # noqa: F401
+
+    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+except ImportError:
+    pass
 
 from huggingface_hub import snapshot_download
 
 repo_id, local_dir = sys.argv[1], sys.argv[2]
 Path(local_dir).mkdir(parents=True, exist_ok=True)
-snapshot_download(repo_id=repo_id, local_dir=local_dir)
+snapshot_download(repo_id=repo_id, local_dir=local_dir, max_workers=16)
 PY
   w8_milestone model_download_finished
   HF_CHECKPOINT_WAS_DOWNLOADED=1
