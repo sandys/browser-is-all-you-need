@@ -66,14 +66,23 @@ set -euo pipefail
 
 docker pull {image}
 
+DOCKER_ULIMIT_ARGS=()
+if [[ "${{SLIME_DOCKER_STACK_ULIMIT:-1}}" != "0" ]]; then
+  DOCKER_ULIMIT_ARGS+=(--ulimit stack=67108864)
+fi
+if [[ "${{SLIME_DOCKER_MEMLOCK_ULIMIT:-0}}" == "1" ]]; then
+  DOCKER_ULIMIT_ARGS+=(--ulimit memlock=-1)
+fi
+
 exec docker run --rm --gpus all --ipc=host --shm-size=16g \\
-  --ulimit memlock=-1 --ulimit stack=67108864 \\
+  "${{DOCKER_ULIMIT_ARGS[@]}}" \\
   --name {container_name} \\
   -v {repo_root}:{repo_mount} \\
   -v "${{HOST_MODELS_DIR:-$HOME/models}}":/root/models \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -e HOST_REPO_ROOT={repo_mount} \\
-  -it {image} /bin/bash -lc "echo repo_mount={repo_mount}; echo bootstrap={bootstrap_target}; bash {bootstrap_target}; exec /bin/bash"
+  -e SLIME_NOFILE_SOFT_LIMIT="${{SLIME_NOFILE_SOFT_LIMIT:-65536}}" \\
+  -it {image} /bin/bash -lc "ulimit -Sn ${{SLIME_NOFILE_SOFT_LIMIT:-65536}} 2>/dev/null || true; echo nofile_soft=\\$(ulimit -Sn); echo repo_mount={repo_mount}; echo bootstrap={bootstrap_target}; bash {bootstrap_target}; exec /bin/bash"
 """
 
 

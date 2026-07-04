@@ -1,0 +1,2 @@
+huggingface-hub>=0.24
+pydantic>=2.7

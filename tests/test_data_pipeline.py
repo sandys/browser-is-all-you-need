@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-import pyarrow.parquet as pq
 import pytest
 
 from w8_biayn.cpp_perf.coverage import coverage_passes, measure_cpp_coverage, parse_gcov_file
@@ -16,7 +15,7 @@ from w8_biayn.cpp_perf.data import (
 )
 from w8_biayn.cpp_perf.pie import PiePair, build_tasks_with_report
 from w8_biayn.cpp_perf.schema import CppTask, ReferencePerformance, TestCase, TestCoverage
-from w8_biayn.cpp_perf.skyrl_dataset import build_skyrl_datasets, build_prompt, load_tasks
+from w8_biayn.cpp_perf.prompts import build_prompt, load_tasks
 
 
 def sample_task(task_id: str, split: str) -> CppTask:
@@ -50,33 +49,6 @@ def test_tests_manifest_from_input_output_dirs(tmp_path):
     assert list(manifest) == ["p1"]
     assert manifest["p1"]["unit_tests"] == [{"input": "1\n", "expected": "1\n"}]
     assert manifest["p1"]["hidden_tests"] == [{"input": "2\n", "expected": "2\n"}]
-
-
-def test_build_skyrl_datasets_writes_grpo_sft_and_manifest(tmp_path):
-    tasks = tmp_path / "tasks"
-    sample_task("train_1", "train").write_json(tasks / "train_1.json")
-    sample_task("val_1", "validation").write_json(tasks / "val_1.json")
-    (tasks / "_w8_task_build_report.json").write_text('{"not":"a task"}\n', encoding="utf-8")
-
-    out = tmp_path / "skyrl"
-    written = build_skyrl_datasets(tasks, out)
-
-    assert written["grpo_train"].exists()
-    assert written["grpo_validation"].exists()
-    assert written["sft_train"].exists()
-    assert written["sft_validation"].exists()
-    assert verify_data_manifest(out) == []
-
-    row = pq.read_table(written["grpo_train"]).to_pylist()[0]
-    assert row["env_class"] == "cpp-perf"
-    assert row["extra_info"]["task_path"] == "tasks/train_1.json"
-    assert row["extra_info"]["hidden_test_count"] == 1
-    assert "oracle_solution" not in json.dumps(row)
-
-    sft_line = json.loads(written["sft_train"].read_text(encoding="utf-8").splitlines()[0])
-    assert sft_line["instruction"].startswith("Optimize the following C++20 program")
-    assert "<reasoning>" in sft_line["output"]
-    assert "```cpp" in sft_line["output"]
 
 
 def test_load_tasks_skips_w8_metadata(tmp_path):

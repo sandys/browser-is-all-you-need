@@ -1,0 +1,4 @@
+{"prompt":"What is 17 + 28? Use Python tools if useful. Finish with exactly: Answer: \\boxed{integer}.","label":"45"}
+{"prompt":"A box has 6 rows of 7 bolts. How many bolts are in the box? Use Python tools if useful. Finish with exactly: Answer: \\boxed{integer}.","label":"42"}
+{"prompt":"Solve for x: 3x + 5 = 26. Use Python tools if useful. Finish with exactly: Answer: \\boxed{integer}.","label":"7"}
+{"prompt":"If a train travels 60 miles in 2 hours, what is its average speed in miles per hour? Use Python tools if useful. Finish with exactly: Answer: \\boxed{integer}.","label":"30"}
