@@ -76,6 +76,24 @@ def test_run_script_heredoc_terminates_and_docker_runs_after_it() -> None:
     assert 'test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"' in after_heredoc
 
 
+def test_glm_lane_disables_fully_parallel_ckpt_load_and_pins_slime() -> None:
+    from w8_biayn.cloud_launch import build_container_script
+
+    entry_text = (ROOT / "src/w8_biayn/integrations/slime_train_entry.py").read_text(encoding="utf-8")
+    runner_text = RUNNER.read_text(encoding="utf-8")
+    container = build_container_script()
+
+    # SLIME force-enables ckpt_fully_parallel_load post-parse; the wrapper
+    # crashes on TE extra_state object shards (BytesIO has no len), so the
+    # repo-owned train entry must be able to disable it via env.
+    assert "W8_SLIME_NO_FULLY_PARALLEL_CKPT_LOAD" in entry_text
+    assert "args.ckpt_fully_parallel_load = False" in entry_text
+    assert "W8_SLIME_NO_FULLY_PARALLEL_CKPT_LOAD" in runner_text
+    # The container must run the pinned SLIME, not a git-pull moving target.
+    assert 'git fetch origin "$W8_GLM47_SLIME_PIN"' in container
+    assert "git pull" not in container
+
+
 def test_pipeline_milestones_use_the_non_shadowed_script_path() -> None:
     from w8_biayn.cloud_launch import build_container_script, build_run_script
 

@@ -176,11 +176,22 @@ def train(args):  # type: ignore[no-untyped-def]
     finish_tracking(args)
 
 
+def _apply_env_overrides(args):  # type: ignore[no-untyped-def]
+    if _truthy_env("W8_SLIME_NO_FULLY_PARALLEL_CKPT_LOAD"):
+        # SLIME force-enables ckpt_fully_parallel_load after CLI parsing
+        # (megatron_utils/arguments.py), but the fully-parallel load wrapper
+        # crashes on TransformerEngine extra_state object shards with
+        # "TypeError: BytesIO has no len()" on current Megatron builds.
+        args.ckpt_fully_parallel_load = False
+        LOGGER.info("Disabled ckpt_fully_parallel_load via W8_SLIME_NO_FULLY_PARALLEL_CKPT_LOAD.")
+    return args
+
+
 def main() -> None:
     from slime.utils.arguments import parse_args
 
     _patch_final_train_sleep()
-    train(parse_args())
+    train(_apply_env_overrides(parse_args()))
 
 
 if __name__ == "__main__":

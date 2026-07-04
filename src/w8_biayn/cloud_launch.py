@@ -23,7 +23,7 @@ import textwrap
 import time
 from typing import IO, Any
 
-from .constants import DEFAULT_CREDENTIALS_PATH, SKYPILOT_PIN
+from .constants import DEFAULT_CREDENTIALS_PATH, SKYPILOT_PIN, SLIME_PIN
 from .gcp_auth import service_account_env
 
 ALLOWED_REGIONS = ("asia-southeast1", "asia-south1", "asia-south2")
@@ -281,6 +281,7 @@ def _acquire_and_run(
                     "W8_GLM47_WANDB_ENTITY": options.wandb_entity,
                     "W8_GLM47_WANDB_BASE_URL": options.wandb_base_url,
                     "W8_GLM47_SLIME_IMAGE": options.slime_image,
+                    "W8_GLM47_SLIME_PIN": SLIME_PIN,
                     "W8_GLM47_TRAIN_LIMIT": str(options.train_limit),
                     "W8_GLM47_EVAL_LIMIT": str(options.eval_limit),
                     "W8_GLM47_MIN_TRAIN": str(options.min_train_tasks),
@@ -574,7 +575,9 @@ def build_container_script() -> str:
         python "$W8_GLM47_REPO_DIR/scripts/wandb_milestone.py" \
           --project "$W8_GLM47_WANDB_PROJECT" --run-id "$W8_GLM47_RUN_ID" --event container_wandb_ok >/dev/null 2>&1 || true
         cd /root/slime
-        git pull
+        # Pin the container's SLIME to the repo pin instead of drifting to HEAD.
+        git fetch origin "$W8_GLM47_SLIME_PIN"
+        git checkout "$W8_GLM47_SLIME_PIN"
         pip install -e . --no-deps
         python train.py --help >/tmp/slime-train-help.txt
         sed -n '1,80p' /tmp/slime-train-help.txt
