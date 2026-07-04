@@ -77,6 +77,7 @@ class LaunchOptions:
     grpo_rollout_batch_size: int = 4
     grpo_global_batch_size: int = 4
     eval_samples_per_prompt: int = 2
+    disk_size: int = 1024
     dry_run: bool = False
     artifact_bucket: str = ""
 
@@ -318,6 +319,10 @@ def _acquire_and_run(
                     infra=f"gcp/{region}",
                     accelerators=options.accelerators,
                     use_spot=options.use_spot,
+                    # The 30B model is staged four times (HF, torch_dist, SFT
+                    # ckpt, SFT/GRPO HF export); the 256GB default boot disk
+                    # runs out mid-export.
+                    disk_size=options.disk_size,
                     labels=_resource_labels(options.run_id),
                 )
             )
