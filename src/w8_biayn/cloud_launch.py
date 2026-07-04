@@ -580,6 +580,34 @@ def build_container_script() -> str:
         git fetch origin "$W8_GLM47_SLIME_PIN"
         git checkout "$W8_GLM47_SLIME_PIN"
         pip install -e . --no-deps
+
+        # SLIME's bundled megatron.patch allows partial dist-ckpt loads (skips
+        # keys absent from the checkpoint, e.g. TE _extra_state objects that
+        # HF conversion never writes), but skipped object entries leave their
+        # bare BytesIO placeholders unlisted and
+        # _replace_sharded_keys_with_state_dict_keys crashes on len(). Wrap
+        # bare placeholders; genuine mismatches still assert.
+        python - <<'W8_MEGATRON_PATCH'
+        from pathlib import Path
+
+        path = Path("/root/Megatron-LM/megatron/core/dist_checkpointing/strategies/torch.py")
+        src = path.read_text()
+        guard = "# w8: bare object placeholder from partial load"
+        if guard not in src:
+            anchor = (
+                "    for k, tensors in state_dict.items():\n"
+                "        assert len(tensors) == len(rename_mapping[k])"
+            )
+            replacement = (
+                "    for k, tensors in state_dict.items():\n"
+                "        if not isinstance(tensors, list):  # w8: bare object placeholder from partial load\n"
+                "            tensors = [tensors]\n"
+                "        assert len(tensors) == len(rename_mapping[k])"
+            )
+            assert anchor in src, "w8 megatron patch anchor missing; inspect torch.py before proceeding"
+            path.write_text(src.replace(anchor, replacement, 1))
+        print("w8 megatron partial-object patch active")
+        W8_MEGATRON_PATCH
         python train.py --help >/tmp/slime-train-help.txt
         sed -n '1,80p' /tmp/slime-train-help.txt
 
