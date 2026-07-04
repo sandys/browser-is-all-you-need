@@ -378,6 +378,14 @@ The first run for a given key pays the ~20-minute PIE build; later runs and
 other users restore in seconds. Cache ops use the node's ambient credentials
 and are best-effort — a node without bucket write still trains.
 
+**Teardown.** The launch tears the node down on exit, but if the launch
+process is killed or hangs it cannot. Every instance is tagged
+`labels.run_id=<run-id>` (the same id as the W&B group), so
+`uv run --extra cloud w8-biayn ops down-run <run-id> --execute` is the
+launcher-independent reaper — it downs the cluster and deletes any instance
+still carrying the tag. After a run, verify with
+`gcloud compute instances list --filter=labels.project=w8-biayn`.
+
 **Progress in W&B.** Alongside the per-stage runs, each launch writes a
 `<run-id>-pipeline` run (group = run id) with timestamped milestones
 (`host_preflight_done`, `data_restore_hit`/`data_build_done`,

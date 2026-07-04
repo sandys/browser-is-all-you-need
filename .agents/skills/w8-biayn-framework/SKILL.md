@@ -257,6 +257,13 @@ tool and its documentation:
   `sky.launch` on API-server builds resolves at job submission, so the CLI
   tracks the job to a terminal state before declaring success; the client
   version must match any locally running sky API server.
+- Teardown safety: SkyPilot tags every instance with `labels.run_id=<run>`
+  (the same id used for the W&B group). The launch tears down on any exit,
+  but a killed/hung launch process cannot, so
+  `w8-biayn ops down-run <run-id> --execute` is the launcher-independent
+  reaper: it downs the cluster by name and deletes any GCE instance still
+  carrying the run-id label. After any launch, confirm no orphan with
+  `gcloud compute instances list --filter=labels.project=w8-biayn`.
 - Training: lane scripts wrap SLIME (pinned checkout at
   `.cache/upstreams/slime`, docs under `.cache/upstreams/slime/docs`).
   Megatron model args come from `scripts/models/*.sh` inside that checkout;
