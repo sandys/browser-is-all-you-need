@@ -358,14 +358,18 @@ ensure_base_checkpoint() {
   fi
   echo "Converting ${HF_CHECKPOINT} to ${REF_LOAD_DIR}"
   w8_milestone checkpoint_convert_started
+  # Megatron asserts CUDA_DEVICE_MAX_CONNECTIONS=1 whenever TP/CP > 1; the
+  # layout-matched conversion runs under TP2 outside the Ray runtime env.
   if [ "${CONVERT_NPROC}" = "1" ]; then
-    PYTHONPATH="${MEGATRON_DIR}:${PYTHONPATH:-}" \
+    CUDA_DEVICE_MAX_CONNECTIONS=1 \
+      PYTHONPATH="${MEGATRON_DIR}:${PYTHONPATH:-}" \
       "${PYTHON_BIN}" "${SLIME_ROOT}/tools/convert_hf_to_torch_dist.py" \
       "${CONVERT_MODEL_ARGS[@]}" \
       --hf-checkpoint "${HF_CHECKPOINT}" \
       --save "${REF_LOAD_DIR}"
   else
-    PYTHONPATH="${MEGATRON_DIR}:${PYTHONPATH:-}" \
+    CUDA_DEVICE_MAX_CONNECTIONS=1 \
+      PYTHONPATH="${MEGATRON_DIR}:${PYTHONPATH:-}" \
       torchrun --nproc-per-node "${CONVERT_NPROC}" \
       "${SLIME_ROOT}/tools/convert_hf_to_torch_dist.py" \
       "${CONVERT_MODEL_ARGS[@]}" \
