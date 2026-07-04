@@ -601,7 +601,14 @@ def build_container_script() -> str:
             replacement = (
                 "    for k, tensors in state_dict.items():\\n"
                 "        if not isinstance(tensors, list):  # w8: bare object placeholder from partial load\\n"
-                "            tensors = [tensors]\\n"
+                "            # An empty BytesIO means the partial load skipped this object\\n"
+                "            # (e.g. TE _extra_state absent from a converted checkpoint);\\n"
+                "            # pass None so TE's set_extra_state guard skips it instead of\\n"
+                "            # choking on a placeholder.\\n"
+                "            if hasattr(tensors, 'getbuffer') and tensors.getbuffer().nbytes == 0:\\n"
+                "                tensors = [None]\\n"
+                "            else:\\n"
+                "                tensors = [tensors]\\n"
                 "        assert len(tensors) == len(rename_mapping[k])"
             )
             assert anchor in src, "w8 megatron patch anchor missing; inspect torch.py before proceeding"
