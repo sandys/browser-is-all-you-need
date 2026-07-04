@@ -94,6 +94,10 @@ GRPO_MAX_RESPONSE_LEN="${SLIME_GRPO_MAX_RESPONSE_LEN:-2048}"
 GRPO_TEMPERATURE="${SLIME_GRPO_TEMPERATURE:-1}"
 GRPO_SKIP_WEIGHT_UPDATE="${SLIME_GRPO_SKIP_WEIGHT_UPDATE:-1}"
 GRPO_LOAD_WEIGHTS_ONLY="${SLIME_GRPO_LOAD_WEIGHTS_ONLY:-1}"
+# The converted torch_dist base checkpoint is weights-only and saved under a
+# different parallel layout; loading optimizer/RNG object shards across that
+# resharding crashes Megatron dist-ckpt (BytesIO has no len()).
+SFT_LOAD_WEIGHTS_ONLY="${SLIME_SFT_LOAD_WEIGHTS_ONLY:-1}"
 GRPO_SKIP_FINAL_TRAIN_SLEEP="${SLIME_GRPO_SKIP_FINAL_TRAIN_SLEEP:-1}"
 FINAL_TRAIN_SLEEP_SKIP="${SLIME_FINAL_TRAIN_SLEEP_SKIP:-0}"
 
@@ -681,6 +685,9 @@ stage_args() {
         FINAL_TRAIN_SLEEP_SKIP=1
       fi
       CKPT_ARGS=(--hf-checkpoint "${HF_CHECKPOINT}" --ref-load "${REF_LOAD_DIR}" --load "${REF_LOAD_DIR}" --save "${SFT_SAVE_DIR}" --save-interval "${SAVE_INTERVAL}")
+      if [ "${SFT_LOAD_WEIGHTS_ONLY}" = "1" ]; then
+        CKPT_ARGS+=(--no-load-optim --no-load-rng)
+      fi
       if [ "${SAVE_HF_EXPORTS}" = "1" ] && [ "${INLINE_SAVE_HF_EXPORTS}" = "1" ]; then
         CKPT_ARGS+=(--save-hf "${SFT_HF_SAVE_TEMPLATE}")
       fi
