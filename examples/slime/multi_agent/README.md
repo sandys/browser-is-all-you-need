@@ -31,7 +31,7 @@ uv run python scripts/prepare_dapo_math_dataset.py \
 Run inside the SLIME container started by `.w8-biayn/slime/run-container.sh`:
 
 ```bash
-cd /workspace/browser-is-all-you-need-pipe-slime
+cd /workspace/<repo-name>
 
 SLIME_NUM_ROLLOUT=16 \
 SLIME_ROLLOUT_BATCH_SIZE=1 \

@@ -23,7 +23,7 @@ Build PIE tasks and the SLIME JSONL bundle from the repo environment before
 starting the SLIME container:
 
 ```bash
-cd /data/sanil/browser-is-all-you-need
+cd <repo-root>
 
 RUN_ID="r$(date -u +%Y%m%d%H%M%S)"
 uv run w8-biayn data pie download --out .w8-biayn/data/pie

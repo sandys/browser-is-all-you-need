@@ -28,9 +28,11 @@ program preserves behavior on visible and hidden tests.
   missing-runtime rate.
 
 SkyRL/rLLM, SkyPilot renderers, MLflow run-status parsing, and older GCP
-training commands remain in the tree only as legacy reference/compatibility
-surface. Do not use them for new active training work unless a task explicitly
-asks for legacy maintenance.
+training commands were removed from this branch. They remain available in git
+history, and the CLI keeps only thin legacy shims (for example
+`data skyrl build`) that fail with a clear legacy-unavailable message. Do not
+use them for new active training work unless a task explicitly asks for legacy
+maintenance.
 
 Out of scope unless a later phase explicitly asks for it: BrowserGym, DOMDiff,
 Harbor, WebArena, MiniWoB, AndroidWorld, Go, custom GPU kernel labs, and
@@ -307,7 +309,7 @@ benchmarks candidates against the PIE `v1` oracle. `SLIME_CUSTOM_GENERATE_FUNCTI
 disables the Python-tool ReTool trajectory for C++; SLIME's stock one-turn
 generation is used instead.
 
-### SLIME Moonlight MoE Smoke
+## GLM C++ Performance
 
 When the GLM lane is present, run inside the SLIME container:
 
@@ -335,9 +337,7 @@ in `asia-southeast1` by default, runs base eval, SFT, SFT eval, GRPO, GRPO eval,
 and compare, copies W&B/local artifacts under `.w8-biayn/slime/glm47-cpp-perf/`,
 and tears the SkyPilot cluster down.
 
-## Moonlight ReTool
-
-### SLIME Moonlight MoE Smoke
+## Moonlight MoE Smoke
 
 For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses a Moonlight-16B-A3B Instruct checkpoint, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.
 
@@ -375,15 +375,27 @@ Keep `SLIME_ENABLE_DEEPEP=0` for the first pass. Set `SLIME_ENABLE_DEEPEP=1` onl
 
 The launcher samples `nvidia-smi` during the run and writes `vram_usage.csv` plus `vram_peak.txt` under `.w8-biayn/slime/moonlight-16b-a3b-int4-smoke/runs/<timestamp>/`; use `vram_peak.txt` as the peak-VRAM receipt.
 
-### SLIME Multi-Agent Text Example
+## Moonlight ReTool
+
+Runbook and launchers:
+
+- `examples/slime/retool/README.md`
+- `examples/slime/retool/retool_moonlight_sft.sh`
+- `examples/slime/retool/retool_moonlight_rl.sh`
+
+This lane runs a local Python tool sandbox only: no E2B dependency, no external
+browser sandbox, and no hosted tool service.
+
+## SLIME Multi-Agent Text Example
 
 Runbook and launcher:
 
-- `examples/slime/retool/README.md`
-- `examples/slime/retool/retool_moonlight_rl.sh`
+- `examples/slime/multi_agent/README.md`
+- `examples/slime/multi_agent/run_multi_agent_text.sh`
 
-This lane has no E2B dependency, no external browser sandbox, and no hosted tool
-service.
+This is the generic text-only SLIME smoke. It prepares the DAPO-Math-17k JSONL
+and runs upstream SLIME's multi-agent generate function with a small Qwen3-4B
+default model.
 
 ## Evaluation
 
@@ -412,7 +424,9 @@ Formal uplift requires GRPO to beat base and SFT on
 scripts/bootstrap.sh                         fresh-machine bootstrap
 scripts/prepare_dapo_math_dataset.py         optional SLIME text-smoke data prep
 examples/slime/moonlight_cpp_perf/           active Moonlight C++ lane
+examples/slime/moonlight_lora_cpp_perf/      rank-16 LoRA Moonlight C++ lane
 examples/slime/glm47_cpp_perf/               active GLM C++ lane when present
+examples/slime/cpp_perf/                     single-launcher Moonlight C++ RL profile
 examples/slime/retool/                       Moonlight ReTool lane
 examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
 examples/slime/multi_agent/                  generic text-only SLIME smoke
@@ -421,31 +435,24 @@ src/w8_biayn/cli.py                          CLI surface
 src/w8_biayn/cpp_perf/data.py                downloads, full PIE prep, manifests, cache
 src/w8_biayn/cpp_perf/coverage.py            gcov coverage measurement
 src/w8_biayn/cpp_perf/pie.py                 PIE parsing and task construction
-src/w8_biayn/cpp_perf/skyrl_dataset.py       SkyRL GRPO/SFT dataset builder
+src/w8_biayn/cpp_perf/schema.py              task and harness schema
+src/w8_biayn/cpp_perf/prompts.py             prompt builder and task loading
 src/w8_biayn/cpp_perf/slime_dataset.py       SLIME prompt/metadata JSONL builder
 src/w8_biayn/cpp_perf/eval.py                eval aggregation
 src/w8_biayn/cpp_perf/judge.py               contest-style stdout comparison
 src/w8_biayn/cpp_perf/sandbox.py             Docker compile/test/runtime harness
 src/w8_biayn/cpp_perf/reward.py              correctness-gated efficiency reward
-src/w8_biayn/integrations/cpp_perf_env.py    SkyRL environment adapter
-src/w8_biayn/integrations/skyrl_cpp_perf_main.py
-                                               SkyRL GRPO entrypoint glue
-src/w8_biayn/integrations/skyrl_sft_export_checkpoint_main.py
-                                               SkyRL policy checkpoint HF export recovery
-src/w8_biayn/integrations/skyrl_io_patch.py    SkyRL checkpoint download compatibility patch
-src/w8_biayn/integrations/skyrl_vllm_logprob_patch.py
-                                               SkyRL vLLM token/logprob alignment patch
-src/w8_biayn/integrations/skyrl_grpo_health_patch.py
-                                               SkyRL GRPO health metric logging patch
-src/w8_biayn/integrations/skyrl_startup_patch.py
-                                               SkyRL startup stage logging patch
-src/w8_biayn/integrations/cpp_eval_main.py   vLLM eval generation and scoring
-src/w8_biayn/grpo_readiness.py               GRPO readiness and live-status guardrails
-src/w8_biayn/mlflow_metrics.py               MLflow Tracking Server API/SQLite metric reader
+src/w8_biayn/integrations/slime_cpp_perf.py  SLIME C++ data/reward/eval bridge
+src/w8_biayn/integrations/slime_train_entry.py
+                                             repo-owned SLIME train entry wrapper
+src/w8_biayn/integrations/slime_moonlight_hf_export.py
+                                             Moonlight Megatron-to-HF export shim
+src/w8_biayn/slime_integration/doctor.py     pinned SLIME clone doctor
+src/w8_biayn/slime_integration/setup.py      SLIME container launcher/bootstrap writer
+src/w8_biayn/slime_integration/sandbox.py    SLIME agent sandbox backends
+src/w8_biayn/slime_integration/lora.py       runtime-native LoRA flag resolution
 src/w8_biayn/reporting.py                    raw Markdown/CSV/SVG run evidence reports
-src/w8_biayn/run_status.py                   ops run-status JSON snapshots
 src/w8_biayn/shell.py                        dry-run-aware subprocess wrapper
-src/w8_biayn/sky_config.py                   SkyPilot YAML renderer
 src/w8_biayn/gcp_auth.py                     scoped GCP auth
 src/w8_biayn/secrets.py                      credential metadata only
 src/w8_biayn/constants.py                    upstream pins and defaults

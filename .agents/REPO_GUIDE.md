@@ -217,25 +217,18 @@ Megatron layer-spec shim in sync with lane defaults.
 
 ## Legacy Surface
 
-The following files are legacy SkyRL/rLLM/GCP control-plane surfaces. Do not
-extend them for new training work unless explicitly asked:
+The legacy SkyRL/rLLM/GCP control-plane modules (SkyRL dataset conversion,
+SkyPilot renderers, GRPO readiness and run-status tooling, MLflow metric
+readers, the SkyRL integration patches, and their tests) were removed from
+this branch. They remain available in git history. The CLI keeps thin shims
+(for example `data skyrl build`) that fail with a clear legacy-unavailable
+message instead of importing the removed modules; do not extend those shims
+for new training work.
 
-- `src/w8_biayn/cpp_perf/skyrl_dataset.py`
-- `src/w8_biayn/sky_config.py`
-- `src/w8_biayn/grpo_readiness.py`
-- `src/w8_biayn/run_status.py`
-- `src/w8_biayn/mlflow_metrics.py`
-- `src/w8_biayn/integrations/skyrl_*.py`
-- `src/w8_biayn/integrations/cpp_perf_env.py`
-- `src/w8_biayn/integrations/cpp_eval_main.py`
-- tests named `test_skyrl_*`, `test_sky_config.py`,
-  `test_grpo_readiness.py`, `test_run_status.py`, and
-  `test_mlflow_metrics.py`
-
-Do not delete legacy files unless the user explicitly asks for removal. If a
-file is generated evidence rather than source, untrack it with
-`git rm --cached` and ignore future copies instead of deleting the working-tree
-file.
+Do not resurrect legacy modules unless the user explicitly asks for a rollback
+or a legacy compatibility task. If a file is generated evidence rather than
+source, untrack it with `git rm --cached` and ignore future copies instead of
+deleting the working-tree file.
 
 ## Cloud Rules
 
