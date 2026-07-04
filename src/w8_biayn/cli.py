@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -1064,12 +1065,27 @@ def data_cache_restore(
     local_path = Path(path)
     local_path.mkdir(parents=True, exist_ok=True)
     env = _cache_command_env(credentials, gcs_prefix)
-    run_command(["gcloud", "storage", "rsync", "--recursive", prefix, str(local_path)], env=env, dry_run=dry_run)
-    if not dry_run:
-        errors = verify_data_manifest(local_path)
-        if errors:
-            raise typer.BadParameter("; ".join(errors))
-        console.print("manifest: ok")
+    if dry_run:
+        run_command(["gcloud", "storage", "rsync", "--recursive", prefix, str(local_path)], env=env, dry_run=True)
+        return
+    # A first-ever run (or a new admission-gate key) is a normal cache miss, not
+    # an error: probe for objects and exit non-zero quietly so callers rebuild
+    # without a scary rsync traceback.
+    listing = subprocess.run(
+        ["gcloud", "storage", "ls", prefix.rstrip("/") + "/**"],
+        env={**os.environ, **(env or {})},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if listing.returncode != 0 or not listing.stdout.strip():
+        console.print(f"cache miss: no dataset at {prefix}")
+        raise typer.Exit(1)
+    run_command(["gcloud", "storage", "rsync", "--recursive", prefix, str(local_path)], env=env)
+    errors = verify_data_manifest(local_path)
+    if errors:
+        raise typer.BadParameter("; ".join(errors))
+    console.print("manifest: ok")
 
 
 @task_app.command("build")
