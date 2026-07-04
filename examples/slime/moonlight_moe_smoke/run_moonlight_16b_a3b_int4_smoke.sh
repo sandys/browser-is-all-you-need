@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Tiny Moonlight-16B-A3B INT4 MoE smoke for the pinned SLIME sidecar.
 #
-# The defaults intentionally avoid E2B, browser sandboxes, DAPO downloads, and
-# W&B. They exercise the real colocated Megatron + SGLang training loop on a
-# four-row local math file.
+# The defaults intentionally avoid E2B, browser sandboxes, and DAPO downloads.
+# Optional W&B diagnostics follow the same auto-detect pattern as the other
+# repo-owned SLIME launchers.
 
 set -euo pipefail
 
@@ -245,6 +245,27 @@ OPTIMIZER_ARGS=(
   --use-precision-aware-optimizer
 )
 
+WANDB_ARGS=()
+WANDB_KEY="${WANDB_API_KEY:-${WANDB_KEY:-}}"
+WANDB_ALREADY_LOGGED_IN=0
+if [ -f "${HOME}/.netrc" ] || [ -f "${HOME}/.config/wandb/settings" ]; then
+  WANDB_ALREADY_LOGGED_IN=1
+fi
+if [ -n "${WANDB_KEY}" ] || [ "${WANDB_ALREADY_LOGGED_IN}" = "1" ] || [ -n "${SLIME_WANDB_PROJECT:-}" ]; then
+  WANDB_ARGS=(
+    --use-wandb
+    --wandb-project "${SLIME_WANDB_PROJECT:-slime-moonlight-smoke}"
+    --wandb-group "${SLIME_WANDB_GROUP:-moonlight-int4-moe-smoke}"
+    --disable-wandb-random-suffix
+  )
+  if [ -n "${WANDB_KEY}" ]; then
+    WANDB_ARGS+=(--wandb-key "${WANDB_KEY}")
+  fi
+  if [ -n "${SLIME_WANDB_RUN_ID:-}" ]; then
+    WANDB_ARGS+=(--wandb-run-id "${SLIME_WANDB_RUN_ID}")
+  fi
+fi
+
 SGLANG_ARGS=(
   --rollout-num-gpus "${NUM_GPUS}"
   --rollout-num-gpus-per-engine "${ROLLOUT_NUM_GPUS_PER_ENGINE}"
@@ -264,6 +285,10 @@ MISC_ARGS=(
   --colocate
   --ci-test
 )
+
+if [ -n "${SLIME_ATTENTION_BACKEND:-}" ]; then
+  MISC_ARGS+=(--attention-backend "${SLIME_ATTENTION_BACKEND}")
+fi
 
 if [ "${SLIME_ENABLE_DEEPEP:-0}" = "1" ]; then
   MISC_ARGS+=(--moe-enable-deepep --moe-token-dispatcher-type flex)
@@ -293,7 +318,18 @@ env = {
     "OPEN_TRAINING_INT4_FAKE_QAT_FLAG": "1",
     "OPEN_TRAINING_INT4_GROUP_SIZE": "128",
 }
-for key in ("CUDA_HOME", "PATH", "LD_LIBRARY_PATH", "HF_HOME"):
+for key in (
+    "CUDA_HOME",
+    "PATH",
+    "LD_LIBRARY_PATH",
+    "HF_HOME",
+    "NVTE_DEBUG",
+    "NVTE_DEBUG_LEVEL",
+    "NVTE_FLASH_ATTN",
+    "NVTE_FUSED_ATTN",
+    "NVTE_UNFUSED_ATTN",
+    "NVTE_ALLOW_NONDETERMINISTIC_ALGO",
+):
     if key in os.environ:
         env[key] = os.environ[key]
 print(json.dumps({"env_vars": env}))
@@ -313,6 +349,7 @@ ray job submit --address="http://127.0.0.1:8265" \
   "${ROLLOUT_ARGS[@]}" \
   "${OPTIMIZER_ARGS[@]}" \
   "${GRPO_ARGS[@]}" \
+  "${WANDB_ARGS[@]}" \
   "${PERF_ARGS[@]}" \
   "${SGLANG_ARGS[@]}" \
   "${MISC_ARGS[@]}" \

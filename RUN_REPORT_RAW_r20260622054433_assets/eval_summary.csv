@@ -1,4 +1,0 @@
-label,display_label,sample_count,task_count,pass_count,pass_rate,correct_and_faster_count,correct_and_faster_rate,missing_runtime_count,missing_runtime_rate,invalid_format_count,invalid_format_rate,compile_error_count,compile_error_rate,sanitizer_error_count,sanitizer_error_rate,timeout_count,timeout_rate,mean_reward_from_records,mean_best_reward_from_evaluator,mean_correct_faster_speedup
-base,Base,1035,1035,0,0.0,0,0.0,0,0.0,1034,0.9990338164251208,0,0.0,0,0.0,0,0.0,-0.9994202898550725,-0.9994202898550726,0.0
-sft,SFT,1035,1035,405,0.391304347826087,180,0.17391304347826086,2,0.001932367149758454,305,0.2946859903381642,308,0.2975845410628019,0,0.0,0,0.0,-0.4784366369403519,-0.4784366369403519,2.849410008874934
-grpo,GRPO-300,1035,1035,568,0.548792270531401,260,0.25120772946859904,7,0.00676328502415459,217,0.20966183574879227,245,0.23671497584541062,0,0.0,0,0.0,0.24586292353117897,0.24586292353117897,2.8483073866694832

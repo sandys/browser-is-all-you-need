@@ -1,65 +1,66 @@
 # w8-biayn
 
-`w8-biayn` is the command-and-control repository for Phase-1 C++ performance RL. The inherited repo is used only as baseline infrastructure for Google Cloud, SkyPilot, SkyRL, and rLLM; custom GPU kernel labs and unrelated performance experiments are not part of the active surface.
+`w8-biayn` is the command-and-control repository for C++ performance RL. The
+current active work is SLIME-based training for Moonlight and GLM models on PIE
+C++ optimization tasks.
 
-The active project is C++ only: train an open-weight model that rewrites correct C++20 programs so they run faster while preserving behavior.
+The training target is narrow:
 
-Out of scope for Phase 1: BrowserGym, DOMDiff, Harbor, WebArena, MiniWoB, AndroidWorld, and Go.
-
-## Goal
-
-- Data: official PIE C++ slower-to-faster pairs and official/merged/generated tests.
-- Task: prompt with slower C++ `v0`; generate a complete optimized C++20 program.
-- Reward: strict output format, compile and sanitizer success, visible and hidden tests, then bounded CPU-time runtime efficiency.
-- Training: SkyRL SFT cold start, then SkyRL GRPO through rLLM/vLLM. No custom trainer.
-- Proof: compare base, SFT, and GRPO checkpoints on the same held-out PIE tasks with `pass_rate`, `correct_and_faster_rate`, mean reward, speedup, and missing-runtime rate.
-
-PIE, LearningOpt PIE, and SuperCoder may be studied for data/eval lessons, but all repeatable work must be implemented as project CLI commands. Do not use PIE's old Trainer or any SuperCoder trainer as the active training stack.
-
-## Architecture
-
-```mermaid
-flowchart LR
-  raw[Official PIE archives] --> prep[prepare-full: splits and cases]
-  prep --> cov[measure-coverage with gcov]
-  cov --> tasks[coverage-gated C++ task JSON]
-  tasks --> skyrl[SkyRL bundle: GRPO parquet and SFT JSONL]
-  skyrl --> gcs[GCS versioned cache]
-  gcs --> sft[SkyRL SFT]
-  gcs --> grpo[SkyRL GRPO]
-  grpo --> env[cpp-perf SkyRL env]
-  env --> sandbox[Docker C++ sandbox]
-  sandbox --> reward[format, compile, sanitizer, tests, runtime CPU ns]
-  reward --> grpo
-  gcs --> eval[cpp-eval vLLM + reward harness]
-  sft --> eval
-  grpo --> eval
-  eval --> report[uplift report]
+```text
+correct but slower C++20 program -> correct and faster C++20 program
 ```
 
-```mermaid
-sequenceDiagram
-  participant Dev
-  participant CLI as w8-biayn
-  participant GCS
-  participant Sky as SkyPilot
-  participant SkyRL
-  participant Docker as Host Docker
+Correctness is mandatory. Runtime improvement only matters after the generated
+program preserves behavior on visible and hidden tests.
 
-  Dev->>CLI: data pie download / prepare-full / measure-coverage
-  CLI->>CLI: build-full-tasks with admission report
-  CLI->>CLI: data skyrl build with full-run count gates
-  Dev->>CLI: data cache upload --gcs-prefix full-official/RUN_ID
-  CLI->>GCS: rsync verified bundle
-  Dev->>CLI: launch cpp-sft/cpp-grpo --run-id RUN_ID
-  CLI->>Sky: render YAML with GCP labels and scoped credentials
-  Sky->>GCS: restore data bundle
-  Sky->>SkyRL: SFT or GRPO
-  SkyRL->>Docker: compile, sanitize, test, runtime benchmark
-  Docker-->>SkyRL: reward result
-  Dev->>CLI: launch cpp-eval for base/SFT/GRPO
-  CLI->>GCS: upload eval records and summaries
-```
+## Active Goal
+
+- Data: official PIE C++ slower-to-faster pairs plus official, merged, and
+  generated tests.
+- Task: prompt with slower PIE `v0`; generate a complete optimized C++20
+  program.
+- Reward: strict response format, compile and sanitizer success, visible and
+  hidden tests, then bounded child-process CPU-time efficiency.
+- Training: SLIME with Megatron training and SGLang rollouts. Active model
+  lanes are Moonlight and GLM.
+- Proof: compare base, SFT, and GRPO outputs on the same held-out PIE tasks
+  with pass rate, correct-and-faster rate, mean reward, speedup, and
+  missing-runtime rate.
+
+SkyRL/rLLM, SkyPilot renderers, MLflow run-status parsing, and older GCP
+training commands remain in the tree only as legacy reference/compatibility
+surface. Do not use them for new active training work unless a task explicitly
+asks for legacy maintenance.
+
+Out of scope unless a later phase explicitly asks for it: BrowserGym, DOMDiff,
+Harbor, WebArena, MiniWoB, AndroidWorld, Go, custom GPU kernel labs, and
+unrelated performance experiments.
+
+## Boundaries And Artifact Hygiene
+
+Do not write a custom trainer. Use SLIME, Megatron, and SGLang for active
+training work. Do not reintroduce SkyRL/rLLM as the active training stack unless
+the user explicitly asks for legacy maintenance or rollback.
+
+Do not delete local evidence files just because they are no longer tracked. If a
+generated artifact is in git, use `git rm --cached` so the working-tree file
+remains available, then ignore future generated copies. Generated `RUN_REPORT*`
+files and report asset directories should not be committed.
+
+## Current SLIME Lanes
+
+Use repo-owned wrappers rather than editing `.cache/upstreams/slime` directly.
+
+- Moonlight C++ performance lane: `examples/slime/moonlight_cpp_perf/`
+- Moonlight rank-16 LoRA C++ performance lane: `examples/slime/moonlight_lora_cpp_perf/`
+- GLM C++ performance lane: `examples/slime/glm47_cpp_perf/`
+- Moonlight ReTool lane: `examples/slime/retool/`
+- Moonlight MoE smoke: `examples/slime/moonlight_moe_smoke/`
+- Generic text-only SLIME smoke: `examples/slime/multi_agent/`
+
+The Moonlight and GLM C++ lanes reuse the project PIE task schema, prompt
+builder, Docker C++ sandbox, reward function, and eval aggregation through
+`src/w8_biayn/integrations/slime_cpp_perf.py`.
 
 ## Fresh Machine Setup
 
@@ -67,37 +68,31 @@ Run from a clean clone:
 
 ```bash
 ./scripts/bootstrap.sh
-cp /secure/path/service-account.json .gcp-service-account.json
-uv run w8-biayn doctor --cloud --cpp-perf
 uv run w8-biayn data doctor
-uv run w8-biayn upstreams clone
-uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json
+uv run w8-biayn upstreams clone slime
+uv run w8-biayn slime doctor
+uv run w8-biayn slime setup
+uv run w8-biayn cpp harness preflight --dry-run
 ```
 
-The service-account JSON stays local. The CLI uses scoped environment variables such as `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, and `CLOUDSDK_CORE_PROJECT`; it must not run `gcloud auth activate-service-account` or mutate global `gcloud config`.
+Generated data, upstream clones, rendered launchers, secrets, logs,
+checkpoints, model exports, run reports, and evaluation artifacts are local
+state and must stay out of git.
 
-Generated data, upstream clones, rendered SkyPilot YAML, secrets, logs, and checkpoints are local state and ignored by git.
+If cloud/GCS helpers are used for a specific run, keep credentials local at
+`.gcp-service-account.json`; never print credential contents or mutate global
+`gcloud` configuration.
 
-## Full Official PIE Dataset
+## PIE Data Workflow
 
-Dataset conversion is a deliverable. No one-off notebook, shell-history, or untracked-script munging is allowed.
+Dataset conversion is a deliverable. Do not use one-off notebooks, shell
+history, or untracked munging for PIE data.
 
-Use one run ID for the dataset, training, eval, and cleanup:
+Build admitted PIE task JSON:
 
 ```bash
 RUN_ID="r$(date -u +%Y%m%d%H%M%S)"
-PROJECT_ID="$(python - <<'PY'
-import json
-print(json.load(open('.gcp-service-account.json'))['project_id'])
-PY
-)"
-DATA_GCS="gs://${PROJECT_ID}-w8-biayn/datasets/cpp-perf/cpp-perf-v1/full-official/${RUN_ID}/skyrl"
-RUN_GCS="gs://${PROJECT_ID}-w8-biayn/runs/cpp-perf/${RUN_ID}"
-```
 
-Build the full official PIE task pool:
-
-```bash
 uv run w8-biayn data pie download --out .w8-biayn/data/pie
 uv run w8-biayn data pie prepare-full \
   --source-root .w8-biayn/data/pie \
@@ -117,43 +112,42 @@ uv run w8-biayn data pie build-full-tasks \
   --min-validation 100 \
   --min-test 100 \
   --force
-
-uv run w8-biayn data skyrl build \
-  --tasks-dir .w8-biayn/data/tasks-full \
-  --out .w8-biayn/data/skyrl-full \
-  --profile full-official \
-  --run-id "${RUN_ID}" \
-  --min-train-tasks 1000 \
-  --min-validation-tasks 100
-
-uv run w8-biayn data cache upload \
-  --path .w8-biayn/data/skyrl-full \
-  --gcs-prefix "${DATA_GCS}" \
-  --credentials .gcp-service-account.json
 ```
 
-Admission gates are intentional. Paid training must not start if:
+Admission gates:
 
-- full train tasks are fewer than 1000;
-- validation or test tasks are fewer than 100;
-- coverage is below 95 percent line or 85 percent branch;
-- visible or hidden tests are missing;
-- the SkyRL bundle manifest fails checksum verification.
+- train tasks >= 1000;
+- validation/test tasks >= 100;
+- coverage >= 95 percent line and 85 percent branch;
+- visible and hidden tests exist;
+- reference performance exists;
+- train/validation/test split stays by problem.
 
-The prepared data and task build write `_w8_*` manifests/reports with counts and rejection reasons.
+Build SLIME-ready JSONL from the admitted task JSON with the lane wrapper:
+
+```bash
+bash examples/slime/moonlight_cpp_perf/prepare_data.sh
+```
+
+For the GLM lane, use the matching wrapper under
+`examples/slime/glm47_cpp_perf/` when that lane is present in the workspace.
 
 ## Task And Reward Contract
 
 A valid task contains:
 
 - `prompt_code`: slower correct PIE C++ `v0`;
-- `oracle_solution`: faster PIE C++ `v1`, used for SFT/coverage/reference only;
+- `oracle_solution`: faster PIE C++ `v1`, used for SFT, coverage, reference
+  timing, and oracle material only;
 - visible `unit_tests` and grading-only `hidden_tests`;
 - `test_coverage` at or above 95 percent line and 85 percent branch;
 - positive reference performance metadata;
 - split `train`, `validation`, or `test`.
 
-The model must return exactly:
+During GRPO, the prompt may include visible tests and `v0`. It must not include
+hidden tests or `v1`.
+
+Model outputs must contain exactly:
 
 ````text
 <reasoning>...</reasoning>
@@ -162,427 +156,186 @@ The model must return exactly:
 ```
 ````
 
-The parser accepts a standard fenced block with code on the next line, or C++ code after whitespace on the same fence line. It still requires exactly one reasoning block and exactly one C++ code block.
-
 Reward order:
 
-- unrecoverable invalid format: `-1.0`;
-- recoverable C++ with missing wrapper/fence format: shaped below the correctness-only fallback, so GRPO keeps a gradient without making bare code attractive;
+- unrecoverable invalid format: negative;
+- recoverable C++ with missing wrapper/fence format: shaped below the
+  correctness-only fallback;
 - compile or sanitizer failure: negative;
 - timeout: negative;
-- partial tests: shaped but below fully correct;
-- fully correct with missing non-timeout runtime measurement: correctness-only fallback below any measured fully correct answer;
-- fully correct: `1.0 + bounded runtime-efficiency bonus`.
+- partial tests: below any fully correct answer;
+- fully correct with missing non-timeout runtime measurement: correctness-only
+  fallback below any measured fully correct answer;
+- fully correct: base reward plus bounded runtime-efficiency bonus.
 
-Before GRPO, the host must pass the Docker runtime harness preflight:
+The sandbox compiles the candidate and PIE `v1` oracle, runs all visible and
+hidden tests, then benchmarks both binaries in the same Docker sandbox with the
+same CPU pinning, compiler flags, and tests. Runtime reward uses
+child-process CPU time in nanoseconds. Wall-clock nanoseconds are diagnostics.
 
-```bash
-uv run w8-biayn cpp harness preflight --dry-run
-uv run w8-biayn cpp harness preflight --cpu 3
-uv run w8-biayn doctor --cpp-perf --credentials .gcp-service-account.json
-```
+Do not add PMU, Linux perf, PERFMON, or `perf_event_paranoid` dependencies to
+the active reward path.
 
-The sandbox compiles the candidate and PIE `v1` oracle, runs all visible and hidden tests, then benchmarks both binaries in the same Docker sandbox with the same CPU pinning, compiler flags, and tests. Runtime measurement uses child-process CPU time in nanoseconds, with wall-clock nanoseconds recorded as diagnostics. The default benchmark uses 1 warmup and 3 measured repeats, takes the median per test, and sums across tests.
+## SLIME Setup
 
-Rendered `cpp-grpo` and `cpp-eval` SkyPilot jobs run a host-side C++ runtime preflight before GCS restore, model staging, GPU image pulls, or framework installs, and then run the same preflight again inside the GPU container before `skyrl_cpp_perf_main` or eval scoring.
-
-## GCP Training
-
-Render before paid launches:
-
-```bash
-uv run w8-biayn config render cpp-sft \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}"
-
-uv run w8-biayn config render cpp-grpo \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}"
-```
-
-Launch SFT:
-
-```bash
-uv run w8-biayn launch cpp-sft \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --owner sss \
-  --accelerators A100:8 \
-  --disk-size 1024 \
-  --train-batch-size 16 \
-  --train-epochs 2 \
-  --eval-interval 50 \
-  --ckpt-interval 100 \
-  --hf-save-interval 1074 \
-  --ckpt-path "${RUN_GCS}/cpp-sft/ckpts" \
-  --export-path "${RUN_GCS}/cpp-sft/exports" \
-  --max-ckpts-to-keep 2 \
-  --no-down-after
-```
-
-For the full official SFT setup above, `1074` is the expected final step for two epochs at batch size 16 on the current PIE bundle. Keep `--ckpt-interval 100` for recovery, but use a final-step `--hf-save-interval` unless you explicitly need intermediate HF model exports; `save_hf_model` is CPU/GCS-heavy and can leave the A100s idle for tens of minutes per export. If a resumed run changes the expected final step, update `--hf-save-interval` and the `ops run-status --expected-sft-final-step` value together.
-Pipeline defaults are per purpose: `cpp-smoke` uses `H100:8` and `zai-org/GLM-5.1`, `cpp-sft`/`cpp-grpo` use `A100:8` and `Qwen/Qwen2.5-Coder-7B-Instruct`, and `cpp-eval` uses `A100:1` and `Qwen/Qwen2.5-Coder-7B-Instruct`. Rendered training jobs request `128+` GB host memory; rendered eval jobs request `80+` GB so GCP single-A100 shapes are not filtered out before provisioning. Eval pins `vllm==0.6.6.post1`, `transformers==4.57.6`, and CUDA 12.4 PyTorch wheels because unpinned latest vLLM can select a CUDA 13 stack that the A2 driver cannot load. Override `--model` and `--accelerators` explicitly when a run is meant to test another model or GPU shape.
-
-Launch GRPO after SFT produces a usable export. Use the SFT export as `--model` when available:
-
-```bash
-uv run w8-biayn launch cpp-grpo \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --owner sss \
-  --model "${RUN_GCS}/cpp-sft/exports/global_step_1074/policy" \
-  --accelerators A100:8 \
-  --disk-size 1024 \
-  --train-batch-size 16 \
-  --n-samples-per-prompt 8 \
-  --train-epochs 3 \
-  --no-eval-before-train \
-  --eval-interval 25 \
-  --max-env-workers 128 \
-  --ckpt-interval 50 \
-  --hf-save-interval 10000 \
-  --ckpt-path "${RUN_GCS}/cpp-grpo/ckpts" \
-  --export-path "${RUN_GCS}/cpp-grpo/exports" \
-  --max-ckpts-to-keep 8 \
-  --grpo-vllm-gpu-memory-utilization 0.7 \
-  --no-down-after
-```
-
-SkyRL also exports HF models at epoch boundaries and after the loop, so a large `--hf-save-interval` is not final-only; it suppresses interval exports while preserving epoch-boundary/final exports. Use a large interval such as `10000` for GRPO unless intermediate HF exports are part of the experiment, and keep checkpoint saves (`--ckpt-interval`) for resume safety.
-Rendered GRPO enables a small KL anchor and entropy bonus by default (`--grpo-use-kl-loss`, `--grpo-kl-loss-coef 0.001`, `--grpo-use-entropy-loss`, `--grpo-entropy-loss-coef 0.001`) to reduce drift from the SFT/reference policy and avoid deterministic format collapse. It also sets `--grpo-vllm-gpu-memory-utilization 0.7` by default so colocated vLLM leaves enough headroom for the FSDP policy/ref workers on A100-40GB; if vLLM fails while waking the KV cache, lower this before relaunching. Keep at least several GRPO checkpoints (`--max-ckpts-to-keep 8` in the full-run example) because the most recent checkpoint may be worse than an earlier healthy checkpoint after reward over-optimization.
-
-If a GRPO attempt is canceled or fails after a complete checkpoint, restart it with the same checkpoint path and `--resume-from latest`. Use `--disk-size 2048` or larger for multi-node GRPO resume; a 2x[A100:8] resume from `global_step_150` filled a 1024 GB boot disk during FSDP checkpoint restore and failed with `[Errno 28] No space left on device`, so the CLI rejects smaller explicit disks and defaults resumed multi-node GRPO to 2048 GB. When the SFT final step is known, pass the concrete HF policy export (`.../exports/global_step_N/policy`) as `--model`; if a `gs://.../exports` root is passed, rendered GRPO/eval jobs resolve it to the highest complete `global_step_N/policy` directory with model weights before staging it locally. For multi-node GRPO, pass `--num-nodes N`; the renderer keeps SkyRL colocated, starts a rank-gated Ray cluster inside the GPU containers, runs `skyrl_cpp_perf_main` only on rank 0, and sets rollout engines to `N * GPUs_PER_NODE` when tensor/data parallelism are `1`. It also sets `trainer.policy.fsdp_config.fsdp_size` and `trainer.ref.fsdp_config.fsdp_size` to GPUs-per-node so multi-node FSDP shards within a node (NVLink) and replicates across nodes (HSDP) instead of full-sharding the model across the slow inter-node link; without this, a model that fits on one node can train slower on two nodes than on one, so reserve multi-node for models that do not fit on a single node or generation/reward-bound steps. Multi-node GRPO is rejected unless effective samples per step (`--train-batch-size * --n-samples-per-prompt`) are at least 16 per GPU and `--max-env-workers` can cover the effective samples. For 2x[A100:8], use a tuned starting point such as `--train-batch-size 32 --n-samples-per-prompt 8 --max-env-workers 256`; pass `--allow-low-multinode-utilization` only for an intentional experiment. `--micro-train-batch-size-per-gpu` defaults to `1`; try `2` only as a memory-checked policy-update tuning experiment on A100-40GB and fall back to `1` on OOM or no throughput gain. Use `--region` and `--zone` to pin placement when reproducing startup behavior, and include `resources.zones[]`, `progress.grpo_config.policy_num_nodes`, and `resources.sampled_node_count` from `ops run-status` in comparisons. Do not treat region pinning as a multi-node fix: the verified successful GRPO run in this repo evidence was single-node A100:8, while verified 2-node attempts stalled before first scalar metrics in `ref_model_init`. Full GRPO can skip the expensive initial validation pass with `--no-eval-before-train`; the renderer uses non-batched trajectory generation so SkyRL-Gym can overlap C++ reward calls, and `--max-env-workers` controls that Docker reward concurrency.
-
-### Multi-Node GRPO Readiness
-
-Before a paid multi-node GRPO launch, the CLI runs `ops grpo-readiness` against the rendered YAML and blocks critical failures. Run it directly when debugging or handing work to another operator:
-
-```bash
-uv run w8-biayn ops grpo-readiness \
-  --rendered-config .w8-biayn/rendered/cpp-grpo.sky.yaml \
-  --out ".w8-biayn/runs/${RUN_ID}/grpo-readiness.json"
-```
-
-`ops grpo-readiness` emits `w8-grpo-readiness-v1` JSON. Static checks verify the Docker reward mounts, host and container preflights, `NCCL_IB_DISABLE`, `NCCL_SOCKET_IFNAME`, `NCCL_DEBUG`, concrete default-route `GLOO_SOCKET_IFNAME`, `skyrl_io_patch.py`, `skyrl_vllm_logprob_patch.py`, `skyrl_grpo_health_patch.py`, console logging, MLflow Tracking Server setup and GCS persistence when MLflow tracking is enabled, HSDP `fsdp_size`, rollout engine count, utilization gate, resume disk, checkpoint retention, and KL/entropy settings. Gloo must receive a real interface name derived from `ip route`; do not pass NCCL's `^lo,docker,veth` exclusion syntax to `GLOO_SOCKET_IFNAME`.
-
-For a live multi-node run, pass a status snapshot produced with `--node-health`:
-
-```bash
-uv run w8-biayn ops grpo-readiness \
-  --rendered-config .w8-biayn/rendered/cpp-grpo.sky.yaml \
-  --status-json ".w8-biayn/runs/${RUN_ID}/status.json"
-```
-
-The live check requires `node_health.sample_scope=all_active`, sampled nodes equal active nodes, failed node probes equal zero, and sampled GPUs equal the GRPO GPU count before anyone claims the worker node is participating. It also treats long pre-metric startup, such as `ref_model_init` with `tracking_state=run_active_no_metrics`, as action-required; stop and inspect rather than burning GPUs without scalar metrics. If `training_health.should_stop=true`, readiness returns `overall=action_required`; follow `training_health.recommended_action` instead of continuing to poll or train.
-
-`launch` auto-adds a run ID if omitted, but full runs should pass the same `RUN_ID` everywhere. Rendered YAML includes GCP labels under `resources.labels`: `project`, `phase`, `pipeline`, `run_id`, `owner`, and `ttl`.
-Full training and eval default to a 1024 GB boot disk, except resumed multi-node GRPO, which defaults to and requires 2048 GB or larger because FSDP checkpoint restore needs substantial local scratch space.
-Rendered SFT and GRPO containers set longer SkyRL/Ray distributed timeouts (`SKYRL_RAY_PG_TIMEOUT_IN_S=1800`, `SKYRL_WORKER_NCCL_TIMEOUT_IN_S=3600`) so slow FSDP checkpoint restore and HF export barriers do not fail at SkyRL's 10-minute worker default. Override those environment variables only for a deliberate debugging run.
-Rendered training containers also pass `NCCL_IB_DISABLE=1`, `NCCL_SOCKET_IFNAME=^lo,docker,veth`, a concrete default-route `GLOO_SOCKET_IFNAME`, and `NCCL_DEBUG=WARN` into Docker so SkyRL, Ray, and vLLM use the VM network interface instead of loopback or transient container interfaces. Missing this propagation is a known multi-node reproducibility mismatch: the host shell can have valid networking while the training container still fails during Ray/NCCL/vLLM startup. Do not reuse NCCL's `^lo,docker,veth` exclusion syntax for Gloo; PyTorch Gloo expects a real interface name and will fail process-group initialization if given `^lo`.
-The training container also applies idempotent SkyRL compatibility patches: `skyrl_io_patch.py` flattens cloud checkpoint directory downloads before FSDP rank-shard validation, `skyrl_vllm_logprob_patch.py` aligns vLLM response token IDs with returned rollout logprobs when vLLM emits an unpaired trailing token at the generation cap, `skyrl_grpo_health_patch.py` emits `W8_GRPO_HEALTH` JSON lines with train/eval reward, KL, entropy, advantage, reward-variance, and phase-timing metrics for `ops run-status`, and `skyrl_startup_patch.py` emits `W8_SETUP_STAGE` JSON lines around FSDP policy/reference model initialization. Without these patches, GCS resume can falsely report missing `model_world_size_*_rank_*.pt` shards, GRPO can abort on SkyRL's response/logprob length assertion, dashboards can miss deterministic-convergence and overfit signals, or a long pre-metric startup can look like an untracked hang.
-
-Full SFT and GRPO renders default to SkyRL `console` plus `mlflow` logging. The rank-0 training container starts a local MLflow Tracking Server (`mlflow server`) backed by SQLite at `/artifacts/tracking/mlflow/mlflow.db`, exports `MLFLOW_TRACKING_URI` for SkyRL/Ray, and keeps console logs as a fallback for log-tail status. The SkyPilot host snapshots that SQLite backend with SQLite's backup API and syncs it to `${RUN_GCS}/<pipeline>/tracking/mlflow/mlflow.db`, so metrics survive ephemeral cluster teardown and can be queried without opening a UI. During active runs, a live `ops metrics --source api` or `ops run-status` read through the SSH tunnel is the strongest tracking validation; after teardown, falling back to the GCS-synced SQLite snapshot is expected and is not a tracking regression. Use `--tracking-backend console` only for deliberate cheap/debug renders that do not need durable curves. If MLflow shows `run_active_no_metrics`, the training process has registered but SkyRL has not logged the first scalar; while backend resources are live, poll `ops run-status --node-health` and inspect `progress.startup` / `node_health.startup` before assuming the job is idle. If no live backend resources remain and the run still has params but no scalar metrics, `run-status` treats it as a failed pre-metric startup and reports `progress.startup.recommended_action=inspect_failed_startup_or_relaunch`. KL-enabled GRPO initializes a full FSDP reference policy before the first rollout, so `ref_model_init` can be the real startup bottleneck and should be tracked explicitly.
-
-Operational lessons from the full run:
-
-- If a job is canceled or fails during distributed checkpoint restore or HF export, treat the warm cluster as suspect even when the GCS checkpoint is valid. `ops run-status` surfaces this as `recovery.recommended_action=fresh_cluster_resume`; down the cluster, relaunch with `--resume-from latest`, the same `--ckpt-path`, and at least 1024 GB on single-node GRPO or 2048 GB on multi-node GRPO.
-- If the mistake happens before Ray/SkyRL training starts, such as bad dataset/model staging, cancel the bad job and reuse the allocated cluster when possible. This preserves scarce GPU capacity and avoids another provisioning round; the next launch syncs the corrected workdir and starts a new job on the same cluster.
-- Do not infer paid-resource count from local `SkyPilot:executor:*` processes. SkyPilot keeps a local API server and executor pool alive; those are not GPU jobs. Use `w8-biayn ops status`, `w8-biayn ops queue`, `w8-biayn ops run-status`, and labeled GCP instance checks to decide what is actually running and whether cleanup is safe.
-
-If an SFT attempt fails after writing a checkpoint, resume it from the latest marker with the same checkpoint path:
-
-```bash
-uv run w8-biayn launch cpp-sft \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --owner sss \
-  --accelerators A100:8 \
-  --disk-size 1024 \
-  --train-batch-size 16 \
-  --train-epochs 2 \
-  --eval-interval 50 \
-  --ckpt-interval 100 \
-  --hf-save-interval 1074 \
-  --ckpt-path "${RUN_GCS}/cpp-sft/ckpts" \
-  --export-path "${RUN_GCS}/cpp-sft/exports" \
-  --max-ckpts-to-keep 2 \
-  --resume-from latest
-```
-
-If a SkyRL SFT checkpoint is complete but the HF export is incomplete, recover the export without another SFT epoch. Use a local artifact export path so the launcher uploads the finished HF directory back under `${RUN_GCS}/cpp-sft/exports`:
-
-```bash
-uv run w8-biayn launch cpp-sft \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --owner sss \
-  --accelerators A100:8 \
-  --disk-size 1024 \
-  --train-batch-size 16 \
-  --export-path "~/exports/" \
-  --export-checkpoint "${RUN_GCS}/cpp-sft/ckpts/global_step_1074" \
-  --no-down-after
-```
-
-Verify recovery with `ops run-status`: `artifacts.export.final_export_exists` must be `true` and `artifacts.export.final_export.weight_object_count` must be greater than zero before GRPO uses the SFT export.
-
-The same export-only path can export a GRPO policy checkpoint for evaluation after an early stop. Pass the SFT HF export used to initialize GRPO as `--model`, and pass the GRPO checkpoint as `--export-checkpoint`; the launcher uploads the result under `${RUN_GCS}/cpp-grpo/exports`:
-
-```bash
-uv run w8-biayn launch cpp-grpo \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --model "${RUN_GCS}/cpp-sft/exports/global_step_1074/policy" \
-  --accelerators A100:8 \
-  --disk-size 1024 \
-  --train-batch-size 16 \
-  --export-path "~/exports/" \
-  --export-checkpoint "${RUN_GCS}/cpp-grpo/ckpts/global_step_250" \
-  --no-down-after
-```
-
-When `--model` points at a `gs://` export for GRPO or eval, the launcher stages the model into a directory mounted inside the GPU container before invoking SkyRL or vLLM. During staging it normalizes legacy exported tokenizer configs by moving an `extra_special_tokens` list to `additional_special_tokens`, which current Transformers can load. Eval uses the mounted staged path directly; it must not copy the same HF export a second time inside the container. Do not pass host-only staged paths into containerized training. Warm-cluster reruns skip dataset restore only when the local marker matches the requested `--dataset-gcs-prefix` and the manifest/tasks are still present.
-
-GRPO does not require PMU access or Linux perf counters. The required host capability is Docker-outside-Docker plus enough CPU stability for the runtime harness to compare candidate and oracle binaries consistently.
-
-The default `launch` includes SkyPilot `--down`; `--no-down-after` keeps a cluster for inspection. Long full-training jobs can use `--detach-run` so the command returns after backend submission and operators poll with `ops run-status` / `ops metrics` instead of keeping a local log stream attached. On a shared account, run cleanup when an attempt fails or finishes:
-
-```bash
-uv run w8-biayn gcp cleanup --run-id "${RUN_ID}" --credentials .gcp-service-account.json --dry-run
-uv run w8-biayn gcp cleanup --run-id "${RUN_ID}" --credentials .gcp-service-account.json --execute
-```
-
-Use the project ops commands for run inspection and control. Do not put raw `sky ...` commands in runbooks; `w8-biayn ops ...` is the stable DX boundary if the backend changes later.
-
-```bash
-uv run w8-biayn ops status --credentials .gcp-service-account.json --refresh
-uv run w8-biayn ops run-status \
-  --run-id "${RUN_ID}" \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --expected-sft-final-step 1074 \
-  --baseline-status ".w8-biayn/runs/<single-node-run-id>/status.json" \
-  --check-retries 1 \
-  --node-health \
-  --out ".w8-biayn/runs/${RUN_ID}/status.json"
-uv run w8-biayn ops metrics \
-  --run-id "${RUN_ID}" \
-  --pipeline cpp-grpo \
-  --credentials .gcp-service-account.json \
-  --last 100 \
-  --out ".w8-biayn/runs/${RUN_ID}/cpp-grpo-mlflow-metrics.json"
-uv run w8-biayn ops grpo-readiness \
-  --rendered-config .w8-biayn/rendered/cpp-grpo.sky.yaml \
-  --status-json ".w8-biayn/runs/${RUN_ID}/status.json" \
-  --out ".w8-biayn/runs/${RUN_ID}/grpo-readiness.json"
-uv run w8-biayn ops queue "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json
-uv run w8-biayn ops logs "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json --tail 200
-uv run w8-biayn ops logs "w8-biayn-cpp-grpo-${RUN_ID}" 1 --credentials .gcp-service-account.json --follow
-uv run w8-biayn ops cancel "w8-biayn-cpp-grpo-${RUN_ID}" 1 --credentials .gcp-service-account.json
-uv run w8-biayn ops down "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json
-uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regions
-```
-
-For a rerun or cluster-size experiment, pass one or more prior snapshots with `--baseline-status ".w8-biayn/runs/<baseline-run-id>/status.json"` so the JSON includes `speed_comparison` for training-step and rollout throughput. Interpret speedup factors directly: greater than `1.0` is faster than the baseline, less than `1.0` is slower, and `gpu_speedup_efficiency` is the speedup divided by the GPU scale factor. A `cost_verdict` of `cost_inefficient` means the current run used more GPUs without increasing the primary comparable throughput.
-
-`ops metrics` emits `w8-mlflow-metrics-v1` JSON. By default, `--source auto` opens an SSH tunnel to the running cluster head and queries the private MLflow Tracking Server API directly, then falls back to the GCS-synced SQLite backend at `${RUN_GCS}/<pipeline>/tracking/mlflow/mlflow.db` if the live API is unavailable. Use `--source api` to require the tunnel/API path and `--source sqlite` for post-teardown or snapshot-only reads. The MLflow server is intentionally private; do not expose it publicly. The JSON includes `source`, `checks[]`, experiment/run metadata, active run status, tag count, selected training params, available metric keys, latest values, and short series. If `metrics.available=true`, `metrics.tracking_state=run_active_no_metrics`, and `metrics.metric_count=0`, the Tracking Server and SkyRL run are registered but SkyRL has not logged its first scalar yet; this is a startup state, not proof of progress. Immediately pair it with `ops run-status --node-health` while the cluster is live and inspect `summary.current_progress.startup`: `active_stage`, `groups[].process_count`, `max_elapsed_s`, `nodes`, and `roles` identify whether the missing time is dependency setup, Ray startup, `ref_model_init`, `policy_model_init`, or another pre-rollout stage. After teardown, the same no-scalar MLflow snapshot means no further node-health probe is possible; `run-status` marks the pipeline failed and sets `progress.startup.recommended_action=inspect_failed_startup_or_relaunch`. Once scalars exist, `tracking_state=metrics_available`.
-
-For GRPO, the standard post-training metric set is:
-
-- Generalization and quality: `eval/all/avg_score`, `eval/all/pass_at_1`, `eval/all/pass_at_4`, `eval/all/pass_at_8`, `eval/all/mean_positive_reward`, plus train-side `loss/avg_final_rewards`, `reward/avg_pass_at_8`, `reward/avg_raw_reward`, and `reward/mean_positive_reward`.
-- Policy sanity: `policy/policy_kl`, `loss/avg_kl`, `loss/avg_kl_max`, `policy/policy_entropy`, `policy/response_length`, and `generate/{avg,std,min,max}_assistant_tokens`.
-- Optimizer health: `policy/grad_norm`, `policy/policy_loss`, `policy/pg_loss:sum`, `policy/total_loss:sum`, `policy/loss_metrics/clip_ratio`, `loss/avg_raw_advantages_abs`, and `policy/policy_lr`.
-- RL correctness: `policy/rollout_train_logprobs_abs_diff_mean`, `policy/rollout_train_logprobs_abs_diff_std`, `generate/avg_tokens_zero_rewards`, and `generate/avg_tokens_non_zero_rewards`.
-- W8 health and timing: `w8/reward_group_variance_mean`, `w8/reward_group_variance_max`, `w8/zero_variance_group_fraction`, `w8/zero_advantage_token_fraction`, `timing/step`, `timing/generate`, `timing/policy_train`, `timing/fwd_logprobs_values_reward`, `timing/sync_weights`, `timing/save_checkpoint`, and `timing/save_hf_model`.
-
-Read those curves together. Entropy collapse is `policy/policy_entropy -> 0` with `loss/avg_raw_advantages_abs -> 0` and `policy/grad_norm -> 0`. Reward hacking is train reward rising while held-out eval is flat or down, often with response length drift. KL blowup is unbounded `policy/policy_kl`/`loss/avg_kl`. Optimizer instability shows up as grad-norm or clip-ratio spikes. Rollout/train logprob divergence points at vLLM/FSDP numerical or alignment bugs. For active training jobs, `ops run-status` opens the same private SSH tunnel and queries the live MLflow API before falling back to the GCS-synced SQLite snapshot. It merges the latest/series metrics into `training_health`, `learning_signal`, `phase_timing`, and `progress.tracking`, while falling back to console-log parsing if neither MLflow source is available yet.
-
-`ops run-status` emits `w8-run-status-v1` JSON for dashboards and polling loops. It includes dataset manifest state, per-pipeline cluster/job state, labeled GCP instances, checkpoint marker and shard completeness for the promoted `latest` checkpoint, highest checkpoint directory, active `in_progress` checkpoint upload, export readiness including final export object counts/bytes and model weight presence, live-or-snapshotted MLflow tracking state, recent log-derived setup/stage/step/checkpoint/export/error signals, normalized phase/progress/resource/command fields, SFT config/last-step progress including micro train batch and SkyRL timeout settings, GRPO config (`effective_samples_per_step`, total GPUs, samples/GPU/step, micro train batch, KL/entropy settings, vLLM GPU memory utilization, checkpoint retention, reward workers, FSDP sizes, HSDP mesh/activity, SkyRL timeout settings), cpp-eval generation/scoring progress, startup substage summaries, trajectory/evaluation/training throughput, GPU-normalized throughput, ETA/timing metrics, reward metrics, GRPO `training_health`, `learning_signal`, and `phase_timing` verdicts, bottleneck verdicts from SkyRL timing, optional `speed_comparison` against prior `--baseline-status` snapshots, and cleanup safety. Config fields are merged from the local rendered YAML, logs, and MLflow runtime params, with MLflow runtime params taking precedence when available because they describe the actual SkyRL run rather than the latest local render. When `logs.config_sources` contains `mlflow_params`, treat the corresponding `progress.grpo_config` and `progress.sft_config` values as runtime truth; local rendered YAML can be stale after a rerender or a different launch attempt. `logs.config_sources` and `logs.rendered_config_path` show which sources contributed. Pass `--node-health` for opt-in read-only SSH health with GPU utilization/memory, disk free space, top processes, startup process groups, a derived node activity, and an explicit `sample_scope`. For multi-node clusters, `--node-health` probes every active labeled VM for the pipeline, so dashboards can verify worker-node participation instead of inferring it from head-node activity. Instantaneous GPU utilization is phase-dependent: `resources.gpu_sample_interpretation` and `progress.phase_timing` must be read together before concluding a run is GPU-bound, reward-bound, idle, or healthy. Logs include `tail_lines_requested`, `tail_lines_scanned`, and `tail_may_be_truncated`; treat a truncated tail as a hint to increase `--log-tail` before drawing conclusions from stage parsing. Each backend/GCS/health/tracking check is listed with its command, return code, `timed_out`, and `attempt_count`; tune per-check timeout with `--check-timeout` and retry timed-out or transiently failed read-only checks with `--check-retries`.
-
-### Run Status JSON Structure
-
-Dashboards should treat `schema_version` as the compatibility key and prefer the normalized `summary`, `pipelines[].phase`, `pipelines[].progress`, `pipelines[].recovery`, `pipelines[].resources`, and `cleanup` blocks over direct log scraping. The current `w8-run-status-v1` structure is:
-
-```text
-root
-  schema_version: "w8-run-status-v1"
-  generated_at_utc, run_id, project_id, artifact_bucket
-  summary
-    state, dataset_state, current_pipeline, current_cluster
-    current_phase: {current, group, source, log_stage, node_activity, artifact_activity, failed, message}
-    current_progress: {primary, training, trajectory, evaluation, throughput, training_health, learning_signal, phase_timing, tracking, startup}
-    training_health, learning_signal, speed_comparison, recovery, resources, cleanup_safe
-  dataset
-    state, gcs_prefix, manifest_uri, schema_version, file_count
-    task_counts: {train, validation, test}
-    split_files: {sft_train, sft_validation, grpo_train, grpo_validation}
-    checks[]
-  pipelines[]
-    pipeline, cluster, state, run_gcs_prefix
-    active_job: {job_id, status, resources, log_path, start_at, end_at, duration_s, job_name}
-    backend: {instances[], queue}
-    artifacts
-      run_gcs_prefix, checks[]
-      checkpoint: {prefix, latest_marker, steps[], latest, highest, in_progress}
-      export: {prefix, steps[], expected_final_step, final_export_prefix, final_export_exists, final_export}
-      eval_outputs: {prefix, objects[], records[], summaries[], labels[], complete_labels[], uplift_summary_uri, uplift_summary, uplift_gate}  # cpp-eval only
-    tracking
-      available, reason, backend
-      mlflow: {available, tracking_state, latest_step, metric_count, metric_row_count, run, params, tags, available_keys[], selected_keys[], latest, series, source}
-    logs
-      stage, stage_events[], setup_events[], last_step, last_loss, last_eval_loss
-      trajectory_progress, evaluation_progress, training_progress
-      checkpoint_events[], export_events[], timings, metrics, policy_health_events[], grpo_health_events[], errors[]
-      config, config_sources[], rendered_config_path
-      tail_lines_requested, tail_lines_scanned, tail_may_be_truncated
-      available, error
-    phase: {current, group, source, log_stage, node_activity, artifact_activity, failed, message}
-    progress
-      pipeline, primary, training, trajectory, evaluation, checkpoint
-      timings, config, sft_config, grpo_config, metrics, tracking, startup, training_health, learning_signal, phase_timing, bottleneck, throughput
-    speed_comparison: {available, reason, primary, baselines[]}
-    recovery: {available, recommended_action, fresh_cluster_recommended, requires_down_before_resume, reason, signals[], resume_from, resume_checkpoint_step, commands}
-    resources: {total_instance_count, active_instance_count, zones[], machine_types[], accelerators, gpu_count, sampled_node_count, failed_node_count, sampled_gpu_count, gpu utilization/memory summaries, gpu_sample_interpretation}
-    commands, checks[]
-    node_health: {available, skipped, sample_scope, sample_note, expected_node_count, sampled_node_count, failed_node_count, activity, startup, gpus[], filesystems[], processes[], nodes[], error}
-                                           # only with --node-health
-  gcp: {instances[], active_instance_count, checks[]}
-  cleanup: {safe_to_cleanup, active_job_count, active_instance_count, provisioning_instance_count, working_pipeline_count, commands}
-```
-
-Each `checks[]` entry has `name`, `command[]`, `ok`, `returncode`, `skipped`, `timed_out`, `attempt_count`, and optional stdout/stderr tails. With `--node-health`, `sample_scope=all_active` means every active labeled VM for the pipeline was probed, `partial` means at least one active VM probe failed, and `none` means no live node telemetry was collected. Top-level `node_health.gpus[]`, `filesystems[]`, and `processes[]` are aggregates annotated with `node_name` and `role`; `node_health.nodes[]` keeps the per-node detail, including failed worker probes. `node_health.startup` and `progress.startup` summarize pre-metric process groups such as `dependency_setup`, `ray_cluster`, `ray_worker_join`, `skyrl_entrypoint`, `ref_model_init`, and `policy_model_init`, including process counts, elapsed seconds, CPU use, sampled nodes, roles, and a warning when the MLflow run is active but no scalar metrics have been logged. When that no-scalar tracking state remains after all backend resources are gone, `progress.startup.severity=error`, `recommended_action=inspect_failed_startup_or_relaunch`, and `phase.source=tracking` because the startup can no longer be observed live. `logs.setup_events[]` contains rendered `W8_SETUP_STAGE` markers when the running container includes startup instrumentation. The checkpoint detail objects (`latest`, `highest`, and `in_progress`) contain `prefix`, `step`, `promoted`, `trainer_state_present`, `expected_world_size`, rank counts, world sizes, ranks, object counts, byte totals, and `resumable`. When an active job has an incomplete higher checkpoint than the promoted `latest`, `phase.source` becomes `artifacts` and `phase.artifact_activity` reports `checkpoint_stage`, which protects dashboards from stale or truncated log tails. The export detail object contains object counts, byte totals, config/tokenizer/weight presence, `weight_object_count`, sampled object URIs, and `complete`. `eval_outputs.records[]` and `eval_outputs.summaries[]` expose uploaded eval artifacts by label; `complete_labels[]` contains labels that have both a records JSONL and summary JSON. `training_health.verdict=collapsed` with `should_stop=true` means GRPO metrics match the terminal entropy-collapse/zero-advantage pattern and the operator should stop the run rather than waiting for recovery; `training_health.recommended_action=stop_and_relaunch_from_sft` is the machine-readable action. `training_health.verdict=deterministic_low_gradient` with `should_stop=true` means recent raw trainer metrics show very low entropy and tiny gradients while a resumable checkpoint exists; `training_health.recommended_action=stop_and_evaluate_checkpoint` and `training_health.checkpoint_step` identify the next action. `training_health.verdict=deterministic_convergence_risk` keeps `should_stop=false` but sets `recommended_action=evaluate_checkpoint` when train reward/pass are high while entropy, gradients, advantages, or reward variance suggest learning may be stalled. `learning_signal` is built from `W8_GRPO_HEALTH` and SkyRL metrics; it exposes train reward/pass, held-out eval metrics when available, policy KL, entropy, estimated KL/entropy loss terms, reward-group variance, mean absolute advantage, zero-advantage fraction, recent trends, and a dashboard verdict. `phase_timing` groups SkyRL timing into rollout, reward, policy-update, synchronization, checkpoint, and export work; use it with `resources.gpu_sample_interpretation` before deciding whether a 0 percent or 100 percent GPU sample means anything about throughput. `recovery.available=true` means a failed/canceled checkpointed training job has a machine-readable next action; `recommended_action=fresh_cluster_resume` means the latest checkpoint is resumable but the failed job has distributed-state or interrupted-export signals, so tear down the cluster before relaunching with `--resume-from latest`. `speed_comparison.primary` is present only when `--baseline-status` yields comparable throughput; factors greater than `1.0` are faster, factors less than `1.0` are slower, and `cost_verdict=cost_inefficient` means extra GPUs did not improve the primary comparable throughput. `cleanup.safe_to_cleanup=false` means do not tear the run down automatically.
-
-## Uplift Evaluation
-
-If `training_health.verdict=deterministic_low_gradient` and `training_health.recommended_action=stop_and_evaluate_checkpoint`, stop the training job after confirming a resumable checkpoint and evaluate that checkpoint before spending more GPU time. High train reward is not enough to keep training when entropy, advantage, and gradients have collapsed; the next proof is held-out base/SFT/GRPO eval. If GRPO does not beat SFT, the next iteration should study task headroom and reward shape, such as filtering tasks the SFT policy already solves or increasing the runtime-efficiency signal, rather than rerunning the same GRPO configuration.
-
-Run the same held-out validation bundle against base, SFT, and GRPO models:
-
-```bash
-uv run w8-biayn launch cpp-eval \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --owner sss \
-  --model Qwen/Qwen2.5-Coder-7B-Instruct \
-  --eval-label base \
-  --n-samples-per-prompt 1 \
-  --eval-max-tasks 200
-
-uv run w8-biayn launch cpp-eval \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --owner sss \
-  --model "${RUN_GCS}/cpp-sft/exports/global_step_1074/policy" \
-  --eval-label sft \
-  --n-samples-per-prompt 1 \
-  --eval-max-tasks 200
-
-uv run w8-biayn launch cpp-eval \
-  --credentials .gcp-service-account.json \
-  --dataset-gcs-prefix "${DATA_GCS}" \
-  --run-id "${RUN_ID}" \
-  --owner sss \
-  --model "${RUN_GCS}/cpp-grpo/exports" \
-  --eval-label grpo \
-  --n-samples-per-prompt 1 \
-  --eval-max-tasks 200
-```
-
-`cpp-eval` stages `gs://` model exports to local VM storage before loading vLLM, normalizes legacy tokenizer config shape if needed, and mounts that staged directory into the eval container. If the model is an export root with multiple `global_step_*` directories, the launcher resolves the highest complete `global_step_N/policy` export and validates that the staged local directory has `config.json` and model weights before vLLM starts. After generation, `cpp_eval_main` releases the vLLM object and CUDA cache before CPU/Docker scoring, then emits `W8 eval generation ...` and `W8 eval scoring ...` markers that `ops run-status` maps to `eval_generation`, `eval_scoring`, and `progress.evaluation`. On a warm cluster, dataset restore is skipped only when the stored prefix marker matches the requested dataset prefix and the local manifest/tasks are present. Eval artifacts are uploaded to:
-
-```text
-gs://<project>-w8-biayn/runs/cpp-perf/<RUN_ID>/cpp-eval/
-```
-
-Aggregate local or restored eval records:
-
-```bash
-uv run w8-biayn eval cpp \
-  --records base=base.records.jsonl \
-  --records sft=sft.records.jsonl \
-  --records grpo=grpo.records.jsonl \
-  --out uplift-summary.json
-```
-
-`w8-biayn eval cpp` writes a machine-readable `uplift_gate` verdict. Success criterion for a formal uplift claim: `uplift_gate.passed=true`, which requires GRPO to beat base and SFT on `correct_and_faster_rate` and `mean_best_reward`, with every compared label at `missing_runtime_rate=0`. If GRPO wins the headline metrics but any label has missing runtime, report `uplift_gate.verdict=held_out_lift_but_gate_failed`: the held-out lift is real, but the formal gate has not passed. Use `uplift_gate.label_status.*.missing_runtime_task_ids` to audit residual harness or non-benchmarkable-task blockers; do not silently drop those rows after evaluation.
-
-Build a raw evidence report with recomputed uplift JSON, CSVs, artifact hashes, and SVG curves from local run artifacts:
-
-```bash
-uv run w8-biayn eval raw-report \
-  --run-id "$RUN_ID" \
-  --run-root ".w8-biayn/runs/$RUN_ID" \
-  --companion-report "RUN_REPORT_${RUN_ID}.md"
-```
-
-`w8-biayn eval raw-report` is offline and credential-free. By default it reads `.w8-biayn/runs/<RUN_ID>/eval/{base,sft,grpo}.records.jsonl`, `.w8-biayn/runs/<RUN_ID>/metrics.api.json`, and `.w8-biayn/runs/<RUN_ID>/status.json`, then writes `RUN_REPORT_RAW_<RUN_ID>.md` plus `RUN_REPORT_RAW_<RUN_ID>_assets/` containing `uplift-summary-recomputed.json`, `eval_summary.csv`, `missing_runtime_tasks.csv`, `mlflow_selected_series.csv`, `mlflow_latest_selected.csv`, `artifact_hashes.csv`, and SVG curves for eval outcomes, training reward/pass, held-out eval, entropy, gradient norm, advantage/variance, response length, and phase timing. Use `--records LABEL=path.jsonl`, `--metrics-json`, `--status-json`, `--out`, and `--assets-dir` to generate the same report from restored artifacts in another directory.
-
-If uplift fails, clone/study SuperCoder and Microsoft/LearningOpt PIE into `/tmp`, compare filtering, prompts, reward shaping, model choice, and hyperparameters, then port only compatible fixes into this SkyRL/rLLM pipeline.
-
-## Operations
-
-```bash
-uv run w8-biayn ops status --credentials .gcp-service-account.json
-uv run w8-biayn ops logs "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json --tail 200
-uv run w8-biayn ops down "w8-biayn-cpp-grpo-${RUN_ID}" --credentials .gcp-service-account.json
-uv run w8-biayn benchmarks list
-uv run w8-biayn benchmarks show grpo-tiny
-```
-
-The legacy top-level `w8-biayn status`, `w8-biayn logs`, and `w8-biayn down` commands remain aliases, but new docs and scripts should prefer `w8-biayn ops ...`.
-
-Pinned upstream clones live under `.cache/upstreams/`:
-
-- `SkyRL`
-- `rllm`
-- `pie-perf`
-- `LearningOpt-pie`
-- `slime`
-
-Use:
-
-```bash
-uv run w8-biayn upstreams clone
-uv run w8-biayn upstreams status
-```
-
-Do not vendor upstream repos, CodeNet, PIE archives, generated tests, gem5 outputs, datasets, checkpoints, or credentials.
-
-## SLIME Sidecar Setup
-
-SLIME is integrated as a pinned upstream sidecar under `.cache/upstreams/slime`. It is cloneable and inspectable from this repo, but it does not replace the default C++ performance-RL path through SkyRL/rLLM. Keep SLIME source and generated runtime state out of git.
-
-Clone or refresh the pinned checkout:
+Clone or refresh the pinned SLIME checkout:
 
 ```bash
 uv run w8-biayn upstreams clone slime
-```
-
-Validate the local SLIME checkout:
-
-```bash
 uv run w8-biayn slime doctor
 ```
 
-Generate the Docker-first quick-start launcher plus the in-container bootstrap helper:
+Generate the Docker-first launcher and in-container bootstrap helper:
 
 ```bash
 uv run w8-biayn slime setup
 .w8-biayn/slime/run-container.sh
 ```
 
-`slime setup` refreshes the pinned upstream, writes `.w8-biayn/slime/run-container.sh`, and writes `.w8-biayn/slime/bootstrap-inside-container.sh`. The launcher now follows the upstream quick-start Docker flow end-to-end: it does `docker pull`, starts the container with this repo mounted at `/workspace/<repo-name>`, mounts `/var/run/docker.sock` for the Docker sandbox backend, and then runs the in-container bootstrap (`export PYTHONPATH=/root/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}} && cd /root/slime && git pull && pip install -e . --no-deps && python train.py --help`). That `PYTHONPATH` export is required because the image contains `/root/Megatron-LM` but does not expose it by default, and `slime/train.py` imports `megatron.training`. The bootstrap script is still written separately so it can be rerun manually inside the container if needed.
+The generated launcher starts the SLIME container with this repository mounted,
+mounts `/var/run/docker.sock` for the Docker reward backend, and bootstraps
+SLIME with `/root/Megatron-LM` on `PYTHONPATH`.
 
-The generic doctor checks the upstream root plus `README.md`, `train.py`, `train_async.py`, `slime/`, `examples/`, and `docs/`.
+The generated Docker launcher keeps `--ulimit stack=67108864` enabled by
+default. It leaves `--ulimit memlock=-1` off because some managed GPU hosts
+reject that rlimit before the container starts. On hosts that allow locked
+memory, opt in with:
+
+```bash
+SLIME_DOCKER_MEMLOCK_ULIMIT=1 .w8-biayn/slime/run-container.sh
+```
+
+It also raises the in-container open-file soft limit to
+`SLIME_NOFILE_SOFT_LIMIT=65536` before bootstrapping SLIME.
+
+## Moonlight C++ Performance
+
+Run inside the SLIME container:
+
+```bash
+cd /workspace/<repo-name>
+
+export SLIME_RUN_ID="moonlight_cpp_perf_$(date -u +%Y%m%d%H%M%S)"
+export SLIME_HF_CHECKPOINT=/root/models/Moonlight-16B-A3B-Instruct
+export SLIME_REF_LOAD_DIR=/root/models/Moonlight-16B-A3B-Instruct_torch_dist
+
+bash examples/slime/moonlight_cpp_perf/prepare_data.sh
+bash examples/slime/moonlight_cpp_perf/eval_base.sh
+bash examples/slime/moonlight_cpp_perf/sft.sh
+bash examples/slime/moonlight_cpp_perf/eval_sft.sh
+bash examples/slime/moonlight_cpp_perf/grpo.sh
+bash examples/slime/moonlight_cpp_perf/eval_grpo.sh
+bash examples/slime/moonlight_cpp_perf/compare.sh
+```
+
+The lane writes local state under
+`.w8-biayn/slime/moonlight-cpp-perf/runs/${SLIME_RUN_ID}/`.
+
+For the lighter Moonlight MoE smoke, use:
+
+```bash
+bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
+```
+
+## Moonlight Rank-16 LoRA C++ Performance
+
+The rank-16 LoRA variant wraps the active Moonlight C++ lane and applies LoRA
+arguments only to SFT, GRPO, and their eval stages. It checks the active
+SLIME/Megatron `--help` surface before training so unsupported LoRA flags are
+not silently ignored.
+
+Run inside the SLIME container:
+
+```bash
+export SLIME_RUN_ID="moonlight_lora16_cpp_perf_$(date -u +%Y%m%d%H%M%S)"
+export SLIME_CPP_TASKS_DIR=/workspace/browser-is-all-you-need/.w8-biayn/data/tasks-full
+export SLIME_HF_CHECKPOINT=/root/models/Moonlight-16B-A3B-Instruct
+export SLIME_REF_LOAD_DIR=/root/models/Moonlight-16B-A3B-Instruct_torch_dist
+export SLIME_LORA_RANK=16
+export SLIME_WANDB_PROJECT=slime-moonlight-lora-cpp-perf
+export SLIME_WANDB_GROUP="${SLIME_RUN_ID}"
+
+bash examples/slime/moonlight_lora_cpp_perf/prepare_data.sh
+bash examples/slime/moonlight_lora_cpp_perf/eval_base.sh
+bash examples/slime/moonlight_lora_cpp_perf/sft.sh
+bash examples/slime/moonlight_lora_cpp_perf/eval_sft.sh
+bash examples/slime/moonlight_lora_cpp_perf/grpo.sh
+bash examples/slime/moonlight_lora_cpp_perf/eval_grpo.sh
+bash examples/slime/moonlight_lora_cpp_perf/compare.sh
+```
+
+The LoRA lane writes under
+`.w8-biayn/slime/moonlight-lora-cpp-perf/runs/${SLIME_RUN_ID}/` and uses W&B
+when `WANDB_API_KEY` or an existing W&B login is present.
+
+### SLIME PIE C++ Path
+
+For the SLIME version of the PIE C++ experiment, keep the normal PIE task build
+and convert those tasks to SLIME JSONL:
+
+```bash
+uv run w8-biayn data slime build \
+  --tasks-dir .w8-biayn/data/tasks-full \
+  --out .w8-biayn/data/slime-pie \
+  --profile full-official \
+  --run-id "$RUN_ID" \
+  --min-train-tasks 1000 \
+  --min-validation-tasks 100
+```
+
+Then launch `examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh` with the AIME
+4-GPU resource profile and the C++ reward hook:
+
+```bash
+SLIME_PROMPT_DATA=.w8-biayn/data/slime-pie/train.jsonl \
+W8_BIAYN_SLIME_TASK_ROOT=.w8-biayn/data/slime-pie \
+SLIME_CUSTOM_GENERATE_FUNCTION_PATH= \
+SLIME_CUSTOM_RM_PATH=generate_with_cpp_perf.reward_func \
+SLIME_REWARD_KEY=score \
+SLIME_NUM_GPUS=4 \
+SLIME_ROLLOUT_BATCH_SIZE=4 \
+SLIME_N_SAMPLES_PER_PROMPT=1 \
+SLIME_GLOBAL_BATCH_SIZE=4 \
+SLIME_MAX_RESPONSE_LEN=256 \
+SLIME_MAX_TOKENS_PER_GPU=4096 \
+bash examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh
+```
+
+`generate_with_cpp_perf.reward_func` lives under `examples/slime/cpp_perf/` and
+calls the repo C++ reward harness, so the SLIME path still compiles, tests, and
+benchmarks candidates against the PIE `v1` oracle. `SLIME_CUSTOM_GENERATE_FUNCTION_PATH=`
+disables the Python-tool ReTool trajectory for C++; SLIME's stock one-turn
+generation is used instead.
+
+### SLIME Moonlight MoE Smoke
+
+When the GLM lane is present, run inside the SLIME container:
+
+```bash
+cd /workspace/<repo-name>
+
+export SLIME_RUN_ID="glm47_cpp_perf_$(date -u +%Y%m%d%H%M%S)"
+export SLIME_HF_CHECKPOINT=/root/models/GLM-4.7-Flash
+export SLIME_REF_LOAD_DIR=/root/models/GLM-4.7-Flash_torch_dist
+
+bash examples/slime/glm47_cpp_perf/prepare_data.sh
+bash examples/slime/glm47_cpp_perf/eval_base.sh
+bash examples/slime/glm47_cpp_perf/sft.sh
+bash examples/slime/glm47_cpp_perf/eval_sft.sh
+bash examples/slime/glm47_cpp_perf/grpo.sh
+bash examples/slime/glm47_cpp_perf/eval_grpo.sh
+bash examples/slime/glm47_cpp_perf/compare.sh
+```
+
+Keep GLM defaults conservative until SGLang startup, Megatron training, and C++
+reward throughput are stable on the target GPU host. For the paid one-command
+GCP `H100:8` full run, use
+`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; it loops for capacity
+in `asia-southeast1` by default, runs base eval, SFT, SFT eval, GRPO, GRPO eval,
+and compare, copies W&B/local artifacts under `.w8-biayn/slime/glm47-cpp-perf/`,
+and tears the SkyPilot cluster down.
+
+## Moonlight ReTool
 
 ### SLIME Moonlight MoE Smoke
 
@@ -624,64 +377,52 @@ The launcher samples `nvidia-smi` during the run and writes `vram_usage.csv` plu
 
 ### SLIME Multi-Agent Text Example
 
-For a text-only SLIME RL bring-up, use the repo-owned multi-agent wrapper under `examples/slime/multi_agent/`. This avoids the VLM memory/config path and validates the core SLIME loop: DAPO-Math data, Ray, SGLang rollout, reward/logprob processing, and Megatron actor training.
+Runbook and launcher:
 
-Prepare a tiny slice:
+- `examples/slime/retool/README.md`
+- `examples/slime/retool/retool_moonlight_rl.sh`
 
-```bash
-uv run python scripts/prepare_dapo_math_dataset.py \
-  --out .w8-biayn/slime/dapo-math-17k \
-  --limit 32
-```
+This lane has no E2B dependency, no external browser sandbox, and no hosted tool
+service.
 
-Or prepare the full split:
+## Evaluation
 
-```bash
-uv run python scripts/prepare_dapo_math_dataset.py \
-  --out .w8-biayn/slime/dapo-math-17k
-```
-
-Start the SLIME container:
+For SLIME C++ lanes, aggregate debug rollout dumps and compare summaries through
+the project SLIME bridge:
 
 ```bash
-.w8-biayn/slime/run-container.sh
+python -m w8_biayn.integrations.slime_cpp_perf aggregate-debug \
+  --label base \
+  --debug-rollout <path-to-debug-rollout.pt-or-jsonl> \
+  --out .w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/base
+
+python -m w8_biayn.integrations.slime_cpp_perf compare \
+  --summary base=.w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/base.summary.json \
+  --summary sft=.w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/sft.summary.json \
+  --summary grpo=.w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/grpo.summary.json \
+  --out .w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/comparison.json
 ```
 
-Then launch the repo-owned wrapper inside the container:
-
-```bash
-cd /workspace/<repo-name>
-
-SLIME_NUM_ROLLOUT=16 \
-SLIME_ROLLOUT_BATCH_SIZE=1 \
-SLIME_N_SAMPLES_PER_PROMPT=2 \
-SLIME_GLOBAL_BATCH_SIZE=2 \
-SLIME_MAX_RESPONSE_LEN=512 \
-SLIME_MAX_CONTEXT_LEN=2048 \
-SLIME_MAX_TOKENS_PER_GPU=2048 \
-bash examples/slime/multi_agent/run_multi_agent_text.sh
-```
-
-Optional W&B logging is enabled automatically if `wandb login` has already been run inside the container. You can also pass a key explicitly with `WANDB_API_KEY`.
-
-```bash
-SLIME_WANDB_PROJECT=slime-multi-agent \
-SLIME_WANDB_GROUP=qwen3-4b-dapo-smoke \
-SLIME_WANDB_RUN_ID=qwen3-4b-dapo-32 \
-bash examples/slime/multi_agent/run_multi_agent_text.sh
-```
-
-`SLIME_MAX_TOKENS_PER_GPU` is required because the launcher uses SLIME dynamic batching. Keep `2048` for smoke runs; tune upward only after memory is stable.
+Formal uplift requires GRPO to beat base and SFT on
+`correct_and_faster_rate` and mean best reward, with no missing runtime rows.
 
 ## Repository Map
 
 ```text
 scripts/bootstrap.sh                         fresh-machine bootstrap
+scripts/prepare_dapo_math_dataset.py         optional SLIME text-smoke data prep
+examples/slime/moonlight_cpp_perf/           active Moonlight C++ lane
+examples/slime/glm47_cpp_perf/               active GLM C++ lane when present
+examples/slime/retool/                       Moonlight ReTool lane
+examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
+examples/slime/multi_agent/                  generic text-only SLIME smoke
+src/local.py                                 Moonlight Megatron local-layer shim
 src/w8_biayn/cli.py                          CLI surface
 src/w8_biayn/cpp_perf/data.py                downloads, full PIE prep, manifests, cache
 src/w8_biayn/cpp_perf/coverage.py            gcov coverage measurement
 src/w8_biayn/cpp_perf/pie.py                 PIE parsing and task construction
 src/w8_biayn/cpp_perf/skyrl_dataset.py       SkyRL GRPO/SFT dataset builder
+src/w8_biayn/cpp_perf/slime_dataset.py       SLIME prompt/metadata JSONL builder
 src/w8_biayn/cpp_perf/eval.py                eval aggregation
 src/w8_biayn/cpp_perf/judge.py               contest-style stdout comparison
 src/w8_biayn/cpp_perf/sandbox.py             Docker compile/test/runtime harness
@@ -716,7 +457,7 @@ src/w8_biayn/benchmarks.py                   benchmark ladder
 
 ## Validation
 
-Before handing off:
+Before handing off normal code/docs work:
 
 ```bash
 uv run --extra dev pytest
@@ -725,21 +466,13 @@ uv run python -m compileall src tests
 python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
 ```
 
-For setup, CLI, cloud, or data-pipeline changes, also run relevant dry checks:
+For SLIME setup changes, also run:
 
 ```bash
-./scripts/bootstrap.sh --no-sky
-uv run w8-biayn --help
-uv run w8-biayn data doctor
-uv run w8-biayn benchmarks list
+uv run w8-biayn slime doctor
+uv run w8-biayn slime setup --force
 uv run w8-biayn cpp harness preflight --dry-run
-uv run w8-biayn doctor --cpp-perf
-uv run w8-biayn ops status --credentials .gcp-service-account.json --dry-run
-uv run w8-biayn ops run-status --run-id rdoc --credentials .gcp-service-account.json --dry-run
-uv run w8-biayn ops gpus A100 --credentials .gcp-service-account.json --all-regions --dry-run
-uv run w8-biayn launch cpp-smoke --dry-run --credentials .gcp-service-account.json --run-id rdoc
-uv run w8-biayn launch cpp-grpo --dry-run --credentials .gcp-service-account.json --run-id rdoc
-uv run w8-biayn ops grpo-readiness --rendered-config .w8-biayn/rendered/cpp-grpo.sky.yaml
-uv run w8-biayn launch cpp-eval --dry-run --credentials .gcp-service-account.json --run-id rdoc
-uv run w8-biayn gcp cleanup --run-id rdoc --credentials .gcp-service-account.json --dry-run
 ```
+
+For documentation-only changes, run the skill validator and the docs guardrail
+tests when practical.
