@@ -76,6 +76,23 @@ def test_run_script_heredoc_terminates_and_docker_runs_after_it() -> None:
     assert 'test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"' in after_heredoc
 
 
+def test_container_script_dedents_and_embedded_python_parses() -> None:
+    import ast
+
+    from w8_biayn.cloud_launch import build_container_script
+
+    script = build_container_script()
+    # A single template line reaching column 0 (e.g. an unescaped \n inside a
+    # nested string literal) makes dedent a no-op and indents every heredoc
+    # terminator, silently truncating the script at execution time.
+    assert script.splitlines()[0] == "set -euo pipefail"
+    for terminator in ("W8_WANDB_CHECK", "W8_MEGATRON_PATCH"):
+        assert f"\n{terminator}\n" in script, f"{terminator} heredoc must terminate at column 0"
+    embedded = script.split("python - <<'W8_MEGATRON_PATCH'\n", 1)[1].split("\nW8_MEGATRON_PATCH", 1)[0]
+    ast.parse(embedded)
+    assert "\\n" in embedded, "patch string escapes must reach the embedded python intact"
+
+
 def test_glm_lane_disables_fully_parallel_ckpt_load_and_pins_slime() -> None:
     from w8_biayn.cloud_launch import build_container_script
 
