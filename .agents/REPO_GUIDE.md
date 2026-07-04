@@ -88,9 +88,7 @@ Do not rely on globally installed tools unless bootstrap installs them or
 Dataset conversion is a deliverable. No one-off PIE or SuperCoder munging is
 allowed.
 
-All source downloads, archive normalization, coverage measurement, task
-construction, SLIME conversion, evaluation aggregation, and artifact comparison
-must be represented as repo commands or repo-owned scripts with tests and docs.
+All source downloads, archive normalization, coverage measurement, task construction, SkyRL conversion, SLIME conversion, GCS upload, and GCS restore must be represented as `w8-biayn data ...` commands with tests and docs.
 
 Build admitted PIE task JSON:
 
@@ -100,6 +98,10 @@ uv run w8-biayn data pie download --out .w8-biayn/data/pie
 uv run w8-biayn data pie prepare-full --source-root .w8-biayn/data/pie --out .w8-biayn/data/pie-full --force
 uv run w8-biayn data pie measure-coverage --prepared-root .w8-biayn/data/pie-full --out .w8-biayn/data/pie-full/coverage.json --report-out .w8-biayn/data/pie-full/coverage-report.json
 uv run w8-biayn data pie build-full-tasks --prepared-root .w8-biayn/data/pie-full --coverage-json .w8-biayn/data/pie-full/coverage.json --out .w8-biayn/data/tasks-full --min-train 1000 --min-validation 100 --min-test 100 --force
+uv run w8-biayn data skyrl build --tasks-dir .w8-biayn/data/tasks-full --out .w8-biayn/data/skyrl-full --profile full-official --run-id "$RUN_ID" --min-train-tasks 1000 --min-validation-tasks 100
+# Optional explicit SLIME C++ lane; keep prompt-only JSONL plus task metadata for the SLIME reward hook.
+uv run w8-biayn data slime build --tasks-dir .w8-biayn/data/tasks-full --out .w8-biayn/data/slime-pie --profile full-official --run-id "$RUN_ID" --min-train-tasks 1000 --min-validation-tasks 100
+uv run w8-biayn data cache upload --path .w8-biayn/data/skyrl-full --gcs-prefix "gs://<project>-w8-biayn/datasets/cpp-perf/cpp-perf-v1/full-official/${RUN_ID}/skyrl" --credentials .gcp-service-account.json
 ```
 
 Build active SLIME JSONL through lane wrappers:

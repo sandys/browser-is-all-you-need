@@ -72,6 +72,7 @@ def test_retool_launcher_keeps_custom_retool_hooks_and_pythonpath() -> None:
     assert "--custom-rm-path generate_with_retool.reward_func" in text
     assert 'PYTHONPATH": ":".join(' in text
     assert '"${SCRIPT_DIR}"' in text
+    assert '"${REPO_ROOT}/src"' not in text
     assert "--reward-key score" in text
 
 
@@ -177,3 +178,4 @@ def test_retool_readme_is_reproduction_oriented() -> None:
     assert "4x NVIDIA A100 80 GB PCIe" in text
     assert "Ray job terminal status `SUCCEEDED`" in text
     assert "does not claim learning improvement" in text
+    assert "PIE C++" not in text

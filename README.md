@@ -268,7 +268,46 @@ The LoRA lane writes under
 `.w8-biayn/slime/moonlight-lora-cpp-perf/runs/${SLIME_RUN_ID}/` and uses W&B
 when `WANDB_API_KEY` or an existing W&B login is present.
 
-## GLM C++ Performance
+### SLIME PIE C++ Path
+
+For the SLIME version of the PIE C++ experiment, keep the normal PIE task build
+and convert those tasks to SLIME JSONL:
+
+```bash
+uv run w8-biayn data slime build \
+  --tasks-dir .w8-biayn/data/tasks-full \
+  --out .w8-biayn/data/slime-pie \
+  --profile full-official \
+  --run-id "$RUN_ID" \
+  --min-train-tasks 1000 \
+  --min-validation-tasks 100
+```
+
+Then launch `examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh` with the AIME
+4-GPU resource profile and the C++ reward hook:
+
+```bash
+SLIME_PROMPT_DATA=.w8-biayn/data/slime-pie/train.jsonl \
+W8_BIAYN_SLIME_TASK_ROOT=.w8-biayn/data/slime-pie \
+SLIME_CUSTOM_GENERATE_FUNCTION_PATH= \
+SLIME_CUSTOM_RM_PATH=generate_with_cpp_perf.reward_func \
+SLIME_REWARD_KEY=score \
+SLIME_NUM_GPUS=4 \
+SLIME_ROLLOUT_BATCH_SIZE=4 \
+SLIME_N_SAMPLES_PER_PROMPT=1 \
+SLIME_GLOBAL_BATCH_SIZE=4 \
+SLIME_MAX_RESPONSE_LEN=256 \
+SLIME_MAX_TOKENS_PER_GPU=4096 \
+bash examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh
+```
+
+`generate_with_cpp_perf.reward_func` lives under `examples/slime/cpp_perf/` and
+calls the repo C++ reward harness, so the SLIME path still compiles, tests, and
+benchmarks candidates against the PIE `v1` oracle. `SLIME_CUSTOM_GENERATE_FUNCTION_PATH=`
+disables the Python-tool ReTool trajectory for C++; SLIME's stock one-turn
+generation is used instead.
+
+### SLIME Moonlight MoE Smoke
 
 When the GLM lane is present, run inside the SLIME container:
 
@@ -343,17 +382,39 @@ examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
 examples/slime/multi_agent/                  generic text-only SLIME smoke
 src/local.py                                 Moonlight Megatron local-layer shim
 src/w8_biayn/cli.py                          CLI surface
-src/w8_biayn/cpp_perf/                       PIE task, prompt, sandbox, reward, eval code
-src/w8_biayn/slime_integration/              SLIME doctor/setup/sandbox helpers
-src/w8_biayn/integrations/slime_cpp_perf.py  SLIME C++ data/reward/eval bridge
-src/w8_biayn/integrations/slime_train_entry.py
-                                             repo-owned SLIME train entry wrapper
-src/w8_biayn/integrations/slime_moonlight_hf_export.py
-                                             Moonlight Megatron-to-HF export shim
-src/w8_biayn/cpp_perf/skyrl_dataset.py         legacy SkyRL dataset converter
-src/w8_biayn/sky_config.py                   legacy SkyRL/SkyPilot renderer
-src/w8_biayn/run_status.py                   legacy SkyRL/GCP run-status parser
-src/w8_biayn/mlflow_metrics.py               legacy SkyRL MLflow reader
+src/w8_biayn/cpp_perf/data.py                downloads, full PIE prep, manifests, cache
+src/w8_biayn/cpp_perf/coverage.py            gcov coverage measurement
+src/w8_biayn/cpp_perf/pie.py                 PIE parsing and task construction
+src/w8_biayn/cpp_perf/skyrl_dataset.py       SkyRL GRPO/SFT dataset builder
+src/w8_biayn/cpp_perf/slime_dataset.py       SLIME prompt/metadata JSONL builder
+src/w8_biayn/cpp_perf/eval.py                eval aggregation
+src/w8_biayn/cpp_perf/judge.py               contest-style stdout comparison
+src/w8_biayn/cpp_perf/sandbox.py             Docker compile/test/runtime harness
+src/w8_biayn/cpp_perf/reward.py              correctness-gated efficiency reward
+src/w8_biayn/integrations/cpp_perf_env.py    SkyRL environment adapter
+src/w8_biayn/integrations/skyrl_cpp_perf_main.py
+                                               SkyRL GRPO entrypoint glue
+src/w8_biayn/integrations/skyrl_sft_export_checkpoint_main.py
+                                               SkyRL policy checkpoint HF export recovery
+src/w8_biayn/integrations/skyrl_io_patch.py    SkyRL checkpoint download compatibility patch
+src/w8_biayn/integrations/skyrl_vllm_logprob_patch.py
+                                               SkyRL vLLM token/logprob alignment patch
+src/w8_biayn/integrations/skyrl_grpo_health_patch.py
+                                               SkyRL GRPO health metric logging patch
+src/w8_biayn/integrations/skyrl_startup_patch.py
+                                               SkyRL startup stage logging patch
+src/w8_biayn/integrations/cpp_eval_main.py   vLLM eval generation and scoring
+src/w8_biayn/grpo_readiness.py               GRPO readiness and live-status guardrails
+src/w8_biayn/mlflow_metrics.py               MLflow Tracking Server API/SQLite metric reader
+src/w8_biayn/reporting.py                    raw Markdown/CSV/SVG run evidence reports
+src/w8_biayn/run_status.py                   ops run-status JSON snapshots
+src/w8_biayn/shell.py                        dry-run-aware subprocess wrapper
+src/w8_biayn/sky_config.py                   SkyPilot YAML renderer
+src/w8_biayn/gcp_auth.py                     scoped GCP auth
+src/w8_biayn/secrets.py                      credential metadata only
+src/w8_biayn/constants.py                    upstream pins and defaults
+src/w8_biayn/upstreams.py                    upstream clone management
+src/w8_biayn/benchmarks.py                   benchmark ladder
 .agents/REPO_GUIDE.md                        shared AGENTS.md and CLAUDE.md target
 .agents/skills/w8-biayn-framework/SKILL.md   AI coding-agent workflow skill
 ```

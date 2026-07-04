@@ -58,6 +58,8 @@ from .cpp_perf.sandbox import (
     sandbox_image_build_plan,
 )
 from .cpp_perf.schema import CppTask, TestCase
+from .cpp_perf.slime_dataset import build_slime_datasets
+from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .reporting import build_raw_run_report
 from .secrets import CredentialError, default_bucket_for_project, get_project_id
@@ -69,7 +71,8 @@ slime_app = typer.Typer(help="Inspect and operate the pinned SLIME upstream side
 data_app = typer.Typer(help="Download, convert, validate, and cache training datasets.")
 data_pie_app = typer.Typer(help="Prepare PIE C++ data.")
 data_supercoder_app = typer.Typer(help="Download and inspect SuperCoder reference data.")
-data_skyrl_app = typer.Typer(help="Legacy SkyRL/rLLM dataset conversion from validated tasks.")
+data_skyrl_app = typer.Typer(help="Build SkyRL/rLLM dataset files from validated tasks.")
+data_slime_app = typer.Typer(help="Build SLIME dataset files from validated C++ tasks.")
 data_cache_app = typer.Typer(help="Upload and restore versioned dataset bundles from GCS.")
 cpp_app = typer.Typer(help="Build, run, and score C++ performance-RL tasks.")
 task_app = typer.Typer(help="Build PIE-derived C++ task JSON.")
@@ -87,6 +90,7 @@ app.add_typer(data_app, name="data")
 data_app.add_typer(data_pie_app, name="pie")
 data_app.add_typer(data_supercoder_app, name="supercoder")
 data_app.add_typer(data_skyrl_app, name="skyrl")
+data_app.add_typer(data_slime_app, name="slime")
 data_app.add_typer(data_cache_app, name="cache")
 app.add_typer(cpp_app, name="cpp")
 cpp_app.add_typer(task_app, name="task")
@@ -929,6 +933,39 @@ def data_skyrl_build(
         run_id=run_id,
         min_train_tasks=min_train_tasks,
         min_validation_tasks=min_validation_tasks,
+    )
+    for key, path in written.items():
+        console.print(f"{key}: {path}")
+
+
+@data_slime_app.command("build")
+def data_slime_build(
+    tasks_dir: str = typer.Option(..., "--tasks-dir", help="Directory containing validated task JSON."),
+    out: str = typer.Option(
+        f"{DEFAULT_DATA_ROOT}/slime-pie",
+        "--out",
+        help="Output SLIME dataset bundle directory.",
+    ),
+    profile: str = typer.Option("smoke", help="Dataset profile recorded in the manifest."),
+    run_id: Optional[str] = typer.Option(None, help="Run id recorded in the manifest."),
+    min_train_tasks: int = typer.Option(1, help="Minimum train tasks required."),
+    min_validation_tasks: int = typer.Option(1, help="Minimum validation/test tasks required."),
+    absolute_task_paths: bool = typer.Option(
+        False,
+        "--absolute-task-paths",
+        help="Write absolute task paths into metadata instead of relocatable bundle-relative paths.",
+    ),
+) -> None:
+    """Build SLIME JSONL prompt files from task JSON."""
+
+    written = build_slime_datasets(
+        tasks_dir,
+        out,
+        profile=profile,
+        run_id=run_id,
+        min_train_tasks=min_train_tasks,
+        min_validation_tasks=min_validation_tasks,
+        absolute_task_paths=absolute_task_paths,
     )
     for key, path in written.items():
         console.print(f"{key}: {path}")
