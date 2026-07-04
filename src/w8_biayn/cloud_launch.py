@@ -612,7 +612,21 @@ def build_container_script() -> str:
                 "        assert len(tensors) == len(rename_mapping[k])"
             )
             assert anchor in src, "w8 megatron patch anchor missing; inspect torch.py before proceeding"
-            path.write_text(src.replace(anchor, replacement, 1))
+            src = src.replace(anchor, replacement, 1)
+            # TE set_extra_state requires tensor-format state and calls
+            # .numel() on anything non-None, but bridge-based conversion
+            # writes BytesIO-format extra_state. Null every _extra_state
+            # entry so TE's `if state is None: return` guard skips them;
+            # FP8/quantizer metadata is irrelevant for BF16 training.
+            return_anchor = "    return unflatten_state_dict(recovered_sd, flat_mapping)"
+            return_replacement = (
+                "    recovered_sd = {  # w8: drop converter extra_state formats TE cannot read\\n"
+                "        k: (None if '_extra_state' in k else v) for k, v in recovered_sd.items()\\n"
+                "    }\\n"
+                "    return unflatten_state_dict(recovered_sd, flat_mapping)"
+            )
+            assert return_anchor in src, "w8 megatron patch return anchor missing"
+            path.write_text(src.replace(return_anchor, return_replacement, 1))
         print("w8 megatron partial-object patch active")
         W8_MEGATRON_PATCH
         python train.py --help >/tmp/slime-train-help.txt
