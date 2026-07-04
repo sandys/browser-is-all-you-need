@@ -454,13 +454,21 @@ def build_run_script() -> str:
         echo "slime_image=$W8_GLM47_SLIME_IMAGE"
         nvidia-smi -L
 
+        # Best-effort pipeline milestones into the <run-id>-pipeline W&B run.
+        w8_milestone() {{
+          uv run --with wandb python src/w8_biayn/wandb_milestones.py \
+            --project "$W8_GLM47_WANDB_PROJECT" --run-id "$W8_GLM47_RUN_ID" --event "$1" >/dev/null 2>&1 || true
+        }}
+
         ./scripts/bootstrap.sh
         uv run w8-biayn data doctor
         uv run w8-biayn upstreams clone slime
         uv run w8-biayn slime doctor
         uv run w8-biayn cpp harness preflight --cpu 3
+        w8_milestone host_preflight_done
 
         if [ ! -d .w8-biayn/data/tasks-full ]; then
+          w8_milestone data_build_started
           uv run w8-biayn data pie download --out .w8-biayn/data/pie
           uv run w8-biayn data pie prepare-full --source-root .w8-biayn/data/pie --out .w8-biayn/data/pie-full --force
           uv run w8-biayn data pie measure-coverage \
@@ -477,14 +485,17 @@ def build_run_script() -> str:
             --min-test "$W8_GLM47_MIN_TEST" \
             --force
         fi
+        w8_milestone data_build_done
 
         uv run w8-biayn slime setup --force --image "$W8_GLM47_SLIME_IMAGE"
+        w8_milestone slime_setup_done
         cat > "$W8_REMOTE_CLOUD_ROOT/container_entrypoint.sh" <<'W8_GLM47_CONTAINER'
         {container_script}
         W8_GLM47_CONTAINER
         chmod +x "$W8_REMOTE_CLOUD_ROOT/container_entrypoint.sh"
 
         docker pull "$W8_GLM47_SLIME_IMAGE"
+        w8_milestone container_image_pulled
         docker rm -f "w8-slime-glm47-$W8_GLM47_RUN_ID" >/dev/null 2>&1 || true
         docker run --rm --gpus all --ipc=host --shm-size=16g \
           --ulimit stack=67108864 \
@@ -560,6 +571,8 @@ def build_container_script() -> str:
         viewer = wandb.Api(timeout=30).viewer
         print(f"wandb_auth_ok entity={viewer.entity}")
         W8_WANDB_CHECK
+        python "$W8_GLM47_REPO_DIR/src/w8_biayn/wandb_milestones.py" \
+          --project "$W8_GLM47_WANDB_PROJECT" --run-id "$W8_GLM47_RUN_ID" --event container_wandb_ok >/dev/null 2>&1 || true
         cd /root/slime
         git pull
         pip install -e . --no-deps

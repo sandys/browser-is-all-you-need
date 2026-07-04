@@ -200,6 +200,15 @@ run_repo_python() {
   PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" "$@"
 }
 
+# Best-effort pipeline milestones into the <run-id>-pipeline W&B run.
+w8_milestone() {
+  if [ -n "${WANDB_API_KEY:-}${WANDB_KEY:-}" ]; then
+    "${PYTHON_BIN}" "${REPO_ROOT}/src/w8_biayn/wandb_milestones.py" \
+      --project "${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}" \
+      --run-id "${RUN_ID}" --event "$1" >/dev/null 2>&1 || true
+  fi
+}
+
 prepare_data() {
   if [ ! -d "${TASKS_DIR}" ]; then
     echo "Missing task JSON directory: ${TASKS_DIR}" >&2
@@ -253,6 +262,7 @@ download_hf_checkpoint_if_missing() {
   fi
   mkdir -p "$(dirname -- "${HF_CHECKPOINT}")"
   echo "Downloading ${HF_MODEL_ID} to ${HF_CHECKPOINT}"
+  w8_milestone model_download_started
   "${PYTHON_BIN}" - "${HF_MODEL_ID}" "${HF_CHECKPOINT}" <<'PY'
 import sys
 from pathlib import Path
@@ -263,6 +273,7 @@ repo_id, local_dir = sys.argv[1], sys.argv[2]
 Path(local_dir).mkdir(parents=True, exist_ok=True)
 snapshot_download(repo_id=repo_id, local_dir=local_dir)
 PY
+  w8_milestone model_download_finished
   HF_CHECKPOINT_WAS_DOWNLOADED=1
 }
 
@@ -324,6 +335,7 @@ ensure_base_checkpoint() {
     exit 2
   fi
   echo "Converting ${HF_CHECKPOINT} to ${REF_LOAD_DIR}"
+  w8_milestone checkpoint_convert_started
   if [ "${CONVERT_NPROC}" = "1" ]; then
     PYTHONPATH="${MEGATRON_DIR}:${PYTHONPATH:-}" \
       "${PYTHON_BIN}" "${SLIME_ROOT}/tools/convert_hf_to_torch_dist.py" \
@@ -338,6 +350,7 @@ ensure_base_checkpoint() {
       --hf-checkpoint "${HF_CHECKPOINT}" \
       --save "${REF_LOAD_DIR}"
   fi
+  w8_milestone checkpoint_convert_finished
 }
 
 require_checkpoint() {
@@ -1058,6 +1071,7 @@ submit_slime_job() {
   RAY_STATUS_TIMEOUT_SECONDS="${SLIME_RAY_STATUS_TIMEOUT_SECONDS:-43200}"
 
   echo "GLM-4.7-Flash C++ SLIME stage: ${STAGE}"
+  w8_milestone "stage_${STAGE}_started"
   echo "Run root: ${RUN_ROOT}"
   echo "Log: ${LOG_FILE}"
   echo "VRAM log: ${VRAM_LOG}"
