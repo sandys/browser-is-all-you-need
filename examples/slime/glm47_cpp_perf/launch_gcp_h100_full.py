@@ -65,6 +65,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--accelerators", default=DEFAULT_ACCELERATORS, help="SkyPilot accelerator request.")
     parser.add_argument("--retry-sleep-seconds", type=int, default=300, help="Sleep between provisioning passes.")
     parser.add_argument("--max-attempts", type=int, default=0, help="0 means retry forever until capacity is acquired.")
+    parser.add_argument(
+        "--use-spot",
+        action="store_true",
+        help="Request spot (preemptible) capacity instead of on-demand. Needed when the project only holds preemptible GPU quota.",
+    )
     parser.add_argument("--cluster-name", default="", help="Override cluster name. Defaults to w8-glm47-h100-<run-id>.")
     parser.add_argument("--slime-image", default=DEFAULT_SLIME_IMAGE, help="SLIME Docker image for the GPU container.")
     parser.add_argument("--wandb-api-key", default="", help="W&B API key. Prefer WANDB_API_KEY env or --wandb-api-key-file.")
@@ -229,6 +234,7 @@ def acquire_and_run(
                 sky.Resources(
                     infra=f"gcp/{region}",
                     accelerators=args.accelerators,
+                    use_spot=args.use_spot,
                     labels=_resource_labels(args.run_id),
                 )
             )

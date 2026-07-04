@@ -333,7 +333,8 @@ Keep GLM defaults conservative until SGLang startup, Megatron training, and C++
 reward throughput are stable on the target GPU host. For the paid one-command
 GCP `H100:8` full run, use
 `examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; it loops for capacity
-in `asia-southeast1` by default, runs base eval, SFT, SFT eval, GRPO, GRPO eval,
+in `asia-southeast1` by default (pass `--use-spot` when the project only holds
+preemptible GPU quota), runs base eval, SFT, SFT eval, GRPO, GRPO eval,
 and compare, copies W&B/local artifacts under `.w8-biayn/slime/glm47-cpp-perf/`,
 and tears the SkyPilot cluster down.
 
