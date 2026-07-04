@@ -225,15 +225,40 @@ bash examples/slime/glm47_cpp_perf/compare.sh
 
 Use local receipts (`run.log`, `run_receipt.txt`, `vram_usage.csv`,
 `vram_peak.txt`), debug rollout dumps, W&B links when configured, and eval
-summaries for evidence. The paid GCP GLM full launcher is
-`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; keep it as a
-provisioning wrapper around the repo-owned GLM SLIME lane, with dry-run
-rendering, scoped secrets, downloaded local artifacts, labels, spot support via
-`--use-spot`, and automatic `sky.down` teardown. SkyPilot manages the cloud
-hardware only; SLIME runs the training. Invoke the launcher with the pinned
-SkyPilot client from its `SKYPILOT_PIN` constant
-(`uv run --with '<SKYPILOT_PIN>' python …`), and never treat `sky.launch`
-returning as run completion — the launcher waits for a terminal job state.
+summaries for evidence. The paid GCP GLM full launch is
+`uv run --extra cloud w8-biayn launch glm47-full` (dry-run first with
+`--dry-run`; implementation `src/w8_biayn/cloud_launch.py`, with the old
+`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py` kept as a thin shim).
+Keep it a provisioning wrapper around the repo-owned GLM SLIME lane, with
+dry-run rendering, scoped secrets, downloaded local artifacts, labels, spot
+support via `--use-spot`, and automatic teardown. The W&B key resolves from
+`--wandb-api-key-file`, `WANDB_API_KEY`, or a `WANDB_KEY` entry in `.env`.
+
+## Tool Interlinkage
+
+`w8-biayn` is the single management CLI. It wraps deeper tools; when a cloud
+or training behavior looks wrong at the CLI level, drop down to the wrapped
+tool and its documentation:
+
+- Cloud hardware: `w8-biayn launch glm47-full` and `w8-biayn ops
+  status|logs|down|queue` wrap SkyPilot, pinned in
+  `w8_biayn.constants.SKYPILOT_PIN` and installed through the `cloud` extra
+  (`uv run --extra cloud ...`). Debug directly with `uv run --extra cloud sky
+  status|logs|down` and https://docs.skypilot.co. Semantics that matter:
+  `sky.launch` on API-server builds resolves at job submission, so the CLI
+  tracks the job to a terminal state before declaring success; the client
+  version must match any locally running sky API server.
+- Training: lane scripts wrap SLIME (pinned checkout at
+  `.cache/upstreams/slime`, docs under `.cache/upstreams/slime/docs`).
+  Megatron model args come from `scripts/models/*.sh` inside that checkout;
+  the SLIME train loop is vendored in
+  `src/w8_biayn/integrations/slime_train_entry.py` and must be re-diffed on
+  pin bumps.
+- GCP accounting and quotas: use `gcloud compute instances list` and the Cloud
+  Quotas API with the scoped service-account env (never `gcloud auth
+  activate-service-account`). Newer GPU quota limits (H100 class) are visible
+  only through the Cloud Quotas API, and on-demand H100 is not self-service —
+  spot/preemptible quota is.
 
 ## Git And Artifact Hygiene
 

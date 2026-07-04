@@ -16,6 +16,7 @@ SKYRL_PIN = "bfa4dc338b0db629f6222364bd1d8645f43baaa2"
 PIE_PERF_PIN = "8f74491065bcd5b66d3913bf31cfba0ecf4ea5f0"
 LEARNINGOPT_PIE_PIN = "eb3d72bc4f3c9095d0f62506340bc8ca0ef27b09"
 SLIME_PIN = "a897e1f40357fdf3b148f1eb4ce26e1aeccfcd2c"
+SKYPILOT_PIN = "skypilot-nightly[gcp]==1.0.0.dev20260516"
 
 DEFAULT_CREDENTIALS_PATH = ".gcp-service-account.json"
 DEFAULT_RENDER_DIR = ".w8-biayn/rendered"

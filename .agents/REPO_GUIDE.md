@@ -207,13 +207,15 @@ bash examples/slime/glm47_cpp_perf/compare.sh
 Use W&B when configured by the lane; otherwise rely on local receipts,
 `run.log`, `run_receipt.txt`, `vram_usage.csv`, `vram_peak.txt`, debug rollout
 dumps, and eval summaries under `.w8-biayn/slime/...`. The paid GCP GLM full
-launcher is `examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; keep it as
-a provisioning wrapper around the repo-owned GLM SLIME lane, with dry-run
+launch is `uv run --extra cloud w8-biayn launch glm47-full` (implementation
+`src/w8_biayn/cloud_launch.py`; the old
+`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py` is a thin shim). Keep
+it a provisioning wrapper around the repo-owned GLM SLIME lane, with dry-run
 rendering, scoped secrets, downloaded local artifacts, labels, spot support via
-`--use-spot`, and automatic `sky.down` teardown. SkyPilot manages the cloud
-hardware only; all training runs through SLIME inside the lane container. The
-launcher must invoke SkyPilot at the pin recorded in its `SKYPILOT_PIN`
-constant and must wait for a terminal job state after `sky.launch` (API-server
+`--use-spot`, and automatic teardown. SkyPilot manages the cloud hardware only;
+all training runs through SLIME inside the lane container. SkyPilot is pinned
+in `w8_biayn.constants.SKYPILOT_PIN` (installed through the `cloud` extra) and
+the launch must wait for a terminal job state after `sky.launch` (API-server
 builds resolve the launch request at job submission, not completion).
 
 For Moonlight local attention/RMSNorm compatibility, keep the `src/local.py`
@@ -265,6 +267,7 @@ examples/slime/retool/                       Moonlight ReTool lane
 examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
 examples/slime/multi_agent/                  generic text-only SLIME smoke
 src/local.py                                 Moonlight Megatron local-layer shim
+src/w8_biayn/cloud_launch.py                 SkyPilot-backed paid GLM launch (w8-biayn launch glm47-full)
 src/w8_biayn/cpp_perf/                       PIE task, prompt, sandbox, reward, eval code
 src/w8_biayn/slime_integration/              SLIME doctor/setup/sandbox helpers
 src/w8_biayn/integrations/slime_cpp_perf.py  SLIME C++ data/reward/eval bridge

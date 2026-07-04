@@ -100,6 +100,8 @@ app.add_typer(benchmarks_app, name="benchmarks")
 app.add_typer(gcp_app, name="gcp")
 app.add_typer(ops_app, name="ops")
 app.add_typer(eval_app, name="eval")
+launch_app = typer.Typer(help="Provision GCP GPU hardware and run full SLIME lanes.")
+app.add_typer(launch_app, name="launch")
 console = Console()
 
 LEGACY_SKYRL_MESSAGE = (
@@ -2293,3 +2295,73 @@ def _render_options(
         eval_max_tasks=eval_max_tasks,
         allow_low_multinode_utilization=allow_low_multinode_utilization,
     )
+
+
+@launch_app.command("glm47-full")
+def launch_glm47_full_command(
+    run_id: str = typer.Option("", help="Stable run id for cluster, W&B group, and artifacts. Auto-generated when empty."),
+    region: list[str] = typer.Option(
+        [],
+        help="Allowed GCP region to try; repeat to add regions. Defaults to asia-southeast1.",
+    ),
+    accelerators: str = typer.Option("H100:8", help="Accelerator request, for example H100:8 or A100-80GB:8."),
+    use_spot: bool = typer.Option(False, "--use-spot", help="Request spot capacity (needed with preemptible-only GPU quota)."),
+    retry_sleep_seconds: int = typer.Option(300, help="Sleep between provisioning passes."),
+    max_attempts: int = typer.Option(0, help="0 retries forever until capacity is acquired."),
+    cluster_name: str = typer.Option("", help="Override cluster name."),
+    credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
+    slime_image: str = typer.Option("slimerl/slime:latest", help="SLIME Docker image for the GPU container."),
+    wandb_api_key: str = typer.Option("", help="W&B API key. Prefer --wandb-api-key-file or env/.env resolution."),
+    wandb_api_key_file: str = typer.Option("", help="File containing the W&B API key. Defaults to WANDB_API_KEY/WANDB_KEY env or .env."),
+    wandb_project: str = typer.Option("slime-glm47-cpp-perf", help="W&B project name."),
+    wandb_entity: str = typer.Option("", help="Optional W&B entity."),
+    wandb_base_url: str = typer.Option("", help="Optional W&B base URL."),
+    hf_token: str = typer.Option("", help="Optional Hugging Face token. Prefer --hf-token-file or HF_TOKEN env."),
+    hf_token_file: str = typer.Option("", help="Optional file containing a Hugging Face token."),
+    local_output_root: str = typer.Option(
+        ".w8-biayn/slime/glm47-cpp-perf", help="Local ignored artifact root for cloud logs and downloaded results."
+    ),
+    train_limit: int = typer.Option(1_000_000, help="SLIME C++ train row cap; the default includes all admitted tasks."),
+    eval_limit: int = typer.Option(1_000_000, help="SLIME C++ eval row cap; the default includes all admitted tasks."),
+    grpo_num_rollout: int = typer.Option(8, help="GRPO rollout count."),
+    grpo_rollout_batch_size: int = typer.Option(4, help="GRPO rollout batch size."),
+    grpo_global_batch_size: int = typer.Option(4, help="GRPO global batch size."),
+    eval_samples_per_prompt: int = typer.Option(2, help="Eval samples per held-out prompt."),
+    dry_run: bool = typer.Option(False, help="Print the planned cluster, config, and scripts without launching."),
+) -> None:
+    """Provision one GPU node and run the full GLM C++ SLIME lane on it."""
+
+    from .cloud_launch import LaunchError, LaunchOptions, launch_glm47_full
+
+    try:
+        options = LaunchOptions(
+            run_id=run_id,
+            regions=list(region) or ["asia-southeast1"],
+            accelerators=accelerators,
+            use_spot=use_spot,
+            retry_sleep_seconds=retry_sleep_seconds,
+            max_attempts=max_attempts,
+            cluster_name=cluster_name,
+            credentials=credentials,
+            slime_image=slime_image,
+            wandb_api_key=wandb_api_key,
+            wandb_api_key_file=wandb_api_key_file,
+            wandb_project=wandb_project,
+            wandb_entity=wandb_entity,
+            wandb_base_url=wandb_base_url,
+            hf_token=hf_token,
+            hf_token_file=hf_token_file,
+            local_output_root=local_output_root,
+            train_limit=train_limit,
+            eval_limit=eval_limit,
+            grpo_num_rollout=grpo_num_rollout,
+            grpo_rollout_batch_size=grpo_rollout_batch_size,
+            grpo_global_batch_size=grpo_global_batch_size,
+            eval_samples_per_prompt=eval_samples_per_prompt,
+            dry_run=dry_run,
+        )
+        exit_code = launch_glm47_full(options)
+    except LaunchError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if exit_code != 0:
+        raise typer.Exit(exit_code)

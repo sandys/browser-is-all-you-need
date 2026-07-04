@@ -30,6 +30,9 @@ dev = [
 cpp-perf = [
     "pyarrow>=14.0",
 ]
+cloud = [
+    "skypilot-nightly[gcp]==1.0.0.dev20260516",
+]
 
 [project.scripts]
 w8-biayn = "w8_biayn.cli:app"
