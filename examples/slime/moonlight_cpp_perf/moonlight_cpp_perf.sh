@@ -791,7 +791,7 @@ env = {
     "CUDA_DEVICE_MAX_CONNECTIONS": "1",
     "NCCL_NVLS_ENABLE": "${HAS_NVLINK}",
     "W8_BIAYN_DATA_DIR": "${DATA_DIR}",
-    "W8_CPP_SANDBOX_IMAGE": os.environ.get("W8_CPP_SANDBOX_IMAGE", "w8-biayn/cpp-sandbox:latest"),
+    "W8_CPP_SANDBOX_IMAGE": os.environ.get("W8_CPP_SANDBOX_IMAGE", "w8-biayn-cpp-perf:latest"),
     "W8_CPP_SANDBOX_CPU": os.environ.get("W8_CPP_SANDBOX_CPU", "3"),
     "W8_SLIME_CPP_INCLUDE_LOGS": os.environ.get("W8_SLIME_CPP_INCLUDE_LOGS", "0"),
     "W8_SLIME_SKIP_FINAL_TRAIN_SLEEP": "${FINAL_TRAIN_SLEEP_SKIP}",
