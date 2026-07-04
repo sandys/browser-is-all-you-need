@@ -337,9 +337,45 @@ and tears the SkyPilot cluster down.
 
 ## Moonlight ReTool
 
-The ReTool example uses local JSONL prompts, SGLang rollout,
-`generate_with_retool.generate`, a local Python `code_interpreter` tool, and
-`generate_with_retool.reward_func`.
+### SLIME Moonlight MoE Smoke
+
+For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses a Moonlight-16B-A3B Instruct checkpoint, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.
+
+Prerequisites are intentionally narrow: a 4x A100 80 GB node, the pinned SLIME sidecar, `/root/Megatron-LM`, a local Moonlight HF checkpoint, and its converted Megatron torch_dist checkpoint. The launcher defaults are `/root/Moonlight-16B-A3B-Instruct` and `/root/Moonlight-16B-A3B-Instruct_torch_dist`; override with `SLIME_HF_CHECKPOINT` and `SLIME_REF_LOAD_DIR`. The current Moonlight smoke also depends on the generated `.w8-biayn/slime/run-container.sh` including `-v "${HOST_MODELS_DIR:-$HOME/models}":/root/models \`; add that mount before starting the GPU container so the model files are visible inside the SLIME runtime.
+
+Start the SLIME container:
+
+```bash
+.w8-biayn/slime/run-container.sh
+```
+
+Then launch the smoke inside the container:
+
+```bash
+cd /workspace/<repo-name>
+
+SLIME_NUM_GPUS=4 \
+SLIME_NUM_ROLLOUT=1 \
+SLIME_ROLLOUT_BATCH_SIZE=4 \
+SLIME_N_SAMPLES_PER_PROMPT=1 \
+SLIME_MAX_RESPONSE_LEN=128 \
+SLIME_MAX_TOKENS_PER_GPU=1024 \
+bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
+```
+
+If the torch_dist checkpoint is not already present, the same script can do the conversion explicitly:
+
+```bash
+SLIME_CONVERT_IF_MISSING=1 \
+SLIME_CONVERT_NPROC=4 \
+bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
+```
+
+Keep `SLIME_ENABLE_DEEPEP=0` for the first pass. Set `SLIME_ENABLE_DEEPEP=1` only after the default all-to-all smoke is healthy on that host/container stack.
+
+The launcher samples `nvidia-smi` during the run and writes `vram_usage.csv` plus `vram_peak.txt` under `.w8-biayn/slime/moonlight-16b-a3b-int4-smoke/runs/<timestamp>/`; use `vram_peak.txt` as the peak-VRAM receipt.
+
+### SLIME Multi-Agent Text Example
 
 Runbook and launcher:
 

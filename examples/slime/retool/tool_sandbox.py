@@ -230,29 +230,29 @@ sys.stderr = stderr_capture
 try:
     # User code
 {indented_code}
-
+    
     # Get output
     stdout_output = stdout_capture.getvalue()
     stderr_output = stderr_capture.getvalue()
-
+    
     # Restore standard output
     sys.stdout = old_stdout
     sys.stderr = old_stderr
-
+    
     # Return result
     result = ""
     if stdout_output:
         result += f"Output:\\n{{stdout_output}}"
     if stderr_output:
         result += f"\\nErrors:\\n{{stderr_output}}"
-
+    
     print(result)
-
+    
 except Exception as e:
     # Restore standard output
     sys.stdout = old_stdout
     sys.stderr = old_stderr
-
+    
     # Return error information
     error_msg = f"Error: {{str(e)}}\\nTraceback:\\n{{traceback.format_exc()}}"
     print(error_msg)"""

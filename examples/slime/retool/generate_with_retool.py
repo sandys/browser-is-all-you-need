@@ -309,7 +309,7 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             cur_log_probs = [item[0] for item in output["meta_info"]["output_token_logprobs"]]
 
         else:
-            # sglang returned text but no output_token_logprobs; we cannot
+            # sglang returned text but no output_token_logprobs — we cannot
             # recover per-token logprobs for this turn, which would desync
             # rollout_log_probs from response_token_ids and blow up
             # `slice_log_prob_with_cp` downstream. Abort the sample so the
@@ -368,7 +368,7 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             # the model was actually trained on. decode(tokenize(text)) can
             # be lossy on some tokenizers (whitespace / special-token
             # collapse), but reward_func's regex is whitespace-robust and
-            # the trainer sees tokens, not text, so the drift is safe.
+            # the trainer sees tokens, not text — so the drift is safe.
             response = state.tokenizer.decode(response_token_ids)
             sample.status = Sample.Status.TRUNCATED
             break

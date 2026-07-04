@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ReTool GRPO launcher for the pinned SLIME sidecar using Moonlight-16B-A3B.
+# ReTool SFT launcher for the pinned SLIME sidecar using Moonlight-16B-A3B.
 
 set -euo pipefail
 
@@ -13,13 +13,12 @@ else
 fi
 
 MEGATRON_DIR="${MEGATRON_DIR:-/root/Megatron-LM}"
-PROMPT_DATA="${SLIME_PROMPT_DATA:-/root/dapo-math-17k/dapo-math-17k.jsonl}"
-EVAL_PROMPT_DATA="${SLIME_EVAL_PROMPT_DATA:-/root/aime-2024/aime-2024.jsonl}"
+PROMPT_DATA="${SLIME_SFT_PROMPT_DATA:-${REPO_ROOT}/data/retool/ReTool-SFT.parquet}"
 HF_CHECKPOINT="${SLIME_HF_CHECKPOINT:-/root/Moonlight-16B-A3B-Instruct}"
 REF_LOAD_DIR="${SLIME_REF_LOAD_DIR:-${HF_CHECKPOINT}_torch_dist}"
-ACTOR_LOAD_DIR="${SLIME_ACTOR_LOAD_DIR:-${REPO_ROOT}/.w8-biayn/slime/retool/moonlight-rl/checkpoints}"
-ACTOR_SAVE_DIR="${SLIME_ACTOR_SAVE_DIR:-${ACTOR_LOAD_DIR}}"
-RUN_ROOT="${SLIME_RUN_ROOT:-${REPO_ROOT}/.w8-biayn/slime/retool/moonlight-rl/runs/$(date +%Y%m%d_%H%M%S)}"
+ACTOR_LOAD_DIR="${SLIME_ACTOR_LOAD_DIR:-}"
+ACTOR_SAVE_DIR="${SLIME_ACTOR_SAVE_DIR:-${REPO_ROOT}/.w8-biayn/slime/retool/moonlight-sft/checkpoints}"
+RUN_ROOT="${SLIME_RUN_ROOT:-${REPO_ROOT}/.w8-biayn/slime/retool/moonlight-sft/runs/$(date +%Y%m%d_%H%M%S)}"
 
 NUM_GPUS="${SLIME_NUM_GPUS:-4}"
 TP_SIZE="${SLIME_TENSOR_MODEL_PARALLEL_SIZE:-2}"
@@ -28,23 +27,17 @@ CP_SIZE="${SLIME_CONTEXT_PARALLEL_SIZE:-1}"
 EP_SIZE="${SLIME_EXPERT_MODEL_PARALLEL_SIZE:-4}"
 ETP_SIZE="${SLIME_EXPERT_TENSOR_PARALLEL_SIZE:-1}"
 MAX_TOKENS_PER_GPU="${SLIME_MAX_TOKENS_PER_GPU:-9216}"
-
-NUM_ROLLOUT="${SLIME_NUM_ROLLOUT:-3000}"
-ROLLOUT_BATCH_SIZE="${SLIME_ROLLOUT_BATCH_SIZE:-32}"
-N_SAMPLES_PER_PROMPT="${SLIME_N_SAMPLES_PER_PROMPT:-8}"
-MAX_RESPONSE_LEN="${SLIME_MAX_RESPONSE_LEN:-8192}"
-ROLLOUT_TEMPERATURE="${SLIME_ROLLOUT_TEMPERATURE:-1}"
-GLOBAL_BATCH_SIZE="${SLIME_GLOBAL_BATCH_SIZE:-256}"
-ROLLOUT_NUM_GPUS_PER_ENGINE="${SLIME_ROLLOUT_NUM_GPUS_PER_ENGINE:-2}"
-SGLANG_MEM_FRACTION_STATIC="${SLIME_SGLANG_MEM_FRACTION:-0.7}"
-SAVE_INTERVAL="${SLIME_SAVE_INTERVAL:-20}"
+SFT_NUM_EPOCH="${SLIME_SFT_NUM_EPOCH:-3}"
+SFT_ROLLOUT_BATCH_SIZE="${SLIME_SFT_ROLLOUT_BATCH_SIZE:-128}"
+SFT_GLOBAL_BATCH_SIZE="${SLIME_SFT_GLOBAL_BATCH_SIZE:-128}"
+SAVE_INTERVAL="${SLIME_SAVE_INTERVAL:-1000}"
 
 USE_EXTERNAL_RAY="${SLIME_USE_EXTERNAL_RAY:-0}"
 SKIP_CLEANUP="${SLIME_SKIP_CLEANUP:-0}"
 CONVERT_IF_MISSING="${SLIME_CONVERT_IF_MISSING:-0}"
 CONVERT_NPROC="${SLIME_CONVERT_NPROC:-1}"
 
-for required_path in "${SLIME_ROOT}" "${MEGATRON_DIR}" "${PROMPT_DATA}" "${EVAL_PROMPT_DATA}" "${HF_CHECKPOINT}"; do
+for required_path in "${SLIME_ROOT}" "${MEGATRON_DIR}" "${PROMPT_DATA}" "${HF_CHECKPOINT}"; do
   if [ ! -e "${required_path}" ]; then
     echo "Missing required path: ${required_path}" >&2
     exit 2
@@ -104,7 +97,7 @@ fi
 
 export PYTHONUNBUFFERED=1
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-mkdir -p "${ACTOR_LOAD_DIR}" "${ACTOR_SAVE_DIR}" "${RUN_ROOT}"
+mkdir -p "${ACTOR_SAVE_DIR}" "${RUN_ROOT}"
 
 TOPO_OUTPUT="$(nvidia-smi topo -m 2>/dev/null || true)"
 NVLINK_COUNT="$(grep -o 'NV[0-9][0-9]*' <<<"${TOPO_OUTPUT}" | wc -l | tr -d ' ' || true)"
@@ -118,33 +111,25 @@ echo "HAS_NVLINK=${HAS_NVLINK} detected_nvlink_refs=${NVLINK_COUNT}"
 CKPT_ARGS=(
   --hf-checkpoint "${HF_CHECKPOINT}"
   --ref-load "${REF_LOAD_DIR}"
-  --load "${ACTOR_LOAD_DIR}"
   --save "${ACTOR_SAVE_DIR}"
   --save-interval "${SAVE_INTERVAL}"
 )
+if [ -n "${ACTOR_LOAD_DIR}" ]; then
+  CKPT_ARGS+=(--load "${ACTOR_LOAD_DIR}")
+fi
 
-ROLLOUT_ARGS=(
+SFT_ARGS=(
+  --rollout-function-path slime.rollout.sft_rollout.generate_rollout
   --prompt-data "${PROMPT_DATA}"
-  --input-key prompt
-  --label-key label
-  --apply-chat-template
+  --input-key messages
   --rollout-shuffle
-  --reward-key score
-  --num-rollout "${NUM_ROLLOUT}"
-  --rollout-batch-size "${ROLLOUT_BATCH_SIZE}"
-  --n-samples-per-prompt "${N_SAMPLES_PER_PROMPT}"
-  --rollout-max-response-len "${MAX_RESPONSE_LEN}"
-  --rollout-temperature "${ROLLOUT_TEMPERATURE}"
-  --global-batch-size "${GLOBAL_BATCH_SIZE}"
-  --balance-data
-)
-
-EVAL_ARGS=(
-  --eval-interval "${SLIME_EVAL_INTERVAL:-20}"
-  --eval-prompt-data aime "${EVAL_PROMPT_DATA}"
-  --n-samples-per-eval-prompt "${SLIME_N_SAMPLES_PER_EVAL_PROMPT:-16}"
-  --eval-max-response-len "${SLIME_EVAL_MAX_RESPONSE_LEN:-16384}"
-  --eval-top-p 1
+  --num-epoch "${SFT_NUM_EPOCH}"
+  --rollout-batch-size "${SFT_ROLLOUT_BATCH_SIZE}"
+  --global-batch-size "${SFT_GLOBAL_BATCH_SIZE}"
+  --loss-type sft_loss
+  --calculate-per-token-loss
+  --disable-compute-advantages-and-returns
+  --debug-train-only
 )
 
 PERF_ARGS=(
@@ -161,23 +146,15 @@ PERF_ARGS=(
   --max-tokens-per-gpu "${MAX_TOKENS_PER_GPU}"
 )
 
-GRPO_ARGS=(
-  --advantage-estimator grpo
-  --use-kl-loss
-  --kl-loss-coef "${SLIME_KL_LOSS_COEF:-0.00}"
-  --kl-loss-type low_var_kl
-  --entropy-coef "${SLIME_ENTROPY_COEF:-0.00}"
-  --eps-clip 0.2
-  --eps-clip-high 0.28
-)
-
 OPTIMIZER_ARGS=(
   --optimizer adam
-  --lr "${SLIME_LR:-1e-6}"
-  --lr-decay-style constant
+  --lr "${SLIME_LR:-1e-5}"
+  --lr-decay-style cosine
+  --min-lr "${SLIME_MIN_LR:-1e-6}"
+  --lr-warmup-fraction "${SLIME_LR_WARMUP_FRACTION:-0.1}"
   --weight-decay 0.1
   --adam-beta1 0.9
-  --adam-beta2 0.98
+  --adam-beta2 0.95
 )
 
 WANDB_ARGS=()
@@ -190,7 +167,7 @@ if [ -n "${WANDB_KEY}" ] || [ "${WANDB_ALREADY_LOGGED_IN}" = "1" ] || [ -n "${SL
   WANDB_ARGS=(
     --use-wandb
     --wandb-project "${SLIME_WANDB_PROJECT:-slime-retool}"
-    --wandb-group "${SLIME_WANDB_GROUP:-moonlight-rl}"
+    --wandb-group "${SLIME_WANDB_GROUP:-moonlight-sft}"
     --disable-wandb-random-suffix
   )
   if [ -n "${WANDB_KEY}" ]; then
@@ -200,11 +177,6 @@ if [ -n "${WANDB_KEY}" ] || [ "${WANDB_ALREADY_LOGGED_IN}" = "1" ] || [ -n "${SL
     WANDB_ARGS+=(--wandb-run-id "${SLIME_WANDB_RUN_ID}")
   fi
 fi
-
-SGLANG_ARGS=(
-  --rollout-num-gpus-per-engine "${ROLLOUT_NUM_GPUS_PER_ENGINE}"
-  --sglang-mem-fraction-static "${SGLANG_MEM_FRACTION_STATIC}"
-)
 
 MISC_ARGS=(
   --attention-dropout 0.0
@@ -216,11 +188,6 @@ MISC_ARGS=(
 if [ -n "${SLIME_ATTENTION_BACKEND:-}" ]; then
   MISC_ARGS+=(--attention-backend "${SLIME_ATTENTION_BACKEND}")
 fi
-
-CUSTOM_ARGS=(
-  --custom-generate-function-path generate_with_retool.generate
-  --custom-rm-path generate_with_retool.reward_func
-)
 
 cd "${SLIME_ROOT}"
 
@@ -242,6 +209,7 @@ env = {
     ),
     "CUDA_DEVICE_MAX_CONNECTIONS": "1",
     "NCCL_NVLS_ENABLE": "${HAS_NVLINK}",
+    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
 }
 for key in (
     "CUDA_HOME",
@@ -264,21 +232,16 @@ PY
 LOG_FILE="${RUN_ROOT}/run.log"
 ray job submit --address="http://127.0.0.1:8265" \
   --runtime-env-json="${RUNTIME_ENV_JSON}" \
-  -- python3 -u train.py \
+  -- python3 -u train_async.py \
   --actor-num-nodes 1 \
   --actor-num-gpus-per-node "${NUM_GPUS}" \
-  --colocate \
   "${MODEL_ARGS[@]}" \
   "${CKPT_ARGS[@]}" \
-  "${ROLLOUT_ARGS[@]}" \
+  "${SFT_ARGS[@]}" \
   "${OPTIMIZER_ARGS[@]}" \
-  "${GRPO_ARGS[@]}" \
   "${WANDB_ARGS[@]}" \
   "${PERF_ARGS[@]}" \
-  "${EVAL_ARGS[@]}" \
-  "${SGLANG_ARGS[@]}" \
   "${MISC_ARGS[@]}" \
-  "${CUSTOM_ARGS[@]}" \
   2>&1 | tee "${LOG_FILE}"
 
 echo "RUN_ROOT=${RUN_ROOT}"
