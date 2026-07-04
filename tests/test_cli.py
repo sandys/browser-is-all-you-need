@@ -374,7 +374,9 @@ def test_cli_slime_setup_generates_launcher_and_bootstrap(tmp_path, monkeypatch)
 
     assert result.exit_code == 0, result.output
     assert "SLIME setup files generated" in result.output
-    assert "run-container.sh" in result.output
-    assert "bootstrap-inside-container.sh" in result.output
+    # The CLI console wraps long paths at 80 columns, so match unwrapped text.
+    unwrapped_output = result.output.replace("\n", "")
+    assert "run-container.sh" in unwrapped_output
+    assert "bootstrap-inside-container.sh" in unwrapped_output
     assert (tmp_path / ".w8-biayn" / "slime" / "run-container.sh").exists()
     assert (tmp_path / ".w8-biayn" / "slime" / "bootstrap-inside-container.sh").exists()

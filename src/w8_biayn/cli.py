@@ -59,7 +59,6 @@ from .cpp_perf.sandbox import (
 )
 from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.slime_dataset import build_slime_datasets
-from .cpp_perf.skyrl_dataset import build_skyrl_datasets
 from .gcp_auth import GcpAuthError, check_project_permissions, service_account_env
 from .reporting import build_raw_run_report
 from .secrets import CredentialError, default_bucket_for_project, get_project_id

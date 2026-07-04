@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 from .data import write_data_manifest
 from .schema import CppTask
-from .skyrl_dataset import DATA_SOURCE, build_prompt
+from .prompts import DATA_SOURCE, build_prompt
 
 
 def task_to_slime_row(task: CppTask, *, task_path: str) -> dict[str, Any]:
