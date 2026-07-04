@@ -255,6 +255,21 @@ def _run_backend_command(args: list[str], *, credentials: str, dry_run: bool = F
     run_command(args, env=_backend_env(credentials), dry_run=dry_run)
 
 
+def _cache_command_env(credentials: str, gcs_prefix: Optional[str]) -> Optional[dict[str, str]]:
+    """Scoped service-account env locally; ambient VM identity on cloud hosts.
+
+    Remote nodes never receive the gitignored key file, so when the file is
+    absent and an explicit GCS prefix is given, fall back to the machine's
+    ambient credentials (GCE metadata identity).
+    """
+
+    if Path(credentials).exists():
+        return _service_account_env(credentials)
+    if gcs_prefix:
+        return None
+    return _service_account_env(credentials)
+
+
 def _data_gcs_prefix(credentials: str, override: Optional[str]) -> str:
     if override:
         return override.rstrip("/")
@@ -1014,7 +1029,7 @@ def data_cache_upload(
         if errors:
             raise typer.BadParameter("; ".join(errors))
     prefix = _data_gcs_prefix(credentials, gcs_prefix)
-    env = _service_account_env(credentials)
+    env = _cache_command_env(credentials, gcs_prefix)
     bucket_uri = _bucket_uri_from_gcs_prefix(prefix)
     if dry_run:
         run_command(["gcloud", "storage", "buckets", "describe", bucket_uri], env=env, dry_run=True)
@@ -1048,7 +1063,7 @@ def data_cache_restore(
     prefix = _data_gcs_prefix(credentials, gcs_prefix)
     local_path = Path(path)
     local_path.mkdir(parents=True, exist_ok=True)
-    env = _service_account_env(credentials)
+    env = _cache_command_env(credentials, gcs_prefix)
     run_command(["gcloud", "storage", "rsync", "--recursive", prefix, str(local_path)], env=env, dry_run=dry_run)
     if not dry_run:
         errors = verify_data_manifest(local_path)

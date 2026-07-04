@@ -25,6 +25,7 @@ from typing import IO, Any
 
 from .constants import DEFAULT_CREDENTIALS_PATH, SKYPILOT_PIN, SLIME_PIN
 from .gcp_auth import service_account_env
+from .secrets import default_bucket_for_project, get_project_id
 
 ALLOWED_REGIONS = ("asia-southeast1", "asia-south1", "asia-south2")
 DEFAULT_REGION = "asia-southeast1"
@@ -35,6 +36,10 @@ DEFAULT_LOCAL_ROOT = Path(".w8-biayn/slime/glm47-cpp-perf")
 FULL_LIMIT_SENTINEL = 1_000_000
 TERMINAL_JOB_STATUS_SUFFIXES = ("SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "CANCELLED")
 DEFAULT_ENV_FILE = ".env"
+# Bump when the tasks-full build semantics change so old cache entries are not
+# reused. Combined with the admission gates, this makes the cache path a pure
+# function of what produced it — shared across users, never colliding.
+TASKS_CACHE_VERSION = "cpp-perf-v1"
 
 
 class LaunchError(RuntimeError):
@@ -73,6 +78,7 @@ class LaunchOptions:
     grpo_global_batch_size: int = 4
     eval_samples_per_prompt: int = 2
     dry_run: bool = False
+    artifact_bucket: str = ""
 
     def __post_init__(self) -> None:
         if not self.run_id:
@@ -168,6 +174,16 @@ def launch_glm47_full(options: LaunchOptions) -> int:
     hf_token = resolve_optional_secret(
         direct=options.hf_token, file_path=options.hf_token_file, env_name="HF_TOKEN"
     )
+
+    # Resolve the shared cache bucket from the credentials' project so every
+    # user in that project restores the same cache (bare bucket name; the run
+    # script prepends gs://). Falls back to a placeholder for dry-run rendering.
+    if not options.artifact_bucket:
+        try:
+            project_id = get_project_id(options.credentials)
+            options.artifact_bucket = default_bucket_for_project(project_id).removeprefix("gs://")
+        except Exception:  # noqa: BLE001 - dry-run and missing-cred paths render a placeholder.
+            options.artifact_bucket = "<project>-w8-biayn"
 
     local_root = Path(options.local_output_root)
     local_cloud_root = local_root / "cloud-runs" / options.run_id
@@ -282,6 +298,8 @@ def _acquire_and_run(
                     "W8_GLM47_WANDB_BASE_URL": options.wandb_base_url,
                     "W8_GLM47_SLIME_IMAGE": options.slime_image,
                     "W8_GLM47_SLIME_PIN": SLIME_PIN,
+                    "W8_GLM47_ARTIFACT_BUCKET": options.artifact_bucket,
+                    "W8_GLM47_CACHE_VERSION": TASKS_CACHE_VERSION,
                     "W8_GLM47_TRAIN_LIMIT": str(options.train_limit),
                     "W8_GLM47_EVAL_LIMIT": str(options.eval_limit),
                     "W8_GLM47_MIN_TRAIN": str(options.min_train_tasks),
@@ -468,6 +486,22 @@ def build_run_script() -> str:
         uv run w8-biayn cpp harness preflight --cpu 3
         w8_milestone host_preflight_done
 
+        # Structural dataset cache: a deterministic, project-scoped,
+        # gate-keyed GCS path shared by everyone in the project. Restore first;
+        # only build (and re-upload) on a cache miss. The gate values are part
+        # of the key so different admission thresholds never collide.
+        W8_TASKS_CACHE_PREFIX="cache/${{W8_GLM47_CACHE_VERSION}}/tasks-full/mintrain${{W8_GLM47_MIN_TRAIN}}-minval${{W8_GLM47_MIN_VALIDATION}}-mintest${{W8_GLM47_MIN_TEST}}"
+        if [ ! -d .w8-biayn/data/tasks-full ]; then
+          w8_milestone data_restore_started
+          if uv run w8-biayn data cache restore \
+               --path .w8-biayn/data/tasks-full \
+               --gcs-prefix "gs://${{W8_GLM47_ARTIFACT_BUCKET}}/${{W8_TASKS_CACHE_PREFIX}}"; then
+            w8_milestone data_restore_hit
+          else
+            echo "tasks-full cache miss; building from PIE" >&2
+            rm -rf .w8-biayn/data/tasks-full
+          fi
+        fi
         if [ ! -d .w8-biayn/data/tasks-full ]; then
           w8_milestone data_build_started
           uv run w8-biayn data pie download --out .w8-biayn/data/pie
@@ -485,6 +519,12 @@ def build_run_script() -> str:
             --min-validation "$W8_GLM47_MIN_VALIDATION" \
             --min-test "$W8_GLM47_MIN_TEST" \
             --force
+          # Populate the shared cache for the next run/user. Best-effort: a
+          # node without bucket-write permission must not fail the training run.
+          uv run w8-biayn data cache upload \
+            --path .w8-biayn/data/tasks-full \
+            --gcs-prefix "gs://${{W8_GLM47_ARTIFACT_BUCKET}}/${{W8_TASKS_CACHE_PREFIX}}" || \
+            echo "tasks-full cache upload skipped (no bucket write permission?)" >&2
         fi
         w8_milestone data_build_done
 

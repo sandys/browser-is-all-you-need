@@ -76,6 +76,27 @@ def test_run_script_heredoc_terminates_and_docker_runs_after_it() -> None:
     assert 'test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"' in after_heredoc
 
 
+def test_dataset_cache_is_restore_first_and_gate_keyed() -> None:
+    from w8_biayn.cloud_launch import TASKS_CACHE_VERSION, LaunchOptions, build_run_script
+
+    run = build_run_script()
+    restore_at = run.index("data cache restore")
+    build_at = run.index("data pie build-full-tasks")
+    upload_at = run.index("data cache upload")
+    # Restore must be attempted before building, and the cache repopulated after.
+    assert restore_at < build_at < upload_at
+    # The cache key includes the version and every admission gate so different
+    # inputs never collide and identical inputs are shared across users.
+    prefix_line = run.split("W8_TASKS_CACHE_PREFIX=", 1)[1].splitlines()[0]
+    for keyed in ("W8_GLM47_CACHE_VERSION", "W8_GLM47_MIN_TRAIN", "W8_GLM47_MIN_VALIDATION", "W8_GLM47_MIN_TEST"):
+        assert keyed in prefix_line
+    # The version literal is carried into the run via the env var above.
+    assert LaunchOptions(run_id="t", dry_run=True).artifact_bucket == ""  # unresolved until launch
+    assert TASKS_CACHE_VERSION == "cpp-perf-v1"
+    # Cache upload is best-effort: a node without bucket write must not fail.
+    assert "cache upload skipped" in run
+
+
 def test_container_script_dedents_and_embedded_python_parses() -> None:
     import ast
 
