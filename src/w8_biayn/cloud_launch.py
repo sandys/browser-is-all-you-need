@@ -595,13 +595,13 @@ def build_container_script() -> str:
         guard = "# w8: bare object placeholder from partial load"
         if guard not in src:
             anchor = (
-                "    for k, tensors in state_dict.items():\n"
+                "    for k, tensors in state_dict.items():\\n"
                 "        assert len(tensors) == len(rename_mapping[k])"
             )
             replacement = (
-                "    for k, tensors in state_dict.items():\n"
-                "        if not isinstance(tensors, list):  # w8: bare object placeholder from partial load\n"
-                "            tensors = [tensors]\n"
+                "    for k, tensors in state_dict.items():\\n"
+                "        if not isinstance(tensors, list):  # w8: bare object placeholder from partial load\\n"
+                "            tensors = [tensors]\\n"
                 "        assert len(tensors) == len(rename_mapping[k])"
             )
             assert anchor in src, "w8 megatron patch anchor missing; inspect torch.py before proceeding"
