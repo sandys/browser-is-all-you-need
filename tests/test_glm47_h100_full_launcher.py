@@ -149,6 +149,11 @@ def test_glm_runner_default_parallelism_fits_eight_gpus() -> None:
     assert 'EP_SIZE="${SLIME_EXPERT_MODEL_PARALLEL_SIZE:-4}"' in text
     assert 'PP_SIZE="${SLIME_PIPELINE_MODEL_PARALLEL_SIZE:-2}"' in text
     assert 'ETP_SIZE="${SLIME_EXPERT_TENSOR_PARALLEL_SIZE:-1}"' in text
+    # 512-token responses truncated 100% of generations (W&B truncated_ratio=1)
+    # and would zero out GRPO advantages; budgets must fit reasoning + full C++.
+    assert 'GRPO_MAX_RESPONSE_LEN="${SLIME_GRPO_MAX_RESPONSE_LEN:-2048}"' in text
+    assert 'EVAL_MAX_RESPONSE_LEN="${SLIME_EVAL_MAX_RESPONSE_LEN:-2048}"' in text
+    assert 'SEQ_LENGTH="${SLIME_SEQ_LENGTH:-4096}"' in text
 
 
 def test_glm_runner_keeps_wandb_files_inside_run_root() -> None:
