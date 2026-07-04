@@ -225,7 +225,11 @@ bash examples/slime/glm47_cpp_perf/compare.sh
 
 Use local receipts (`run.log`, `run_receipt.txt`, `vram_usage.csv`,
 `vram_peak.txt`), debug rollout dumps, W&B links when configured, and eval
-summaries for evidence.
+summaries for evidence. The paid GCP GLM full launcher is
+`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; keep it as a
+provisioning wrapper around the repo-owned GLM SLIME lane, with dry-run
+rendering, scoped secrets, downloaded local artifacts, labels, and automatic
+`sky.down` teardown.
 
 ## Git And Artifact Hygiene
 

@@ -204,7 +204,11 @@ bash examples/slime/glm47_cpp_perf/compare.sh
 
 Use W&B when configured by the lane; otherwise rely on local receipts,
 `run.log`, `run_receipt.txt`, `vram_usage.csv`, `vram_peak.txt`, debug rollout
-dumps, and eval summaries under `.w8-biayn/slime/...`.
+dumps, and eval summaries under `.w8-biayn/slime/...`. The paid GCP GLM full
+launcher is `examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; keep it as
+a provisioning wrapper around the repo-owned GLM SLIME lane, with dry-run
+rendering, scoped secrets, downloaded local artifacts, labels, and automatic
+`sky.down` teardown.
 
 For Moonlight local attention/RMSNorm compatibility, keep the `src/local.py`
 Megatron layer-spec shim in sync with lane defaults.

@@ -114,6 +114,7 @@ USE_EXTERNAL_RAY="${SLIME_USE_EXTERNAL_RAY:-0}"
 SKIP_CLEANUP="${SLIME_SKIP_CLEANUP:-0}"
 RAY_MEMORY_USAGE_THRESHOLD="${SLIME_RAY_MEMORY_USAGE_THRESHOLD-0.999}"
 RAY_MEMORY_MONITOR_REFRESH_MS="${SLIME_RAY_MEMORY_MONITOR_REFRESH_MS:-}"
+WANDB_DIR_ROOT="${SLIME_WANDB_DIR:-${RUN_ROOT}/wandb}"
 COLOCATE="${SLIME_COLOCATE:-1}"
 SFT_COLOCATE="${SLIME_SFT_COLOCATE:-0}"
 if [ -n "${SLIME_OPTIMIZER_CPU_OFFLOAD:-}" ]; then
@@ -148,6 +149,7 @@ HF_CHECKPOINT="$(absolute_path "${HF_CHECKPOINT}")"
 REF_LOAD_DIR="$(absolute_path "${REF_LOAD_DIR}")"
 SFT_SAVE_DIR="$(absolute_path "${SFT_SAVE_DIR}")"
 GRPO_SAVE_DIR="$(absolute_path "${GRPO_SAVE_DIR}")"
+WANDB_DIR_ROOT="$(absolute_path "${WANDB_DIR_ROOT}")"
 
 format_rollout_template() {
   "${PYTHON_BIN}" - "$1" "$2" <<'PY'
@@ -184,7 +186,7 @@ RUN_RECEIPT="${STAGE_ROOT}/run_receipt.txt"
 ROLLOUT_DUMP_TEMPLATE="${RUN_ROOT}/rollout_dumps/${STAGE_LABEL}_{rollout_id}.pt"
 EVAL_DUMP_PATH="${RUN_ROOT}/rollout_dumps/${STAGE_LABEL}_eval_0.pt"
 
-mkdir -p "${STAGE_ROOT}" "${RUN_ROOT}/rollout_dumps" "${RUN_ROOT}/eval"
+mkdir -p "${STAGE_ROOT}" "${RUN_ROOT}/rollout_dumps" "${RUN_ROOT}/eval" "${WANDB_DIR_ROOT}/${STAGE}"
 
 run_repo_python() {
   PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" "$@"
@@ -877,6 +879,10 @@ for key in (
     "HF_HOME",
     "WANDB_API_KEY",
     "WANDB_KEY",
+    "WANDB_DIR",
+    "WANDB_MODE",
+    "WANDB_ENTITY",
+    "WANDB_BASE_URL",
     "DOCKER_HOST",
 ):
     if key in os.environ:
@@ -971,6 +977,7 @@ sglang_enable_tp_memory_inbalance_check=${SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHEC
 wandb_project=${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}
 wandb_group=${SLIME_WANDB_GROUP:-${RUN_ID}}
 wandb_run_id=${SLIME_WANDB_RUN_ID:-${RUN_ID}-${STAGE}}
+wandb_dir=${WANDB_DIR:-}
 rollout_dump_template=${ROLLOUT_DUMP_TEMPLATE}
 eval_dump_path=${EVAL_DUMP_PATH}
 EOF
@@ -1018,6 +1025,7 @@ submit_slime_job() {
   fi
   ulimit -Sn "${SLIME_NOFILE_SOFT_LIMIT:-65536}" 2>/dev/null || true
   export PYTHONUNBUFFERED=1
+  export WANDB_DIR="${WANDB_DIR_ROOT}/${STAGE}"
   cleanup_ray
 
   TOPO_OUTPUT="$(nvidia-smi topo -m 2>/dev/null || true)"

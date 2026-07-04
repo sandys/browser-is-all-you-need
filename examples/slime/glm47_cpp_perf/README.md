@@ -69,6 +69,50 @@ uv run w8-biayn slime setup
 bash .w8-biayn/slime/run-container.sh
 ```
 
+## GCP H100:8 Full Launcher
+
+For a paid full GLM run on GCP through SkyPilot, run this from the local repo
+root. The default region is `asia-southeast1`; repeat `--region` only for the
+other allowed regions, `asia-south1` and `asia-south2`.
+
+```bash
+WANDB_API_KEY=... \
+uv run --with "skypilot[gcp]" python examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py \
+  --region asia-southeast1 \
+  --retry-sleep-seconds 300
+```
+
+Secret files are also supported:
+
+```bash
+uv run --with "skypilot[gcp]" python examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py \
+  --region asia-southeast1 \
+  --wandb-api-key-file ~/.config/wandb/api_key \
+  --hf-token-file ~/.config/huggingface/token
+```
+
+The launcher loops over the requested region list until SkyPilot provisions a
+single `H100:8` GCP node. After capacity is acquired, it runs the complete lane:
+`prepare_data.sh`, `eval_base.sh`, `sft.sh`, `eval_sft.sh`, `grpo.sh`,
+`eval_grpo.sh`, and `compare.sh`. This path is not the small smoke profile: by
+default it uses all admitted task rows, `SLIME_GRPO_NUM_ROLLOUT=8`, and
+`SLIME_GRPO_SKIP_WEIGHT_UPDATE=0`.
+
+Local artifacts are written here after the remote run finishes or fails after a
+cluster exists:
+
+```text
+.w8-biayn/slime/glm47-cpp-perf/cloud-runs/<RUN_ID>/orchestrator.log
+.w8-biayn/slime/glm47-cpp-perf/cloud-runs/<RUN_ID>/launch_config.json
+.w8-biayn/slime/glm47-cpp-perf/cloud-runs/<RUN_ID>/remote/
+.w8-biayn/slime/glm47-cpp-perf/runs/<RUN_ID>/
+.w8-biayn/slime/glm47-cpp-perf/runs/<RUN_ID>/wandb/<stage>/
+```
+
+The script streams remote logs into `orchestrator.log`, copies the remote run
+root back with `rsync` or `scp`, and then calls `sky.down` automatically. Use
+`--dry-run` to render the setup/run script without a paid launch.
+
 ## Smallest A100:8 80GB Sequence
 
 Inside the SLIME container:

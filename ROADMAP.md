@@ -287,7 +287,10 @@ Watch for:
 
 Decision gate: a useful result beats base and SFT on held-out
 `correct_and_faster_rate` and mean best reward with missing-runtime rate at
-zero.
+zero. For the paid GCP GLM path,
+`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py` provisions one
+`H100:8` SkyPilot cluster, runs the full GLM sequence, downloads artifacts to
+`.w8-biayn/slime/glm47-cpp-perf/`, and calls `sky.down` after completion.
 
 ## Stage 6: Compare Moonlight And GLM
 
