@@ -327,9 +327,17 @@ def build_setup_script() -> str:
         """\
         set -euo pipefail
         export DEBIAN_FRONTEND=noninteractive
-        if command -v apt-get >/dev/null 2>&1; then
+        # SkyPilot GPU images preinstall docker-ce/containerd.io; a blanket
+        # docker.io install conflicts with them, so only install missing tools.
+        missing_packages=""
+        command -v docker >/dev/null 2>&1 || missing_packages="$missing_packages docker.io"
+        command -v curl >/dev/null 2>&1 || missing_packages="$missing_packages curl"
+        command -v git >/dev/null 2>&1 || missing_packages="$missing_packages git"
+        command -v rsync >/dev/null 2>&1 || missing_packages="$missing_packages rsync"
+        if [ -n "$missing_packages" ] && command -v apt-get >/dev/null 2>&1; then
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io curl git ca-certificates rsync
+          # shellcheck disable=SC2086
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates $missing_packages
         fi
         if command -v systemctl >/dev/null 2>&1; then
           sudo systemctl enable --now docker || true
