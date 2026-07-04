@@ -142,6 +142,15 @@ def test_cli_launch_glm47_full_rejects_disallowed_region(tmp_path) -> None:
     assert "us-central1" in result.output
 
 
+def test_glm_runner_default_parallelism_fits_eight_gpus() -> None:
+    text = RUNNER.read_text(encoding="utf-8")
+
+    # ETP*EP*PP must divide the default world size of 8 (Megatron asserts it).
+    assert 'EP_SIZE="${SLIME_EXPERT_MODEL_PARALLEL_SIZE:-4}"' in text
+    assert 'PP_SIZE="${SLIME_PIPELINE_MODEL_PARALLEL_SIZE:-2}"' in text
+    assert 'ETP_SIZE="${SLIME_EXPERT_TENSOR_PARALLEL_SIZE:-1}"' in text
+
+
 def test_glm_runner_keeps_wandb_files_inside_run_root() -> None:
     text = RUNNER.read_text(encoding="utf-8")
 
