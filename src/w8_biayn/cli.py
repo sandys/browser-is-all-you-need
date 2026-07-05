@@ -51,12 +51,15 @@ from .cpp_perf.reward import compute_reward, extract_reward_code, valid_model_ou
 from .cpp_perf.sandbox import (
     DEFAULT_CPU,
     DEFAULT_DOCKER_IMAGE,
+    DEFAULT_SWE_AGENT_IMAGE,
     build_sandbox_image,
+    build_swe_agent_image,
     dry_run_plan,
     runtime_preflight_plan,
     run_in_sandbox,
     run_runtime_preflight,
     sandbox_image_build_plan,
+    swe_agent_image_build_plan,
 )
 from .cpp_perf.schema import CppTask, TestCase
 from .cpp_perf.slime_dataset import build_slime_datasets
@@ -1159,6 +1162,45 @@ def cpp_harness_preflight(
     result = run_runtime_preflight(image=image, cpu=cpu, work_dir=work_dir)
     console.print_json(data=result.as_dict())
     if not result.ok:
+        raise typer.Exit(1)
+
+
+@harness_app.command("swe-image")
+def cpp_harness_swe_image(
+    image: str = typer.Option(DEFAULT_SWE_AGENT_IMAGE, help="Tag for the SWE-agent edit-loop image."),
+    base_image: str = typer.Option(DEFAULT_DOCKER_IMAGE, help="Base C++ sandbox image to extend (must already exist)."),
+    build_base: bool = typer.Option(False, "--build-base/--no-build-base", help="Build the base C++ sandbox image first."),
+    dry_run: bool = typer.Option(False, help="Print the build command and Dockerfile without running Docker."),
+) -> None:
+    """Build the SWE-agent edit-loop image (the C++ sandbox image plus git)."""
+
+    if dry_run:
+        if build_base:
+            console.print(sandbox_image_build_plan(image=base_image), markup=False, soft_wrap=True)
+        console.print(swe_agent_image_build_plan(image=image, base_image=base_image), markup=False, soft_wrap=True)
+        return
+    if build_base:
+        base_build = build_sandbox_image(image=base_image)
+        if base_build.returncode != 0:
+            console.print_json(
+                data={
+                    "ok": False,
+                    "reason": "base_image_build_failed",
+                    "image": base_image,
+                    "logs": base_build.stderr or base_build.stdout,
+                }
+            )
+            raise typer.Exit(1)
+    build = build_swe_agent_image(image=image, base_image=base_image)
+    console.print_json(
+        data={
+            "ok": build.returncode == 0,
+            "image": image,
+            "base_image": base_image,
+            "logs": (build.stderr or build.stdout) if build.returncode != 0 else "",
+        }
+    )
+    if build.returncode != 0:
         raise typer.Exit(1)
 
 

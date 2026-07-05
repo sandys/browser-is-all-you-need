@@ -127,6 +127,64 @@ def build_sandbox_image(*, image: str = DEFAULT_DOCKER_IMAGE) -> subprocess.Comp
     )
 
 
+DEFAULT_SWE_AGENT_IMAGE = "w8-biayn-swe-agent:latest"
+
+
+def swe_agent_image_dockerfile(*, base_image: str = DEFAULT_DOCKER_IMAGE) -> str:
+    """Return the Dockerfile for the SWE-agent edit-loop image.
+
+    SWE-agent runs its bash/edit actions inside this container (and installs its
+    own swerex runtime into it at deploy time), so it only needs the C++ sandbox
+    image plus ``git`` -- the repo seeding uses a git checkout. Grading stays in
+    the separate hardened ``run_in_sandbox`` image and is never done here.
+    """
+
+    return f"""FROM {base_image}
+RUN apt-get update \\
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+def build_swe_agent_image_command(*, image: str = DEFAULT_SWE_AGENT_IMAGE) -> list[str]:
+    """Return the docker build command for the SWE-agent edit-loop image."""
+
+    return ["docker", "build", "-t", image, "-"]
+
+
+def swe_agent_image_build_plan(
+    *,
+    image: str = DEFAULT_SWE_AGENT_IMAGE,
+    base_image: str = DEFAULT_DOCKER_IMAGE,
+) -> str:
+    """Render the SWE-agent edit-loop image build command and Dockerfile."""
+
+    return "\n".join(
+        [
+            "# SWE-agent edit-loop image build dry run",
+            f"{shlex.join(build_swe_agent_image_command(image=image))} <<'DOCKERFILE'",
+            swe_agent_image_dockerfile(base_image=base_image).rstrip(),
+            "DOCKERFILE",
+        ]
+    )
+
+
+def build_swe_agent_image(
+    *,
+    image: str = DEFAULT_SWE_AGENT_IMAGE,
+    base_image: str = DEFAULT_DOCKER_IMAGE,
+) -> subprocess.CompletedProcess[str]:
+    """Build the SWE-agent edit-loop image from stdin (base image must exist first)."""
+
+    return subprocess.run(
+        build_swe_agent_image_command(image=image),
+        input=swe_agent_image_dockerfile(base_image=base_image),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def compile_command(task: CppTask, scratch: str | Path, *, image: str = DEFAULT_DOCKER_IMAGE) -> list[str]:
     script = f"timeout {task.build.timeout_s}s {task.build.cmd}"
     return docker_base_args(scratch, image=image) + ["bash", "-lc", script]

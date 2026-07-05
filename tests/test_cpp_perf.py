@@ -18,12 +18,16 @@ from w8_biayn.cpp_perf.reward import (
     valid_model_output,
 )
 from w8_biayn.cpp_perf.sandbox import (
+    DEFAULT_DOCKER_IMAGE,
+    DEFAULT_SWE_AGENT_IMAGE,
     _runtime_benchmark_python,
     dry_run_plan,
     parse_runtime_benchmark_output,
     run_in_directory_prewritten,
     run_test_command,
     runtime_benchmark_command,
+    swe_agent_image_build_plan,
+    swe_agent_image_dockerfile,
 )
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult, ReferencePerformance, TestCase, TestCoverage
 
@@ -303,6 +307,19 @@ def test_run_in_directory_prewritten_grades_agent_file_without_overwriting(tmp_p
 
     assert result.all_tests_pass
     assert result.runtime_speedup == pytest.approx(2.0)
+
+
+def test_swe_agent_image_dockerfile_extends_cpp_image_with_git():
+    # The SWE-agent edit-loop image is the C++ sandbox image plus git (for the
+    # per-sample repo checkout); swerex installs its own runtime at deploy time.
+    dockerfile = swe_agent_image_dockerfile()
+    assert dockerfile.startswith(f"FROM {DEFAULT_DOCKER_IMAGE}")
+    assert "--no-install-recommends git" in dockerfile
+
+    plan = swe_agent_image_build_plan()
+    assert " ".join(["docker", "build", "-t", DEFAULT_SWE_AGENT_IMAGE, "-"]) in plan
+    assert f"FROM {DEFAULT_DOCKER_IMAGE}" in plan
+    assert plan.rstrip().endswith("DOCKERFILE")
 
 
 def test_sandbox_dry_run_and_runtime_parser():

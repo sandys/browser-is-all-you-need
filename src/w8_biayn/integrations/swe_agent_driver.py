@@ -41,7 +41,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SWE_AGENT_IMAGE = "w8-biayn-swe-agent:latest"
+from w8_biayn.cpp_perf.sandbox import DEFAULT_SWE_AGENT_IMAGE
+
 DEFAULT_MODEL_LABEL = "slime-actor"
 CANDIDATE_FILENAME = "candidate.cpp"
 
