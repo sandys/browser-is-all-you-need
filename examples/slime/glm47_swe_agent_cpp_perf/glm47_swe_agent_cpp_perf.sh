@@ -929,12 +929,17 @@ ensure_swe_agent_runtime() {
       git -C "${SWE_AGENT_CLONE_DIR}" fetch --depth 1 origin "${SWE_AGENT_GIT_PIN}" >/dev/null 2>&1 || true
       git -C "${SWE_AGENT_CLONE_DIR}" checkout --quiet "${SWE_AGENT_GIT_PIN}" ||
         echo "warning: SWE-agent checkout ${SWE_AGENT_GIT_PIN} failed; using clone HEAD" >&2
-      # --ignore-installed: the slime image has apt-managed deps (e.g. blinker)
-      # with no pip RECORD file that pip cannot uninstall when resolving
-      # sweagent's tree; this skips those uninstalls. It only reinstalls
-      # sweagent's own (non-ML) dep closure, not the torch/megatron/sglang stack.
-      if ! "${PYTHON_BIN}" -m pip install --quiet --ignore-installed -e "${SWE_AGENT_CLONE_DIR}"; then
-        echo "warning: SWE-agent editable install failed; agentic rollouts will error" >&2
+      # Pin every already-installed package (pip freeze) as a constraint so the
+      # editable install only ADDS sweagent's new deps (swerex, litellm, ...) and
+      # never upgrades the slime / sglang / transformers stack. A prior
+      # --ignore-installed reinstall bumped tokenizers to 0.23.1 and broke
+      # transformers' <=0.23.0 pin at import. Pinning also sidesteps the
+      # apt/no-RECORD uninstall (blinker stays at its installed version, so pip
+      # never tries to uninstall it).
+      W8_SWE_CONSTRAINTS="${SWE_AGENT_CLONE_DIR%/}.constraints.txt"
+      "${PYTHON_BIN}" -m pip freeze 2>/dev/null | grep -E '^[A-Za-z0-9._-]+==' > "${W8_SWE_CONSTRAINTS}" || true
+      if ! "${PYTHON_BIN}" -m pip install --quiet -e "${SWE_AGENT_CLONE_DIR}" --constraint "${W8_SWE_CONSTRAINTS}"; then
+        echo "warning: SWE-agent editable install failed (constraint conflict?); agentic rollouts will error" >&2
       fi
     fi
     w8_milestone swe_agent_deps_install_finished
