@@ -76,6 +76,23 @@ def test_run_script_heredoc_terminates_and_docker_runs_after_it() -> None:
     assert 'test -f "$W8_REMOTE_RUN_ROOT/eval/comparison.json"' in after_heredoc
 
 
+def test_checkpoints_persist_to_gcs_and_resume_is_wired() -> None:
+    from w8_biayn.cloud_launch import build_run_script
+
+    run = build_run_script()
+    # Persist on exit so a torn-down node (or partial run) keeps its checkpoints.
+    assert 'gs://${W8_GLM47_ARTIFACT_BUCKET}/runs/glm47/${W8_GLM47_RUN_ID}' in run
+    assert "checkpoints persisted" in run
+    # Restore + skip-completed on resume.
+    assert 'if [ -n "${W8_GLM47_RESUME_FROM:-}" ]; then' in run
+    assert "export SLIME_RESUME_SKIP_COMPLETED=1" in run
+    assert "-e SLIME_RESUME_SKIP_COMPLETED=" in run
+    # The lane honors the skip flag for finished train stages.
+    lane = RUNNER.read_text(encoding="utf-8")
+    assert 'SLIME_RESUME_SKIP_COMPLETED:-0' in lane
+    assert "stage_already_complete" in lane
+
+
 def test_teardown_uses_the_run_id_tag_shared_with_wandb() -> None:
     from typer.testing import CliRunner
 

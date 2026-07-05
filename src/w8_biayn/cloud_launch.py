@@ -78,6 +78,7 @@ class LaunchOptions:
     grpo_global_batch_size: int = 4
     eval_samples_per_prompt: int = 2
     disk_size: int = 1024
+    resume_from_run: str = ""
     dry_run: bool = False
     artifact_bucket: str = ""
 
@@ -309,6 +310,7 @@ def _acquire_and_run(
                     "W8_GLM47_SLIME_PIN": SLIME_PIN,
                     "W8_GLM47_ARTIFACT_BUCKET": options.artifact_bucket,
                     "W8_GLM47_CACHE_VERSION": TASKS_CACHE_VERSION,
+                    "W8_GLM47_RESUME_FROM": options.resume_from_run,
                     "W8_GLM47_TRAIN_LIMIT": str(options.train_limit),
                     "W8_GLM47_EVAL_LIMIT": str(options.eval_limit),
                     "W8_GLM47_MIN_TRAIN": str(options.min_train_tasks),
@@ -473,6 +475,16 @@ def build_run_script() -> str:
           if [ -d "$W8_REMOTE_CLOUD_ROOT" ]; then
             cp -a "$W8_REMOTE_CLOUD_ROOT/." "$W8_REMOTE_EXPORT_ROOT/cloud/"
           fi
+          # Persist checkpoints to GCS so a torn-down node is resumable. Runs
+          # on EXIT, so a partially-completed run (e.g. SFT done, GRPO failed)
+          # still saves what finished. Best-effort; never fails the run.
+          if [ -d "$W8_REMOTE_RUN_ROOT/checkpoints" ] || [ -d "$W8_REMOTE_RUN_ROOT/hf" ]; then
+            gcloud storage rsync --recursive "$W8_REMOTE_RUN_ROOT" \
+              "gs://${{W8_GLM47_ARTIFACT_BUCKET}}/runs/glm47/${{W8_GLM47_RUN_ID}}" \
+              --exclude ".*rollout_dumps.*" >/dev/null 2>&1 \
+              && echo "checkpoints persisted to gs://${{W8_GLM47_ARTIFACT_BUCKET}}/runs/glm47/${{W8_GLM47_RUN_ID}}" \
+              || echo "checkpoint persist skipped (no bucket write?)" >&2
+          fi
           mkdir -p "$W8_REMOTE_EXPORT_ROOT/data-build"
           for evidence in .w8-biayn/data/pie-full/coverage-report.json .w8-biayn/data/pie-full/coverage.json .w8-biayn/data/tasks-full/_w8_task_build_report.json; do
             [ -f "$evidence" ] && cp "$evidence" "$W8_REMOTE_EXPORT_ROOT/data-build/" || true
@@ -541,6 +553,21 @@ def build_run_script() -> str:
         fi
         w8_milestone data_build_done
 
+        # Resume: restore a prior run's checkpoints into this run root so the
+        # lane skips training stages that already finished. No-op when unset.
+        export SLIME_RESUME_SKIP_COMPLETED=0
+        if [ -n "${{W8_GLM47_RESUME_FROM:-}}" ]; then
+          mkdir -p "$W8_REMOTE_RUN_ROOT"
+          if gcloud storage rsync --recursive \
+               "gs://${{W8_GLM47_ARTIFACT_BUCKET}}/runs/glm47/${{W8_GLM47_RESUME_FROM}}" \
+               "$W8_REMOTE_RUN_ROOT"; then
+            export SLIME_RESUME_SKIP_COMPLETED=1
+            echo "resumed checkpoints from run ${{W8_GLM47_RESUME_FROM}}"
+          else
+            echo "resume source gs://.../runs/glm47/${{W8_GLM47_RESUME_FROM}} not found; starting fresh" >&2
+          fi
+        fi
+
         uv run w8-biayn slime setup --force --image "$W8_GLM47_SLIME_IMAGE"
         w8_milestone slime_setup_done
         cat > "$W8_REMOTE_CLOUD_ROOT/container_entrypoint.sh" <<'W8_GLM47_CONTAINER'
@@ -577,6 +604,7 @@ def build_run_script() -> str:
           -e W8_GLM47_GRPO_GLOBAL_BATCH_SIZE \
           -e W8_GLM47_EVAL_SAMPLES_PER_PROMPT \
           -e SLIME_NOFILE_SOFT_LIMIT="${{SLIME_NOFILE_SOFT_LIMIT:-65536}}" \
+          -e SLIME_RESUME_SKIP_COMPLETED="${{SLIME_RESUME_SKIP_COMPLETED:-0}}" \
           -w {repo_mount} \
           "$W8_GLM47_SLIME_IMAGE" \
           /bin/bash -lc "bash {repo_mount}/.w8-biayn/slime/glm47-cpp-perf/cloud-runs/$W8_GLM47_RUN_ID/container_entrypoint.sh" \

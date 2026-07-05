@@ -1055,7 +1055,25 @@ compare_eval() {
     --out "${RUN_ROOT}/eval/comparison.json"
 }
 
+stage_already_complete() {
+  # Resume support: a training stage is done if its Megatron checkpoint AND
+  # HF export already exist (restored from GCS). Evals always re-run.
+  case "${STAGE}" in
+    sft) checkpoint_ready "${SFT_SAVE_DIR}" && hf_export_ready "${SFT_HF_CHECKPOINT}" ;;
+    grpo) checkpoint_ready "${GRPO_SAVE_DIR}" && hf_export_ready "${GRPO_HF_CHECKPOINT}" ;;
+    *) return 1 ;;
+  esac
+}
+
 submit_slime_job() {
+  if [ "${SLIME_RESUME_SKIP_COMPLETED:-0}" = "1" ] && stage_already_complete; then
+    echo "GLM-4.7-Flash C++ SLIME stage: ${STAGE} already complete (resume); skipping."
+    STAGE_ROOT="${RUN_ROOT}/stages/${STAGE}"
+    mkdir -p "${STAGE_ROOT}"
+    write_receipt 0 0 "${RUN_ID}-${STAGE}" "RESUMED_SKIPPED"
+    echo "RUN_RECEIPT=${RUN_RECEIPT}"
+    return 0
+  fi
   ensure_data
   ensure_slime_runtime
   ensure_base_checkpoint

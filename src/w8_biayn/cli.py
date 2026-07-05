@@ -2413,6 +2413,7 @@ def launch_glm47_full_command(
     grpo_global_batch_size: int = typer.Option(4, help="GRPO global batch size."),
     eval_samples_per_prompt: int = typer.Option(2, help="Eval samples per held-out prompt."),
     disk_size: int = typer.Option(1024, help="Boot disk GB; the 30B model is staged ~4x so 256GB runs out mid-export."),
+    resume_from_run: str = typer.Option("", help="Resume: restore a prior run id's GCS checkpoints and skip its finished train stages."),
     dry_run: bool = typer.Option(False, help="Print the planned cluster, config, and scripts without launching."),
 ) -> None:
     """Provision one GPU node and run the full GLM C++ SLIME lane on it."""
@@ -2449,6 +2450,7 @@ def launch_glm47_full_command(
             grpo_global_batch_size=grpo_global_batch_size,
             eval_samples_per_prompt=eval_samples_per_prompt,
             disk_size=disk_size,
+            resume_from_run=resume_from_run,
             dry_run=dry_run,
         )
         exit_code = launch_glm47_full(options)
