@@ -314,7 +314,10 @@ def test_swe_agent_image_dockerfile_extends_cpp_image_with_git():
     # per-sample repo checkout); swerex installs its own runtime at deploy time.
     dockerfile = swe_agent_image_dockerfile()
     assert dockerfile.startswith(f"FROM {DEFAULT_DOCKER_IMAGE}")
-    assert "--no-install-recommends git" in dockerfile
+    assert "git python3-pip" in dockerfile
+    # swerex server must be pre-installed: the base image has no pip/network at
+    # container-start, so swerex cannot self-install its runtime.
+    assert "swe-rex==" in dockerfile
 
     plan = swe_agent_image_build_plan()
     assert " ".join(["docker", "build", "-t", DEFAULT_SWE_AGENT_IMAGE, "-"]) in plan

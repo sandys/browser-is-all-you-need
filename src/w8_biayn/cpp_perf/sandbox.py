@@ -128,21 +128,30 @@ def build_sandbox_image(*, image: str = DEFAULT_DOCKER_IMAGE) -> subprocess.Comp
 
 
 DEFAULT_SWE_AGENT_IMAGE = "w8-biayn-swe-agent:latest"
+# SWE-ReX server baked into the edit-loop image. swerex boots the container with
+# `swerex-remote ... || pip install pipx && pipx run swe-rex`, so without a
+# pre-installed server (and with no pip in the base image) the container dies
+# with "swerex-remote: not found". Pin it to the client version SWE-agent 1.1.0
+# ships (SWE-ReX 1.4.0) so the client/server protocol matches.
+SWEREX_PIN = "1.4.0"
 
 
 def swe_agent_image_dockerfile(*, base_image: str = DEFAULT_DOCKER_IMAGE) -> str:
     """Return the Dockerfile for the SWE-agent edit-loop image.
 
-    SWE-agent runs its bash/edit actions inside this container (and installs its
-    own swerex runtime into it at deploy time), so it only needs the C++ sandbox
-    image plus ``git`` -- the repo seeding uses a git checkout. Grading stays in
-    the separate hardened ``run_in_sandbox`` image and is never done here.
+    SWE-agent runs its bash/edit actions inside this container via the SWE-ReX
+    server, so on top of the C++ sandbox image it needs ``git`` (for the repo
+    checkout) and a **pre-installed ``swerex-remote``** (the base image has no
+    pip and no network at container-start, so swerex cannot self-install its
+    runtime). Grading stays in the separate hardened ``run_in_sandbox`` image and
+    is never done here.
     """
 
     return f"""FROM {base_image}
 RUN apt-get update \\
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git \\
-    && rm -rf /var/lib/apt/lists/*
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git python3-pip \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && pip3 install --no-cache-dir --break-system-packages swe-rex=={SWEREX_PIN}
 """
 
 
