@@ -126,9 +126,14 @@ EVAL_TOP_P="${SLIME_EVAL_TOP_P:-1}"
 # still train but do not echo back and fork the trajectory. Reward flows via
 # finish_session, so there is no --custom-rm-path / --reward-key here.
 ROLLOUT_MAX_CONTEXT_LEN="${SLIME_ROLLOUT_MAX_CONTEXT_LEN:-32768}"
-# sglang reasoning-parser name for the GLM <think> split; verify against the
-# pinned sglang ServerArgs on the smoke (override via SLIME_GLM_REASONING_PARSER).
-GLM_REASONING_PARSER="${SLIME_GLM_REASONING_PARSER:-glm45}"
+# Adapter reasoning-parser for the GLM <think> split. Empty by default: unlike
+# claude-code/codex, SWE-agent is a text ReAct client that echoes the assistant
+# content verbatim, so a parser that drops <think> from the adapter's replay
+# would MISMATCH the client echo and fork every turn (the opposite of helping),
+# and a wrong parser name hard-fails after the costly model download. Set a valid
+# sglang parser name only if GLM's <think> is later shown to need server-side
+# separation (override via SLIME_GLM_REASONING_PARSER).
+GLM_REASONING_PARSER="${SLIME_GLM_REASONING_PARSER:-}"
 SWE_AGENT_IMAGE="${W8_SWE_AGENT_IMAGE:-w8-biayn-swe-agent:latest}"
 SWE_AGENT_BUILD_IMAGE="${SLIME_SWE_AGENT_BUILD_IMAGE:-1}"
 SWE_AGENT_INSTALL_DEPS="${SLIME_SWE_AGENT_INSTALL_DEPS:-1}"

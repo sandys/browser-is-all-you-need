@@ -137,9 +137,11 @@ rollout worker (defaults live in `glm47_swe_agent_cpp_perf.sh`):
 
 - `SLIME_ROLLOUT_MAX_CONTEXT_LEN` (default 32768): multi-turn transcript budget
   the OpenAI adapter re-renders; bounds the agent's context window.
-- `SLIME_GLM_REASONING_PARSER` (default `glm45`): sglang reasoning-parser that
-  splits the GLM `<think>` block. Verify the exact name against the pinned sglang
-  `ServerArgs` on the first smoke.
+- `SLIME_GLM_REASONING_PARSER` (default empty/off): adapter reasoning-parser for
+  the GLM `<think>` split. Off by default because SWE-agent echoes assistant
+  content verbatim, so stripping `<think>` in the adapter would fork the
+  trajectory (unlike claude-code/codex, which strip it on echo); set a valid
+  sglang parser name only if `<think>` later needs server-side separation.
 - `W8_SWE_AGENT_PER_INSTANCE_CALL_LIMIT` (default 40) and
   `W8_SWE_AGENT_TOTAL_EXECUTION_TIMEOUT` (default 1200): bound each agent run.
   Cost limiting is always disabled -- litellm cannot price a local model, so both
