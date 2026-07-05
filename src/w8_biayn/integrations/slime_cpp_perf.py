@@ -363,11 +363,17 @@ def load_slime_debug_samples(path: str | Path) -> list[dict[str, Any]]:
 def record_from_debug_sample(sample: dict[str, Any], *, label: str | None = None) -> dict[str, Any]:
     """Convert one SLIME debug sample dict into a C++ eval record."""
 
+    metadata = sample.get("metadata") if isinstance(sample.get("metadata"), dict) else {}
+    stashed = metadata.get("cpp_reward_record")
     reward_payload = sample.get("reward")
-    if isinstance(reward_payload, dict):
+    if isinstance(stashed, dict):
+        # Agentic lane: reward flows through finish_session as a float, so the
+        # rich harness breakdown is stashed on the sample metadata by generate().
+        record = dict(stashed)
+    elif isinstance(reward_payload, dict):
+        # Single-turn lane: the custom reward hook returns the full record dict.
         record = dict(reward_payload)
     else:
-        metadata = sample.get("metadata") if isinstance(sample.get("metadata"), dict) else {}
         record = {
             "score": float(reward_payload or 0.0),
             "reward": float(reward_payload or 0.0),
