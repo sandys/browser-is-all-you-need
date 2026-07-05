@@ -368,6 +368,18 @@ Key launch flags:
 - `--min-train-tasks` / `--min-validation-tasks` / `--min-test-tasks` — PIE
   admission gates (defaults 1000/100/100). Lower them for a bounded pilot.
 - `--train-limit` / `--eval-limit` — task caps (default: all admitted).
+- `--resume-from-run <run-id>` — restore that run's persisted checkpoints and
+  skip the training stages it already finished (see below).
+
+**Checkpoint persistence and resume.** On exit — including a partial run where,
+say, SFT finished but GRPO failed — the launch rsyncs the run's Megatron
+checkpoints and HF exports to `gs://<project>-w8-biayn/runs/glm47/<run-id>/`.
+Because the node is ephemeral and gets torn down, this is what makes a run
+recoverable. To continue a run, relaunch with a new run id and
+`--resume-from-run <old-run-id>`: it restores the old checkpoints into the new
+run and the lane skips any training stage whose Megatron checkpoint *and* HF
+export are already present, re-running only what's left (evals always re-run).
+Persist/restore run on the node's ambient credentials and are best-effort.
 
 **Dataset cache.** The launch restores `tasks-full` from a project-scoped,
 gate-keyed GCS path (`gs://<project>-w8-biayn/cache/<version>/tasks-full/...`)

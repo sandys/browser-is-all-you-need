@@ -243,6 +243,15 @@ across users. It provisions a 1024GB boot disk by default (`--disk-size`): the
 HF export) and 256GB overflows mid-export. Each launch also writes a
 `<run-id>-pipeline` W&B run with timestamped preamble milestones.
 
+Checkpoints are ephemeral unless persisted: on exit the launch rsyncs the run's
+Megatron checkpoints and HF exports to `gs://<project>-w8-biayn/runs/glm47/<run-id>/`
+(even for a partially-completed run), and `--resume-from-run <old-id>` restores
+them into a new run and sets `SLIME_RESUME_SKIP_COMPLETED=1` so the lane skips
+training stages whose Megatron checkpoint and HF export already exist
+(`stage_already_complete` in `glm47_cpp_perf.sh`). Never assume a torn-down run
+is resumable unless its checkpoints reached GCS — the launch teardown or
+`ops down-run` deletes the node's disk.
+
 ## Tool Interlinkage
 
 `w8-biayn` is the single management CLI. It wraps deeper tools; when a cloud
