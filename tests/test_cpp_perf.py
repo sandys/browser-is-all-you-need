@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 
+from w8_biayn.cpp_perf import sandbox
 from w8_biayn.cpp_perf.coverage import coverage_passes, parse_lcov_summary
 from w8_biayn.cpp_perf.judge import judge_output_matches, normalize_judge_output
 from w8_biayn.cpp_perf.pie import build_tasks, read_pie_pairs
@@ -12,12 +14,14 @@ from w8_biayn.cpp_perf.reward import (
     compute_reward,
     extract_code_block,
     extract_reward_code,
+    file_state_reward,
     valid_model_output,
 )
 from w8_biayn.cpp_perf.sandbox import (
     _runtime_benchmark_python,
     dry_run_plan,
     parse_runtime_benchmark_output,
+    run_in_directory_prewritten,
     run_test_command,
     runtime_benchmark_command,
 )
@@ -227,6 +231,78 @@ def test_reward_orders_compile_partial_correct_and_faster():
     missing = compute_reward(task, valid_output(), runner=missing_runtime)
     assert missing.reward == 0.5
     assert missing.reason == "missing_runtime"
+
+
+def test_file_state_reward_orders_by_correctness_and_speed():
+    # The agentic lane grades the final FILE, so the reward is the strict
+    # correctness ladder over a HarnessResult with no response-format axis.
+    def reward(harness: HarnessResult):
+        return file_state_reward(harness, code="int main(){}\n")
+
+    compile_err = reward(HarnessResult(compile_error=True, tests_total=2))
+    sanitizer = reward(HarnessResult(sanitizer_error=True, tests_total=2))
+    timed_out = reward(HarnessResult(timeout=True, tests_passed=2, tests_total=2))
+    partial = reward(HarnessResult(tests_passed=1, tests_total=2))
+    missing = reward(HarnessResult(tests_passed=2, tests_total=2, runtime_cpu_ns=None, reference_runtime_cpu_ns=1000))
+    slower = reward(HarnessResult(tests_passed=2, tests_total=2, runtime_cpu_ns=1200, reference_runtime_cpu_ns=1000))
+    faster = reward(HarnessResult(tests_passed=2, tests_total=2, runtime_cpu_ns=500, reference_runtime_cpu_ns=1000))
+
+    assert (compile_err.reason, compile_err.reward) == ("compile_error", -0.5)
+    assert (sanitizer.reason, sanitizer.reward) == ("sanitizer_error", -0.5)
+    assert (timed_out.reason, timed_out.reward) == ("timeout", -0.5)
+    assert partial.reason == "tests_failed" and partial.reward == pytest.approx(-0.1)
+    assert missing.reason == "missing_runtime" and missing.reward == MISSING_RUNTIME_REWARD
+    assert slower.reason == "correct" and slower.reward == pytest.approx(1.0)
+    assert faster.reason == "correct" and faster.reward > 1.0
+    # strict monotonic ordering across the tiers
+    assert compile_err.reward < partial.reward < missing.reward < slower.reward < faster.reward
+
+
+def test_run_in_directory_prewritten_grades_agent_file_without_overwriting(tmp_path, monkeypatch):
+    # File-state grading: the agent's candidate.cpp is graded as-is; only
+    # reference.cpp + tests/ are materialized from the task. Docker is stubbed
+    # so this stays pure-Python and asserts the exact command sequence.
+    scratch = tmp_path / "work"
+    scratch.mkdir()
+    sentinel = "// agent-authored\n#include <cstdio>\nint main(){return 0;}\n"
+    (scratch / "candidate.cpp").write_text(sentinel, encoding="utf-8")
+
+    calls: list[str] = []
+
+    def fake_run(args: list[str]) -> subprocess.CompletedProcess[str]:
+        joined = " ".join(args)
+        calls.append(joined)
+        if "w8_runtime_bench.py" in joined:
+            cpu = 500 if "./candidate" in joined else 1000
+            stdout = json.dumps({"ok": True, "runtime_cpu_ns": cpu, "runtime_wall_ns": cpu * 2})
+        else:
+            stdout = ""
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(sandbox, "_run", fake_run)
+
+    task = sample_task()
+    result = run_in_directory_prewritten(task, scratch, image="gcc:13", cpu="3")
+
+    # the agent's file is graded verbatim, never rewritten
+    assert (scratch / "candidate.cpp").read_text(encoding="utf-8") == sentinel
+    # reference + tests come from the task
+    assert (scratch / "reference.cpp").read_text(encoding="utf-8") == task.oracle_solution
+    assert (scratch / "tests" / "0.in").read_text(encoding="utf-8") == task.unit_tests[0].input
+    assert (scratch / "tests" / "1.in").read_text(encoding="utf-8") == task.hidden_tests[0].input
+
+    # compile -> sanitize -> test0 -> test1 -> reference-compile -> bench candidate -> bench reference
+    assert len(calls) == 7
+    assert "candidate.cpp -o candidate" in calls[0]
+    assert "candidate_san" in calls[1]
+    assert "tests/0.in" in calls[2]
+    assert "tests/1.in" in calls[3]
+    assert "reference.cpp -o reference" in calls[4]
+    assert "w8_runtime_bench.py" in calls[5] and "./candidate" in calls[5]
+    assert "w8_runtime_bench.py" in calls[6] and "./reference" in calls[6]
+
+    assert result.all_tests_pass
+    assert result.runtime_speedup == pytest.approx(2.0)
 
 
 def test_sandbox_dry_run_and_runtime_parser():

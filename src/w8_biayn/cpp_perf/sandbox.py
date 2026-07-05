@@ -371,12 +371,45 @@ def run_in_sandbox(
     return _run_in_directory(task, candidate_code, Path(work_dir), image=image, cpu=cpu)
 
 
+def run_in_directory_prewritten(
+    task: CppTask,
+    scratch: str | Path,
+    *,
+    image: str = DEFAULT_DOCKER_IMAGE,
+    cpu: str = DEFAULT_CPU,
+) -> HarnessResult:
+    """Grade a candidate.cpp that already exists in ``scratch`` without touching it.
+
+    Materializes ``reference.cpp`` and ``tests/`` from ``task`` but leaves the
+    caller-written ``candidate.cpp`` byte-for-byte intact, so the literal file
+    the agent produced is what gets compiled, tested, and benchmarked. This is
+    the file-state entry point used by the agentic lane; ``run_in_sandbox`` is
+    the equivalent that writes the candidate string itself.
+    """
+
+    scratch_path = Path(scratch)
+    _prepare_scratch(scratch_path)
+    (scratch_path / "reference.cpp").write_text(task.oracle_solution, encoding="utf-8")
+    _write_tests(scratch_path, task.unit_tests + task.hidden_tests)
+    return _grade_prepared_directory(task, scratch_path, image=image, cpu=cpu)
+
+
 def _run_in_directory(task: CppTask, candidate_code: str, scratch: Path, *, image: str, cpu: str) -> HarnessResult:
     _prepare_scratch(scratch)
     (scratch / "candidate.cpp").write_text(candidate_code, encoding="utf-8")
     (scratch / "reference.cpp").write_text(task.oracle_solution, encoding="utf-8")
+    _write_tests(scratch, task.unit_tests + task.hidden_tests)
+    return _grade_prepared_directory(task, scratch, image=image, cpu=cpu)
+
+
+def _grade_prepared_directory(task: CppTask, scratch: Path, *, image: str, cpu: str) -> HarnessResult:
+    """Compile, sanitize, test, and benchmark the candidate/reference already in ``scratch``.
+
+    ``candidate.cpp``, ``reference.cpp``, and ``tests/<n>.in|out`` must already
+    exist in ``scratch``; how they got there is the caller's choice.
+    """
+
     tests = task.unit_tests + task.hidden_tests
-    _write_tests(scratch, tests)
 
     compile_proc = _run(compile_command(task, scratch, image=image))
     if compile_proc.returncode != 0:

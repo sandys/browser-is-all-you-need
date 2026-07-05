@@ -112,6 +112,21 @@ def compute_reward(
     return _strict_format_reward(harness, code=code)
 
 
+def file_state_reward(harness: HarnessResult, *, code: str) -> RewardBreakdown:
+    """Correctness-gated child-CPU-ns reward for a graded candidate FILE.
+
+    The agentic lane grades the final ``candidate.cpp`` the model left in the
+    sandbox, so there is no response-format axis to score: the reward is exactly
+    the strict correctness ladder over the harness result. Reusing
+    ``_strict_format_reward`` keeps one source of truth for the ladder shared
+    with the single-turn lane; ``format_valid`` on the returned breakdown is a
+    dead field here (always ``True``). ``code`` is the final file contents,
+    carried through for logging/debugging only.
+    """
+
+    return _strict_format_reward(harness, code=code)
+
+
 def _strict_format_reward(harness: HarnessResult, *, code: str) -> RewardBreakdown:
     if harness.compile_error:
         return RewardBreakdown(reward=-0.5, reason="compile_error", harness=harness, code=code, format_valid=True)
