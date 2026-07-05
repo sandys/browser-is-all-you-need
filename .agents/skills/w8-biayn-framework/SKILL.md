@@ -79,6 +79,7 @@ upstream repos or data.
 - Moonlight C++ lane: `examples/slime/moonlight_cpp_perf/`
 - Moonlight rank-16 LoRA C++ lane: `examples/slime/moonlight_lora_cpp_perf/`
 - GLM C++ lane: `examples/slime/glm47_cpp_perf/` when present
+- GLM agentic SWE-agent file-state C++ lane: `examples/slime/glm47_swe_agent_cpp_perf/`
 - ReTool lane: `examples/slime/retool/`
 - Moonlight MoE smoke: `examples/slime/moonlight_moe_smoke/`
 
@@ -221,6 +222,25 @@ bash examples/slime/glm47_cpp_perf/eval_sft.sh
 bash examples/slime/glm47_cpp_perf/grpo.sh
 bash examples/slime/glm47_cpp_perf/eval_grpo.sh
 bash examples/slime/glm47_cpp_perf/compare.sh
+```
+
+GLM agentic SWE-agent file-state lane. SWE-agent (not claude-code) edits
+`candidate.cpp`; the final FILE is graded in the repo's Docker sandbox (not E2B)
+and the correctness-gated reward flows via the OpenAI adapter `finish_session`.
+The `generate` hook is `w8_biayn.integrations.slime_swe_agent_cpp_perf.generate`;
+the driver is `swe_agent_driver.py`; the grader seam is
+`w8_biayn.cpp_perf.sandbox.run_in_directory_prewritten`. SFT stays single-turn;
+base/sft/grpo evals and GRPO are agentic. Build the edit-loop image with
+`uv run w8-biayn cpp harness swe-image --build-base`:
+
+```bash
+bash examples/slime/glm47_swe_agent_cpp_perf/prepare_data.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/eval_base.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/sft.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/eval_sft.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/grpo.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/eval_grpo.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/compare.sh
 ```
 
 Use local receipts (`run.log`, `run_receipt.txt`, `vram_usage.csv`,

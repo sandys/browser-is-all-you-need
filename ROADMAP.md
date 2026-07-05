@@ -101,6 +101,19 @@ The active speed signal is child-process CPU time in nanoseconds. Wall-clock
 time is diagnostic. Do not add PMU, Linux perf, PERFMON, or
 `perf_event_paranoid` requirements.
 
+## Agentic File-State Variant
+
+GLM-4.7-Flash is a thinking model whose `<think>` block overruns a single-turn
+response budget, truncating answers so they cannot be parsed or scored. The
+`examples/slime/glm47_swe_agent_cpp_perf/` lane fixes this by scoring the FILE,
+not model text: SWE-agent (not claude-code) edits `candidate.cpp` over many
+turns and the final file is graded with the same reward ladder above
+(compile/tests/child-CPU-ns) in the repo's Docker sandbox (not E2B). Reward
+flows via the SLIME OpenAI adapter `finish_session`, so the single-turn
+"Required Output Format" does not apply to this lane. SFT stays single-turn as a
+C++-quality warm-start; base/sft/grpo evals and GRPO are agentic. See
+`slime_swe_agent_cpp_perf.py` and `swe_agent_driver.py`.
+
 ## Stage 0: Prove The Local Runtime
 
 Question:

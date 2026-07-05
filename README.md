@@ -56,6 +56,7 @@ Use repo-owned wrappers rather than editing `.cache/upstreams/slime` directly.
 - Moonlight C++ performance lane: `examples/slime/moonlight_cpp_perf/`
 - Moonlight rank-16 LoRA C++ performance lane: `examples/slime/moonlight_lora_cpp_perf/`
 - GLM C++ performance lane: `examples/slime/glm47_cpp_perf/`
+- GLM agentic SWE-agent C++ lane (multi-turn, file-state scored): `examples/slime/glm47_swe_agent_cpp_perf/`
 - Moonlight ReTool lane: `examples/slime/retool/`
 - Moonlight MoE smoke: `examples/slime/moonlight_moe_smoke/`
 - Generic text-only SLIME smoke: `examples/slime/multi_agent/`
@@ -63,6 +64,16 @@ Use repo-owned wrappers rather than editing `.cache/upstreams/slime` directly.
 The Moonlight and GLM C++ lanes reuse the project PIE task schema, prompt
 builder, Docker C++ sandbox, reward function, and eval aggregation through
 `src/w8_biayn/integrations/slime_cpp_perf.py`.
+
+The GLM agentic SWE-agent lane grades the final edited FILE instead of model
+text: SWE-agent edits `candidate.cpp` over many turns, the hardened Docker
+grader scores the file it leaves behind (compile + visible and hidden tests +
+child-process CPU time), and reward flows through SLIME's OpenAI adapter
+`finish_session`. This dissolves the GLM thinking-mode truncation that made
+single-turn responses unscoreable. It uses SWE-agent (not claude-code) and the
+repo's Docker grader (not E2B), via
+`src/w8_biayn/integrations/slime_swe_agent_cpp_perf.py` (the `generate` hook)
+and `src/w8_biayn/integrations/swe_agent_driver.py`.
 
 ## Fresh Machine Setup
 

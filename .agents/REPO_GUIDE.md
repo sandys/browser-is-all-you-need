@@ -204,6 +204,22 @@ bash examples/slime/glm47_cpp_perf/eval_grpo.sh
 bash examples/slime/glm47_cpp_perf/compare.sh
 ```
 
+GLM agentic SWE-agent file-state lane. SWE-agent (not claude-code) edits
+`candidate.cpp` over many turns; the final FILE is graded in the repo's Docker
+sandbox (not E2B) and the correctness-gated reward flows via the OpenAI adapter
+`finish_session` (no `--custom-rm-path`). SFT stays single-turn; base/sft/grpo
+evals and GRPO are agentic:
+
+```bash
+bash examples/slime/glm47_swe_agent_cpp_perf/prepare_data.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/eval_base.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/sft.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/eval_sft.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/grpo.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/eval_grpo.sh
+bash examples/slime/glm47_swe_agent_cpp_perf/compare.sh
+```
+
 Use W&B when configured by the lane; otherwise rely on local receipts,
 `run.log`, `run_receipt.txt`, `vram_usage.csv`, `vram_peak.txt`, debug rollout
 dumps, and eval summaries under `.w8-biayn/slime/...`. The paid GCP GLM full
@@ -263,6 +279,7 @@ scripts/prepare_dapo_math_dataset.py         optional SLIME text-smoke data prep
 examples/slime/moonlight_cpp_perf/           active Moonlight C++ lane
 examples/slime/moonlight_lora_cpp_perf/      rank-16 LoRA Moonlight C++ lane
 examples/slime/glm47_cpp_perf/               active GLM C++ lane when present
+examples/slime/glm47_swe_agent_cpp_perf/     agentic SWE-agent file-state C++ lane
 examples/slime/retool/                       Moonlight ReTool lane
 examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
 examples/slime/multi_agent/                  generic text-only SLIME smoke
@@ -271,6 +288,10 @@ src/w8_biayn/cloud_launch.py                 SkyPilot-backed paid GLM launch (w8
 src/w8_biayn/cpp_perf/                       PIE task, prompt, sandbox, reward, eval code
 src/w8_biayn/slime_integration/              SLIME doctor/setup/sandbox helpers
 src/w8_biayn/integrations/slime_cpp_perf.py  SLIME C++ data/reward/eval bridge
+src/w8_biayn/integrations/slime_swe_agent_cpp_perf.py
+                                             agentic SWE-agent generate() hook (file-state reward)
+src/w8_biayn/integrations/swe_agent_driver.py
+                                             single-instance SWE-agent run + candidate.cpp extraction
 src/w8_biayn/integrations/slime_train_entry.py
                                              repo-owned SLIME train entry wrapper
 src/w8_biayn/integrations/slime_moonlight_hf_export.py
