@@ -33,6 +33,11 @@ DEFAULT_ACCELERATORS = "H100:8"
 DEFAULT_SLIME_IMAGE = "slimerl/slime:latest"
 DEFAULT_WANDB_PROJECT = "slime-glm47-cpp-perf"
 DEFAULT_LOCAL_ROOT = Path(".w8-biayn/slime/glm47-cpp-perf")
+# Lanes the launcher can run. The agentic lane reuses the same stage interface
+# (prepare-data|base-eval|sft|sft-eval|grpo|grpo-eval|compare); only its
+# stage-script dir and container networking differ.
+KNOWN_LANES = ("glm47_cpp_perf", "glm47_swe_agent_cpp_perf")
+AGENTIC_LANE = "glm47_swe_agent_cpp_perf"
 FULL_LIMIT_SENTINEL = 1_000_000
 TERMINAL_JOB_STATUS_SUFFIXES = ("SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "CANCELLED")
 DEFAULT_ENV_FILE = ".env"
@@ -59,6 +64,7 @@ class LaunchOptions:
     cluster_name: str = ""
     credentials: str = DEFAULT_CREDENTIALS_PATH
     slime_image: str = DEFAULT_SLIME_IMAGE
+    lane: str = "glm47_cpp_perf"
     wandb_api_key: str = ""
     wandb_api_key_file: str = ""
     wandb_project: str = DEFAULT_WANDB_PROJECT
@@ -88,6 +94,8 @@ class LaunchOptions:
         invalid = [region for region in self.regions if region not in ALLOWED_REGIONS]
         if invalid:
             raise LaunchError(f"regions {invalid} are not in the allowed set {ALLOWED_REGIONS}")
+        if self.lane not in KNOWN_LANES:
+            raise LaunchError(f"lane {self.lane!r} is not in the known set {KNOWN_LANES}")
         if not self.cluster_name:
             self.cluster_name = default_cluster_name(self.run_id)
 
@@ -207,6 +215,8 @@ def launch_glm47_full(options: LaunchOptions) -> int:
                     "regions": options.regions,
                     "accelerators": options.accelerators,
                     "use_spot": options.use_spot,
+                    "lane": options.lane,
+                    "network_host": options.lane == AGENTIC_LANE,
                     "config": str(config_path),
                 },
                 indent=2,
@@ -307,6 +317,7 @@ def _acquire_and_run(
                     "W8_GLM47_WANDB_ENTITY": options.wandb_entity,
                     "W8_GLM47_WANDB_BASE_URL": options.wandb_base_url,
                     "W8_GLM47_SLIME_IMAGE": options.slime_image,
+                    "W8_GLM47_LANE": options.lane,
                     "W8_GLM47_SLIME_PIN": SLIME_PIN,
                     "W8_GLM47_ARTIFACT_BUCKET": options.artifact_bucket,
                     "W8_GLM47_CACHE_VERSION": TASKS_CACHE_VERSION,
@@ -578,7 +589,14 @@ def build_run_script() -> str:
         docker pull "$W8_GLM47_SLIME_IMAGE"
         w8_milestone container_image_pulled
         docker rm -f "w8-slime-glm47-$W8_GLM47_RUN_ID" >/dev/null 2>&1 || true
-        docker run --rm --gpus all --ipc=host --shm-size=16g \
+        W8_GLM47_NET_ARGS=""
+        if [ "${{W8_GLM47_LANE:-glm47_cpp_perf}}" = "glm47_swe_agent_cpp_perf" ]; then
+          # swerex publishes its sibling-container port on the host daemon; the
+          # rollout worker reaches it at localhost only when the SLIME container
+          # shares the host network namespace.
+          W8_GLM47_NET_ARGS="--network host"
+        fi
+        docker run --rm ${{W8_GLM47_NET_ARGS}} --gpus all --ipc=host --shm-size=16g \
           --ulimit stack=67108864 \
           --name "w8-slime-glm47-$W8_GLM47_RUN_ID" \
           -v "$PWD":{repo_mount} \
@@ -590,6 +608,7 @@ def build_run_script() -> str:
           -e HF_TOKEN \
           -e HUGGING_FACE_HUB_TOKEN="${{HF_TOKEN:-}}" \
           -e W8_GLM47_RUN_ID \
+          -e W8_GLM47_LANE \
           -e W8_GLM47_SLIME_PIN \
           -e W8_GLM47_REPO_DIR={repo_mount} \
           -e W8_GLM47_WANDB_PROJECT \
@@ -715,6 +734,11 @@ def build_container_script() -> str:
 
         cd "${W8_GLM47_REPO_DIR:?missing repo mount}"
         export SLIME_RUN_ID="$W8_GLM47_RUN_ID"
+        # Force both lanes to the canonical run root the launcher success gate +
+        # artifact collection expect (matches remote_run_root in build_run_script).
+        # No-op for the default lane; the fix for the agentic lane's different
+        # default run root.
+        export SLIME_RUN_ROOT="${W8_GLM47_REPO_DIR}/.w8-biayn/slime/glm47-cpp-perf/runs/${W8_GLM47_RUN_ID}"
         export SLIME_CPP_TASKS_DIR="${W8_GLM47_REPO_DIR}/.w8-biayn/data/tasks-full"
         export SLIME_CPP_TRAIN_LIMIT="$W8_GLM47_TRAIN_LIMIT"
         export SLIME_CPP_EVAL_LIMIT="$W8_GLM47_EVAL_LIMIT"
@@ -740,13 +764,14 @@ def build_container_script() -> str:
         export SLIME_GRPO_SKIP_FINAL_TRAIN_SLEEP=1
         export WANDB_MODE="${WANDB_MODE:-online}"
 
-        bash examples/slime/glm47_cpp_perf/prepare_data.sh
-        bash examples/slime/glm47_cpp_perf/eval_base.sh
-        bash examples/slime/glm47_cpp_perf/sft.sh
-        bash examples/slime/glm47_cpp_perf/eval_sft.sh
-        bash examples/slime/glm47_cpp_perf/grpo.sh
-        bash examples/slime/glm47_cpp_perf/eval_grpo.sh
-        bash examples/slime/glm47_cpp_perf/compare.sh
+        W8_LANE_DIR="examples/slime/${W8_GLM47_LANE:-glm47_cpp_perf}"
+        bash "${W8_LANE_DIR}/prepare_data.sh"
+        bash "${W8_LANE_DIR}/eval_base.sh"
+        bash "${W8_LANE_DIR}/sft.sh"
+        bash "${W8_LANE_DIR}/eval_sft.sh"
+        bash "${W8_LANE_DIR}/grpo.sh"
+        bash "${W8_LANE_DIR}/eval_grpo.sh"
+        bash "${W8_LANE_DIR}/compare.sh"
         """
     )
 

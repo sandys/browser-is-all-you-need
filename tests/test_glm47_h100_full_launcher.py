@@ -34,9 +34,10 @@ def test_launch_module_runs_full_glm_stage_sequence_and_not_smoke_grpo() -> None
         "eval_grpo.sh",
         "compare.sh",
     ]
-    positions = [text.index(f"bash examples/slime/glm47_cpp_perf/{stage}") for stage in stages]
+    positions = [text.index(f'bash "${{W8_LANE_DIR}}/{stage}"') for stage in stages]
 
     assert positions == sorted(positions)
+    assert 'W8_LANE_DIR="examples/slime/${W8_GLM47_LANE:-glm47_cpp_perf}"' in text
     assert "FULL_LIMIT_SENTINEL = 1_000_000" in text
     assert 'export SLIME_GRPO_NUM_ROLLOUT="$W8_GLM47_GRPO_NUM_ROLLOUT"' in text
     assert "export SLIME_GRPO_SKIP_WEIGHT_UPDATE=0" in text
@@ -229,6 +230,8 @@ def test_cli_launch_glm47_full_dry_run_renders_without_skypilot(tmp_path) -> Non
 
     assert result.exit_code == 0, result.output
     assert '"cluster": "w8-glm47-h100-unittest-dry"' in result.output
+    assert '"lane": "glm47_cpp_perf"' in result.output
+    assert '"network_host": false' in result.output
     assert "--- setup ---" in result.output
     assert "--- run ---" in result.output
     config = json.loads((tmp_path / "cloud-runs" / "unittest-dry" / "launch_config.json").read_text())
@@ -236,6 +239,46 @@ def test_cli_launch_glm47_full_dry_run_renders_without_skypilot(tmp_path) -> Non
     assert config["accelerators"] == "A100-80GB:8"
     assert config["skypilot_pin"].startswith("skypilot-nightly[gcp]==")
     assert config["wandb_api_key"] == ""
+
+
+def test_agentic_lane_wires_networking_run_root_and_stage_dir() -> None:
+    from w8_biayn.cloud_launch import build_container_script, build_run_script
+
+    run = build_run_script()
+    # swerex needs the SLIME container on the host network; gated to the agentic lane.
+    assert '[ "${W8_GLM47_LANE:-glm47_cpp_perf}" = "glm47_swe_agent_cpp_perf" ]' in run
+    assert 'W8_GLM47_NET_ARGS="--network host"' in run
+    assert "docker run --rm ${W8_GLM47_NET_ARGS} --gpus all" in run
+    assert "-e W8_GLM47_LANE" in run
+
+    container = build_container_script()
+    # both lanes write to the canonical run root the launcher success gate expects
+    assert (
+        'export SLIME_RUN_ROOT="${W8_GLM47_REPO_DIR}/.w8-biayn/slime/glm47-cpp-perf/runs/${W8_GLM47_RUN_ID}"'
+        in container
+    )
+    assert 'W8_LANE_DIR="examples/slime/${W8_GLM47_LANE:-glm47_cpp_perf}"' in container
+
+
+def test_cli_launch_agentic_lane_dry_run_sets_lane_and_network_host(tmp_path) -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "glm47-full",
+            "--run-id",
+            "unittest-agentic",
+            "--lane",
+            "glm47_swe_agent_cpp_perf",
+            "--local-output-root",
+            str(tmp_path),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert '"lane": "glm47_swe_agent_cpp_perf"' in result.output
+    assert '"network_host": true' in result.output
 
 
 def test_cli_launch_glm47_full_rejects_disallowed_region(tmp_path) -> None:

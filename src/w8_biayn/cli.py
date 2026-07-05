@@ -2434,6 +2434,10 @@ def launch_glm47_full_command(
     cluster_name: str = typer.Option("", help="Override cluster name."),
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),
     slime_image: str = typer.Option("slimerl/slime:latest", help="SLIME Docker image for the GPU container."),
+    lane: str = typer.Option(
+        "glm47_cpp_perf",
+        help="Lane under examples/slime/ to run: glm47_cpp_perf (single-turn) or glm47_swe_agent_cpp_perf (agentic file-state).",
+    ),
     wandb_api_key: str = typer.Option("", help="W&B API key. Prefer --wandb-api-key-file or env/.env resolution."),
     wandb_api_key_file: str = typer.Option("", help="File containing the W&B API key. Defaults to WANDB_API_KEY/WANDB_KEY env or .env."),
     wandb_project: str = typer.Option("slime-glm47-cpp-perf", help="W&B project name."),
@@ -2473,6 +2477,7 @@ def launch_glm47_full_command(
             cluster_name=cluster_name,
             credentials=credentials,
             slime_image=slime_image,
+            lane=lane,
             wandb_api_key=wandb_api_key,
             wandb_api_key_file=wandb_api_key_file,
             wandb_project=wandb_project,
