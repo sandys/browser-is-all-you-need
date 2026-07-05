@@ -1,0 +1,12 @@
+# Runtime dependencies for the agentic SWE-agent C++ lane. These are installed
+# into the training image / Ray rollout worker (where generate() runs), NOT the
+# control-plane venv. generate() and swe_agent_driver import sweagent lazily; the
+# file-state grader and the OpenAI adapter need none of these.
+#
+# Pinned to the SWE-agent 1.x API this lane was written against (single-instance
+# SWEEnv/get_agent_from_config run loop, GenericAPIModelConfig api_base/api_key,
+# thought_action parser, LocalRepoConfig). swerex + litellm come in via sweagent;
+# pyyaml is used to load config/default_backticks.yaml.
+sweagent>=1.0,<2
+litellm>=1.40
+pyyaml>=6.0
