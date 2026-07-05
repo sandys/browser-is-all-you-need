@@ -1,12 +1,19 @@
-# Runtime dependencies for the agentic SWE-agent C++ lane. These are installed
-# into the training image / Ray rollout worker (where generate() runs), NOT the
-# control-plane venv. generate() and swe_agent_driver import sweagent lazily; the
-# file-state grader and the OpenAI adapter need none of these.
+# Rollout-worker runtime deps for the agentic SWE-agent C++ lane.
 #
-# Pinned to the SWE-agent 1.x API this lane was written against (single-instance
-# SWEEnv/get_agent_from_config run loop, GenericAPIModelConfig api_base/api_key,
-# thought_action parser, LocalRepoConfig). swerex + litellm come in via sweagent;
-# pyyaml is used to load config/default_backticks.yaml.
-sweagent>=1.0,<2
-litellm>=1.40
-pyyaml>=6.0
+# NOTE: SWE-agent 1.x is NOT pip-installable and is deliberately NOT listed as a
+# requirement here:
+#   * PyPI `sweagent` is an unrelated 0.0.1 stub (the real package is on GitHub).
+#   * A wheel/`pip install git+...` build fails at import: SWE-agent asserts its
+#     config/ and tools/ dirs exist as repo-root siblings of the package, but
+#     those are not packaged. It must be an EDITABLE clone.
+#
+# ensure_swe_agent_runtime() in glm47_swe_agent_cpp_perf.sh clones SWE-agent at
+# the pinned commit (W8_SWE_AGENT_GIT_PIN) into W8_SWE_AGENT_CLONE_DIR and runs
+# `pip install -e` it, which pulls swerex + litellm + pyyaml transitively; the
+# lane forwards SWE_AGENT_CONFIG_DIR / SWE_AGENT_TOOLS_DIR to the Ray worker. The
+# edit-loop Docker image bakes swe-rex==1.4.0 (see swe_agent_image_dockerfile).
+#
+# Manual/offline install mirroring the lane:
+#   git clone https://github.com/SWE-agent/SWE-agent.git .cache/sweagent
+#   git -C .cache/sweagent checkout 5f40e63360d654adcd91e30ed11473389bc4909b
+#   python -m pip install -e .cache/sweagent

@@ -141,6 +141,10 @@ SWE_AGENT_CONCURRENCY="${W8_SWE_AGENT_CONCURRENCY:-4}"
 SWE_ROLLOUT_GUARD_SEC="${W8_SWE_ROLLOUT_GUARD_SEC:-1800}"
 ADAPTER_BIND_HOST="${W8_ADAPTER_BIND_HOST:-127.0.0.1}"
 ADAPTER_PORT="${W8_ADAPTER_PORT:-18011}"
+# SWE-agent 1.x installs from an editable git clone (its config/ + tools/ are
+# unpackaged repo-root siblings); pin the commit the driver was written against.
+SWE_AGENT_GIT_PIN="${W8_SWE_AGENT_GIT_PIN:-5f40e63360d654adcd91e30ed11473389bc4909b}"
+SWE_AGENT_CLONE_DIR="${W8_SWE_AGENT_CLONE_DIR:-${REPO_ROOT}/.cache/sweagent}"
 AGENTIC_CUSTOM_ARGS=(--custom-generate-function-path w8_biayn.integrations.slime_swe_agent_cpp_perf.generate)
 if [ -n "${ROLLOUT_MAX_CONTEXT_LEN}" ]; then
   AGENTIC_CUSTOM_ARGS+=(--rollout-max-context-len "${ROLLOUT_MAX_CONTEXT_LEN}")
@@ -908,8 +912,21 @@ ensure_swe_agent_runtime() {
   # actually missing, and skipping them is cheap when they already exist.
   if [ "${SWE_AGENT_INSTALL_DEPS}" = "1" ]; then
     w8_milestone swe_agent_deps_install_started
-    if ! "${PYTHON_BIN}" -m pip install --quiet -r "${SCRIPT_DIR}/requirements.txt"; then
-      echo "warning: SWE-agent dependency install reported an error; continuing" >&2
+    # SWE-agent 1.x ships config/ + tools/ as unpackaged repo-root siblings, so
+    # it must be an editable git clone -- `pip install sweagent` is an unrelated
+    # PyPI 0.0.1 stub and a wheel install fails its CONFIG_DIR/TOOLS_DIR assert.
+    # The editable install pulls swerex + litellm + pyyaml transitively.
+    if [ ! -e "${SWE_AGENT_CLONE_DIR}/pyproject.toml" ]; then
+      git clone --filter=blob:none https://github.com/SWE-agent/SWE-agent.git "${SWE_AGENT_CLONE_DIR}" ||
+        echo "warning: SWE-agent clone failed; agentic rollouts will error" >&2
+    fi
+    if [ -e "${SWE_AGENT_CLONE_DIR}/pyproject.toml" ]; then
+      git -C "${SWE_AGENT_CLONE_DIR}" fetch --depth 1 origin "${SWE_AGENT_GIT_PIN}" >/dev/null 2>&1 || true
+      git -C "${SWE_AGENT_CLONE_DIR}" checkout --quiet "${SWE_AGENT_GIT_PIN}" ||
+        echo "warning: SWE-agent checkout ${SWE_AGENT_GIT_PIN} failed; using clone HEAD" >&2
+      if ! "${PYTHON_BIN}" -m pip install --quiet -e "${SWE_AGENT_CLONE_DIR}"; then
+        echo "warning: SWE-agent editable install failed; agentic rollouts will error" >&2
+      fi
     fi
     w8_milestone swe_agent_deps_install_finished
   fi
@@ -960,6 +977,8 @@ env = {
     "W8_SWE_ROLLOUT_GUARD_SEC": "${SWE_ROLLOUT_GUARD_SEC}",
     "W8_ADAPTER_BIND_HOST": "${ADAPTER_BIND_HOST}",
     "W8_ADAPTER_PORT": "${ADAPTER_PORT}",
+    "SWE_AGENT_CONFIG_DIR": "${SWE_AGENT_CLONE_DIR}/config",
+    "SWE_AGENT_TOOLS_DIR": "${SWE_AGENT_CLONE_DIR}/tools",
     "W8_SLIME_CPP_INCLUDE_LOGS": os.environ.get("W8_SLIME_CPP_INCLUDE_LOGS", "0"),
     "W8_SLIME_SKIP_FINAL_TRAIN_SLEEP": "${FINAL_TRAIN_SLEEP_SKIP}",
     "W8_SLIME_NO_FULLY_PARALLEL_CKPT_LOAD": "0" if os.environ.get("SLIME_GLM_FULLY_PARALLEL_CKPT_LOAD") == "1" else "1",

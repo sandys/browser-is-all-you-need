@@ -33,7 +33,8 @@ serves the adapter, runs SWE-agent, grades the final file, and flows reward),
 `src/w8_biayn/integrations/swe_agent_driver.py` (single-instance SWE-agent run +
 `candidate.cpp` extraction), and `src/w8_biayn/integrations/slime_cpp_perf.py`
 (dataset build + eval aggregation, reused unchanged). Rollout-worker runtime deps
-are in `requirements.txt`.
+and how SWE-agent is installed (editable git clone, not pip) are documented in
+`requirements.txt`.
 
 ## Host Prerequisites
 
@@ -47,13 +48,17 @@ uv run w8-biayn doctor --cpp-perf
 uv run w8-biayn cpp harness preflight --cpu 3
 ```
 
-Build the SWE-agent edit-loop image (the C++ sandbox image plus git) and install
-the rollout-worker deps. The lane also does both automatically before each
-agentic stage, so this is only needed for a manual/offline check:
+Build the SWE-agent edit-loop image (the C++ sandbox image plus git and a baked
+`swe-rex` server) and install SWE-agent as an editable clone (it is **not**
+pip-installable — its `config/`+`tools/` dirs are unpackaged repo-root siblings).
+The lane does both automatically before each agentic stage; this is only for a
+manual/offline check:
 
 ```bash
 uv run w8-biayn cpp harness swe-image --build-base
-python -m pip install -r examples/slime/glm47_swe_agent_cpp_perf/requirements.txt
+git clone https://github.com/SWE-agent/SWE-agent.git .cache/sweagent
+git -C .cache/sweagent checkout 5f40e63360d654adcd91e30ed11473389bc4909b
+python -m pip install -e .cache/sweagent
 ```
 
 Create or verify PIE task JSON:
