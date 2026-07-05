@@ -100,6 +100,10 @@ class MockLLM(BaseHTTPRequestHandler):
 
 
 def main() -> int:
+    # --no-grade validates just the SWE-agent run + extraction (for running inside
+    # a root container to exercise the local deployment without docker-in-docker
+    # for the grader; grading is unchanged and covered by the M2 tests).
+    no_grade = "--no-grade" in sys.argv
     server = ThreadingHTTPServer(("127.0.0.1", 0), MockLLM)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -127,22 +131,23 @@ def main() -> int:
         edited = result.candidate_code.strip() != task.prompt_code.strip()
         print(f"[proof] agent edited the file: {edited}")
 
-        scratch = Path(work) / "grade"
-        scratch.mkdir()
-        (scratch / "candidate.cpp").write_text(result.candidate_code, encoding="utf-8")
-        harness = run_in_directory_prewritten(task, scratch, image=DEFAULT_DOCKER_IMAGE)
-        print(
-            f"[proof] graded: all_tests_pass={harness.all_tests_pass} "
-            f"tests={harness.tests_passed}/{harness.tests_total} "
-            f"compile_error={harness.compile_error} sanitizer_error={harness.sanitizer_error} "
-            f"runtime_speedup={harness.runtime_speedup}"
-        )
-        if harness.logs:
-            for key, val in harness.logs.items():
-                print(f"[proof] log[{key}]:\n{val[:1500]}")
+        if not no_grade:
+            scratch = Path(work) / "grade"
+            scratch.mkdir()
+            (scratch / "candidate.cpp").write_text(result.candidate_code, encoding="utf-8")
+            harness = run_in_directory_prewritten(task, scratch, image=DEFAULT_DOCKER_IMAGE)
+            print(
+                f"[proof] graded: all_tests_pass={harness.all_tests_pass} "
+                f"tests={harness.tests_passed}/{harness.tests_total} "
+                f"compile_error={harness.compile_error} sanitizer_error={harness.sanitizer_error} "
+                f"runtime_speedup={harness.runtime_speedup}"
+            )
+            if harness.logs:
+                for key, val in harness.logs.items():
+                    print(f"[proof] log[{key}]:\n{val[:1500]}")
 
     server.shutdown()
-    ok = edited and harness is not None and harness.all_tests_pass
+    ok = edited if no_grade else (edited and harness is not None and harness.all_tests_pass)
     print(f"[proof] RESULT: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

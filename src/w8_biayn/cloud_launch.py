@@ -34,10 +34,9 @@ DEFAULT_SLIME_IMAGE = "slimerl/slime:latest"
 DEFAULT_WANDB_PROJECT = "slime-glm47-cpp-perf"
 DEFAULT_LOCAL_ROOT = Path(".w8-biayn/slime/glm47-cpp-perf")
 # Lanes the launcher can run. The agentic lane reuses the same stage interface
-# (prepare-data|base-eval|sft|sft-eval|grpo|grpo-eval|compare); only its
-# stage-script dir and container networking differ.
+# (prepare-data|base-eval|sft|sft-eval|grpo|grpo-eval|compare) and the same
+# container networking; only its stage-script dir differs.
 KNOWN_LANES = ("glm47_cpp_perf", "glm47_swe_agent_cpp_perf")
-AGENTIC_LANE = "glm47_swe_agent_cpp_perf"
 FULL_LIMIT_SENTINEL = 1_000_000
 TERMINAL_JOB_STATUS_SUFFIXES = ("SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "CANCELLED")
 DEFAULT_ENV_FILE = ".env"
@@ -216,7 +215,6 @@ def launch_glm47_full(options: LaunchOptions) -> int:
                     "accelerators": options.accelerators,
                     "use_spot": options.use_spot,
                     "lane": options.lane,
-                    "network_host": options.lane == AGENTIC_LANE,
                     "config": str(config_path),
                 },
                 indent=2,
@@ -589,14 +587,7 @@ def build_run_script() -> str:
         docker pull "$W8_GLM47_SLIME_IMAGE"
         w8_milestone container_image_pulled
         docker rm -f "w8-slime-glm47-$W8_GLM47_RUN_ID" >/dev/null 2>&1 || true
-        W8_GLM47_NET_ARGS=""
-        if [ "${{W8_GLM47_LANE:-glm47_cpp_perf}}" = "glm47_swe_agent_cpp_perf" ]; then
-          # swerex publishes its sibling-container port on the host daemon; the
-          # rollout worker reaches it at localhost only when the SLIME container
-          # shares the host network namespace.
-          W8_GLM47_NET_ARGS="--network host"
-        fi
-        docker run --rm ${{W8_GLM47_NET_ARGS}} --gpus all --ipc=host --shm-size=16g \
+        docker run --rm --gpus all --ipc=host --shm-size=16g \
           --ulimit stack=67108864 \
           --name "w8-slime-glm47-$W8_GLM47_RUN_ID" \
           -v "$PWD":{repo_mount} \

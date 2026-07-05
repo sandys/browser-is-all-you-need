@@ -14,6 +14,7 @@ from w8_biayn.integrations.swe_agent_driver import (
     ExtractResult,
     SweAgentLimits,
     _materialize_repo,
+    _safe_repo_name,
     build_run_config,
 )
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult, ReferencePerformance, TestCase, TestCoverage
@@ -189,7 +190,9 @@ def test_build_run_config_sets_endpoint_cost_limits_and_repo():
     assert tools["total_execution_timeout"] == 900
     assert tools["bundles"] == ["edit"]
 
-    assert merged["env"]["deployment"] == {"type": "docker", "image": "w8-biayn-swe-agent:latest"}
+    # LocalDeployment: SWE-agent runs on the node in-process, no sibling container.
+    assert merged["env"]["deployment"] == {"type": "local"}
+    assert "image" not in merged["env"]["deployment"]
     assert merged["env"]["repo"] == {"type": "local", "path": "/work/repo", "base_commit": "HEAD"}
     assert merged["problem_statement"]["id"] == "pie_cpp_000001"
     assert "candidate.cpp" in merged["problem_statement"]["text"]
@@ -214,6 +217,17 @@ def test_materialize_repo_creates_clean_committed_repo(tmp_path):
         ["git", "-C", str(repo), "rev-list", "--count", "HEAD"], check=True, capture_output=True, text=True
     )
     assert count.stdout.strip() == "1"
+
+
+def test_safe_repo_name_is_unique_per_session_and_fs_safe():
+    # Under LocalDeployment the repo lands at FS root /{repo_name}; concurrent
+    # rollouts must get distinct, filesystem-safe basenames keyed off the sid.
+    a = _safe_repo_name("w8swe-pie_cpp_000001-0-0")
+    b = _safe_repo_name("w8swe-pie_cpp_000001-0-1")
+    assert a != b
+    assert a.startswith("repo-")
+    assert all(c.isalnum() or c in "_-" for c in a)
+    assert _safe_repo_name("") == "repo-session"
 
 
 def test_sweagent_limits_from_env_parses_and_defaults():

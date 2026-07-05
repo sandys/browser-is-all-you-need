@@ -36,6 +36,7 @@ Verified against the SWE-agent source (study clone):
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -123,6 +124,19 @@ def _git(repo: Path, *args: str) -> None:
 
 
 COMPILE_HELPER = "#!/usr/bin/env bash\nset -e\ng++ -O3 -std=c++20 candidate.cpp -o candidate\n"
+
+
+def _safe_repo_name(sid: str) -> str:
+    """A filesystem-safe, per-session repo basename.
+
+    Under the local deployment swerex copies the repo to the FS root
+    ``/{repo_name}`` (``LocalRepoConfig.copy``), so concurrent rollouts on one
+    worker must not share a basename or they collide at ``/repo``. Key it off the
+    session id, which is unique per sample.
+    """
+
+    safe = re.sub(r"[^A-Za-z0-9_-]", "-", sid).strip("-") or "session"
+    return f"repo-{safe}"
 
 
 def _materialize_repo(work_dir: str | Path, v0_code: str, *, task: Any | None = None) -> Path:
@@ -228,7 +242,13 @@ def build_run_config(
     merged = dict(base_config)
     merged["agent"] = agent
     merged["env"] = {
-        "deployment": {"type": "docker", "image": image},
+        # LocalDeployment: SWE-agent runs the model's edits/bash in-process on the
+        # local node (the rollout worker) -- no swerex sibling container, no port
+        # publish, no localhost hop, so nothing needs --network host and Ray is
+        # untouched. The final candidate.cpp is graded separately in our hardened
+        # run_in_sandbox. (`image` is unused here; reserved for a future container
+        # deployment via swerex RemoteDeployment.)
+        "deployment": {"type": "local"},
         "repo": {"type": "local", "path": str(repo_path), "base_commit": "HEAD"},
     }
     merged["problem_statement"] = {
@@ -287,9 +307,11 @@ def run_swe_agent_and_extract(
 ) -> ExtractResult:
     """Run one SWE-agent instance and return the final candidate.cpp + diagnostics.
 
-    Validated on the M1 loop proof (needs ``sweagent`` + Docker + a served model).
-    Falls back to the v0 program if extraction fails, so the grader always has a
-    well-defined file to score rather than crashing the rollout.
+    Uses swerex LocalDeployment: SWE-agent edits/runs the model's bash in-process
+    on this node (no sibling container). Needs ``sweagent`` installed and a served
+    model at ``adapter_url``. Falls back to the v0 program if extraction fails, so
+    the grader always has a well-defined file to score rather than crashing the
+    rollout.
     """
 
     from sweagent.agent.agents import get_agent_from_config  # type: ignore
@@ -297,7 +319,7 @@ def run_swe_agent_and_extract(
     from sweagent.run.run_single import RunSingleConfig  # type: ignore
 
     work = Path(work_root)
-    repo = _materialize_repo(work / "repo", v0_code, task=task)
+    repo = _materialize_repo(work / _safe_repo_name(sid), v0_code, task=task)
     base = _load_base_config()
     config_dict = build_run_config(
         base,

@@ -911,10 +911,10 @@ append_optimizer_offload_args() {
 }
 
 ensure_swe_agent_runtime() {
-  # Agentic stages need the SWE-agent Python deps on the rollout worker plus the
-  # edit-loop Docker image (and the base C++ sandbox image the grader uses).
-  # Both steps are best-effort: the smoke surfaces a clear error if either is
-  # actually missing, and skipping them is cheap when they already exist.
+  # Agentic stages need the SWE-agent Python deps installed on the rollout worker
+  # (SWE-agent runs in-process via swerex LocalDeployment -- no edit-loop
+  # container) and the hardened C++ grader image present. Best-effort: the smoke
+  # surfaces a clear error if either is missing; skipping is cheap when present.
   if [ "${SWE_AGENT_INSTALL_DEPS}" = "1" ]; then
     w8_milestone swe_agent_deps_install_started
     # SWE-agent 1.x ships config/ + tools/ as unpackaged repo-root siblings, so
@@ -929,18 +929,24 @@ ensure_swe_agent_runtime() {
       git -C "${SWE_AGENT_CLONE_DIR}" fetch --depth 1 origin "${SWE_AGENT_GIT_PIN}" >/dev/null 2>&1 || true
       git -C "${SWE_AGENT_CLONE_DIR}" checkout --quiet "${SWE_AGENT_GIT_PIN}" ||
         echo "warning: SWE-agent checkout ${SWE_AGENT_GIT_PIN} failed; using clone HEAD" >&2
-      if ! "${PYTHON_BIN}" -m pip install --quiet -e "${SWE_AGENT_CLONE_DIR}"; then
+      # --ignore-installed: the slime image has apt-managed deps (e.g. blinker)
+      # with no pip RECORD file that pip cannot uninstall when resolving
+      # sweagent's tree; this skips those uninstalls. It only reinstalls
+      # sweagent's own (non-ML) dep closure, not the torch/megatron/sglang stack.
+      if ! "${PYTHON_BIN}" -m pip install --quiet --ignore-installed -e "${SWE_AGENT_CLONE_DIR}"; then
         echo "warning: SWE-agent editable install failed; agentic rollouts will error" >&2
       fi
     fi
     w8_milestone swe_agent_deps_install_finished
   fi
   if [ "${SWE_AGENT_BUILD_IMAGE}" = "1" ]; then
-    w8_milestone swe_agent_image_build_started
-    if ! run_repo_python -c "import sys; from w8_biayn.cpp_perf.sandbox import build_sandbox_image, build_swe_agent_image; build_sandbox_image(); swe = build_swe_agent_image(); sys.exit(0 if swe.returncode == 0 else 1)"; then
-      echo "warning: SWE-agent image build failed; ensure Docker is available on the rollout host" >&2
+    w8_milestone cpp_grader_image_build_started
+    # LocalDeployment runs SWE-agent in-process, so no edit-loop image is needed;
+    # only the hardened C++ grader image (used by run_in_sandbox) must exist.
+    if ! run_repo_python -c "import sys; from w8_biayn.cpp_perf.sandbox import build_sandbox_image; r = build_sandbox_image(); sys.exit(0 if r.returncode == 0 else 1)"; then
+      echo "warning: C++ grader image build failed; ensure Docker is available on the rollout host" >&2
     fi
-    w8_milestone swe_agent_image_build_finished
+    w8_milestone cpp_grader_image_build_finished
   fi
 }
 

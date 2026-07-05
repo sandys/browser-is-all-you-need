@@ -231,7 +231,6 @@ def test_cli_launch_glm47_full_dry_run_renders_without_skypilot(tmp_path) -> Non
     assert result.exit_code == 0, result.output
     assert '"cluster": "w8-glm47-h100-unittest-dry"' in result.output
     assert '"lane": "glm47_cpp_perf"' in result.output
-    assert '"network_host": false' in result.output
     assert "--- setup ---" in result.output
     assert "--- run ---" in result.output
     config = json.loads((tmp_path / "cloud-runs" / "unittest-dry" / "launch_config.json").read_text())
@@ -241,15 +240,15 @@ def test_cli_launch_glm47_full_dry_run_renders_without_skypilot(tmp_path) -> Non
     assert config["wandb_api_key"] == ""
 
 
-def test_agentic_lane_wires_networking_run_root_and_stage_dir() -> None:
+def test_launcher_selects_lane_and_aligns_run_root() -> None:
     from w8_biayn.cloud_launch import build_container_script, build_run_script
 
     run = build_run_script()
-    # swerex needs the SLIME container on the host network; gated to the agentic lane.
-    assert '[ "${W8_GLM47_LANE:-glm47_cpp_perf}" = "glm47_swe_agent_cpp_perf" ]' in run
-    assert 'W8_GLM47_NET_ARGS="--network host"' in run
-    assert "docker run --rm ${W8_GLM47_NET_ARGS} --gpus all" in run
+    # lane is threaded into the container; NO --network host -- SWE-agent runs
+    # in-process (swerex LocalDeployment), so the default bridge is fine and Ray
+    # works exactly as in the single-turn lane.
     assert "-e W8_GLM47_LANE" in run
+    assert "--network host" not in run
 
     container = build_container_script()
     # both lanes write to the canonical run root the launcher success gate expects
@@ -260,7 +259,7 @@ def test_agentic_lane_wires_networking_run_root_and_stage_dir() -> None:
     assert 'W8_LANE_DIR="examples/slime/${W8_GLM47_LANE:-glm47_cpp_perf}"' in container
 
 
-def test_cli_launch_agentic_lane_dry_run_sets_lane_and_network_host(tmp_path) -> None:
+def test_cli_launch_agentic_lane_dry_run_sets_lane(tmp_path) -> None:
     result = CliRunner().invoke(
         app,
         [
@@ -278,7 +277,6 @@ def test_cli_launch_agentic_lane_dry_run_sets_lane_and_network_host(tmp_path) ->
 
     assert result.exit_code == 0, result.output
     assert '"lane": "glm47_swe_agent_cpp_perf"' in result.output
-    assert '"network_host": true' in result.output
 
 
 def test_cli_launch_glm47_full_rejects_disallowed_region(tmp_path) -> None:
