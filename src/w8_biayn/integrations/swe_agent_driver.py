@@ -323,7 +323,7 @@ def run_swe_agent_and_extract(
         result = agent.run(
             problem_statement=config.problem_statement,
             env=env,
-            output_dir=str(work / "out"),
+            output_dir=work / "out",
         )
         exit_status = _run_exit_status(result)
         submission = _run_submission(result)
