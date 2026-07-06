@@ -253,6 +253,8 @@ def launch_glm47_full(options: LaunchOptions) -> int:
 
     apply_scoped_gcp_env(options.credentials)
 
+    _LAUNCH_EVENTS.clear()
+    _launch_event("launch_started", f"run_id={options.run_id} lane={options.lane} spot={options.use_spot}")
     cluster_acquired = False
     training_status = 1
     with log_path.open("a", encoding="utf-8") as log_file:
@@ -296,6 +298,7 @@ def launch_glm47_full(options: LaunchOptions) -> int:
                         local_cloud_root=local_cloud_root,
                     )
                     down_cluster(options.cluster_name)
+                    _launch_event("teardown_done", f"cluster={options.cluster_name}")
                 else:
                     print("No cluster was acquired; nothing to tear down.", flush=True)
                 _report_pipeline_outcome(options, wandb_api_key=wandb_api_key, status=training_status)
@@ -307,6 +310,34 @@ def launch_glm47_full(options: LaunchOptions) -> int:
             if comparison.exists():
                 print(f"comparison_json={comparison}")
     return training_status
+
+
+# Cloud-lifecycle debug trail for the pipeline run's launch_events table:
+# provisioning attempts, job ids, terminal states, teardown -- the SkyPilot
+# side of a run, queryable in W&B next to the training metrics.
+_LAUNCH_EVENTS: list[dict[str, Any]] = []
+
+
+def _launch_event(event: str, detail: str = "") -> None:
+    now = time.time()
+    _LAUNCH_EVENTS.append(
+        {
+            "unix": now,
+            "iso": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "event": event,
+            "detail": detail,
+        }
+    )
+    print(f"launch_event: {event} {detail}".rstrip(), flush=True)
+
+
+def _git_sha() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001 - provenance is best-effort
+        return ""
 
 
 def _report_pipeline_outcome(options: LaunchOptions, *, wandb_api_key: str, status: int) -> None:
@@ -341,6 +372,22 @@ def _report_pipeline_outcome(options: LaunchOptions, *, wandb_api_key: str, stat
         outcome = {0: "succeeded", 130: "interrupted"}.get(status, "failed")
         run.summary["pipeline/outcome"] = outcome
         run.summary["pipeline/exit_status"] = status
+        try:
+            run.config.update(
+                {
+                    "git_sha": _git_sha(),
+                    "skypilot_pin": SKYPILOT_PIN,
+                    "slime_pin": SLIME_PIN,
+                    "model_architecture": "GLM-4.7-Flash 30B-A3B MoE (64 experts, top-4)",
+                    "checkpoints_gcs": f"gs://{options.artifact_bucket}/runs/glm47/{options.run_id}"
+                    if options.artifact_bucket
+                    else "",
+                },
+                allow_val_change=True,
+            )
+        except Exception:  # pragma: no cover
+            pass
+        wandb_report.log_launch_events(run, _LAUNCH_EVENTS)
         if options.artifact_bucket:
             wandb_report.log_reference_artifact(
                 run,
@@ -381,6 +428,7 @@ def _acquire_and_run(
                 f"\n=== Provision attempt {attempt}: {options.accelerators} in {region} ===",
                 flush=True,
             )
+            _launch_event("attempt_started", f"attempt={attempt} region={region} accel={options.accelerators}")
             task = sky.Task(
                 name=f"glm47-cpp-full-{options.run_id}",
                 setup=setup_script,
@@ -449,12 +497,15 @@ def _acquire_and_run(
                 if job_id is None:
                     raise LaunchError("SkyPilot launch returned no job id; cannot track run completion.")
                 print(f"Job {job_id} submitted on {options.cluster_name}; waiting for terminal job state.", flush=True)
+                _launch_event("job_submitted", f"job={job_id} cluster={options.cluster_name} region={region}")
                 final_status = _wait_for_job_completion(sky, options.cluster_name, job_id)
+                _launch_event("job_terminal", f"job={job_id} status={final_status}")
                 if not final_status.endswith("SUCCEEDED"):
                     raise LaunchError(f"Remote GLM job {job_id} finished with status {final_status}.")
                 print(f"Completed remote GLM run on {options.cluster_name} in {region}", flush=True)
                 return True
             except KeyboardInterrupt:
+                _launch_event("interrupted", f"attempt={attempt}")
                 print("Interrupted during launch/run; checking for artifacts before teardown.", flush=True)
                 if _cluster_exists(sky, options.cluster_name):
                     download_artifacts(
@@ -466,6 +517,7 @@ def _acquire_and_run(
                     down_cluster(options.cluster_name)
                 raise
             except Exception as exc:  # noqa: BLE001 - retry capacity/provisioning failures.
+                _launch_event("attempt_failed", f"attempt={attempt} region={region} error={exc!r}"[:300])
                 print(f"Attempt failed in {region}: {exc!r}", flush=True)
                 if _cluster_exists(sky, options.cluster_name):
                     print(

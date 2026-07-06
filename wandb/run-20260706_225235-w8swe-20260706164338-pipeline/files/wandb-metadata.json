@@ -1,0 +1,52 @@
+{
+  "os":  "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+  "python":  "CPython 3.12.12",
+  "startedAt":  "2026-07-06T17:22:35.290989Z",
+  "args":  [
+    "launch",
+    "glm47-full",
+    "--run-id",
+    "w8swe-20260706164338",
+    "--lane",
+    "glm47_swe_agent_cpp_perf",
+    "--accelerators",
+    "A100-80GB:8",
+    "--use-spot",
+    "--region",
+    "asia-southeast1",
+    "--train-limit",
+    "8",
+    "--eval-limit",
+    "8",
+    "--grpo-num-rollout",
+    "1",
+    "--grpo-rollout-batch-size",
+    "2",
+    "--resume-from-run",
+    "w8swe-20260706124520",
+    "--max-attempts",
+    "12"
+  ],
+  "program":  "/home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime/.venv/bin/w8-biayn",
+  "codePath":  ".venv/bin/w8-biayn",
+  "codePathLocal":  ".venv/bin/w8-biayn",
+  "git":  {
+    "remote":  "git@github.com:sandys/browser-is-all-you-need.git",
+    "commit":  "090d3c4c8b613ed7ebc874ef97bf1fffa7c4c832"
+  },
+  "root":  "/home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime",
+  "host":  "VerdantBrink",
+  "executable":  "/home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime/.venv/bin/python3",
+  "cpu_count":  8,
+  "cpu_count_logical":  8,
+  "disk":  {
+    "/":  {
+      "total":  "1081101176832",
+      "used":  "321415417856"
+    }
+  },
+  "memory":  {
+    "total":  "16533966848"
+  },
+  "writerId":  "20jnh30x4kh9s6ekhmy5suemd8g7aeel"
+}

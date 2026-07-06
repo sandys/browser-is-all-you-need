@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from w8_biayn import wandb_report
 from w8_biayn.wandb_report import (
     RECORDS_TABLE_COLUMNS,
@@ -205,6 +207,78 @@ def test_alert_and_disabled_paths() -> None:
     assert alert(run, title="NaN kl", text="kl is nan", level="ERROR") is True
     assert run.alerts[0]["title"] == "NaN kl"
     assert alert(None, title="x", text="y") is False
+
+
+def test_dataset_info_config_and_rows() -> None:
+    manifest = {
+        "kind": "slime-cpp-perf-dataset",
+        "schema_version": 1,
+        "profile": "full-official",
+        "data_source": "pie",
+        "source_tasks_dir": "/data/tasks-full",
+        "eval_splits": ["validation", "test"],
+        "counts": {"train": 8, "eval": 8, "copied_tasks": 16},
+    }
+
+    config = wandb_report.dataset_config_from_manifest(manifest, gcs_prefix="gs://bucket/datasets/x")
+
+    assert config["dataset_train_tasks"] == 8
+    assert config["dataset_gcs_prefix"] == "gs://bucket/datasets/x"
+    assert config["dataset_eval_splits"] == "validation,test"
+
+    rows = wandb_report.dataset_rows_from_jsonl(
+        [{"prompt": "p" * 40, "metadata": {"task_id": "t1", "problem_id": "p1", "split": "train", "task_path": "tasks/t1.json"}}],
+        subset="train",
+    )
+    assert rows == [["t1", "p1", "train", "train", 40, "tasks/t1.json"]]
+
+    run = FakeRun()
+    run.config = type("C", (), {"update": staticmethod(lambda *a, **k: None)})()
+    out = wandb_report.log_dataset_info(run, manifest, task_rows=rows)
+    assert out["dataset_train_tasks"] == 8
+    assert run.summary["dataset/train_tasks"] == 8
+    assert wandb_report.log_dataset_info(None, manifest) == wandb_report.dataset_config_from_manifest(manifest)
+
+
+def test_vram_rows_parse_downsample_and_peak() -> None:
+    csv_text = "\n".join(
+        f"2026/07/06 18:00:{i:02d}.000, {i % 8}, NVIDIA A100-SXM4-80GB, {1000 + i * 10} MiB, 81920 MiB"
+        for i in range(60)
+    ) + "\nnot,a,valid,row\n"
+
+    rows, peak = wandb_report.vram_rows(csv_text, max_rows=10)
+
+    assert len(rows) == 10
+    assert peak == 1590.0
+    assert rows[0][1] == 0 and rows[0][2] == 1000.0 and rows[0][3] == 81920.0
+
+
+def test_launch_events_table() -> None:
+    events = [
+        {"unix": 100.0, "iso": "t0", "event": "launch_started", "detail": "run_id=r"},
+        {"unix": 190.5, "iso": "t1", "event": "job_submitted", "detail": "job=1"},
+    ]
+    # without wandb (dev venv) it degrades to 0; the row math is what matters
+    count = wandb_report.log_launch_events(FakeRun(), events)
+    if wandb_report.wandb is None:
+        assert count == 0
+    else:
+        assert count == 2
+    assert wandb_report.log_launch_events(None, events) == 0
+
+
+def test_rollout_health_token_capture_metrics() -> None:
+    flushed: list[dict] = []
+    health = RolloutHealth(window=3, log_fn=flushed.append)
+    health.add({"task_id": "a", "reward": 1.0, "trained_tokens": 800, "response_length": 900})
+    health.add({"task_id": "a", "reward": 0.5, "trained_tokens": 0, "response_length": 0})
+    metrics = health.add({"task_id": "b", "reward": 0.0, "abort_reason": "x", "trained_tokens": 0, "response_length": 0})
+
+    assert metrics is not None
+    assert metrics["rollout_health/trained_tokens_mean"] == pytest.approx(800 / 3)
+    assert metrics["rollout_health/zero_trained_tokens_rate"] == pytest.approx(2 / 3)
+    assert metrics["rollout_health/response_length_mean"] == pytest.approx(300.0)
+    assert metrics["rollout_health/response_length_max"] == 900.0
 
 
 def test_workspace_spec_pins_drill_path_sections() -> None:

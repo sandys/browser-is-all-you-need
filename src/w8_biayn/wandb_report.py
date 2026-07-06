@@ -439,6 +439,21 @@ class RolloutHealth:
             metrics[f"{HEALTH_PREFIX}/agent_steps_mean"] = _mean(steps)
         if wall_times:
             metrics[f"{HEALTH_PREFIX}/wall_time_mean_s"] = _mean(wall_times)
+        # Token-capture health: trained_tokens == sum(loss_mask) of the drained
+        # samples. Episodes at 0 contribute nothing to the gradient (the 0/0
+        # backward NaN); this is the live answer to "are we training on tokens".
+        trained = [_as_float(row.get("trained_tokens")) for row in rows]
+        trained = [value for value in trained if value is not None]
+        if trained:
+            metrics[f"{HEALTH_PREFIX}/trained_tokens_mean"] = _mean(trained)
+            metrics[f"{HEALTH_PREFIX}/zero_trained_tokens_rate"] = sum(
+                1 for value in trained if value == 0
+            ) / len(trained)
+        lengths = [_as_float(row.get("response_length")) for row in rows]
+        lengths = [value for value in lengths if value is not None]
+        if lengths:
+            metrics[f"{HEALTH_PREFIX}/response_length_mean"] = _mean(lengths)
+            metrics[f"{HEALTH_PREFIX}/response_length_max"] = max(lengths)
         for reason, count in sorted(Counter(str(row.get("abort_reason")) for row in aborted).items()):
             metrics[f"{HEALTH_PREFIX}/abort/{_safe_id(reason)}"] = count
 
@@ -488,6 +503,140 @@ def define_health_metrics() -> None:
         pass
 
 
+# ------------------------------------------------------------- debug detail tables
+
+DATASET_TABLE_COLUMNS = ("task_id", "problem_id", "split", "subset", "prompt_chars", "task_path")
+LAUNCH_EVENTS_COLUMNS = ("iso_time", "elapsed_s", "event", "detail")
+VRAM_TABLE_COLUMNS = ("timestamp", "gpu_index", "memory_used_mib", "memory_total_mib")
+
+
+def dataset_config_from_manifest(manifest: dict[str, Any], *, gcs_prefix: str = "") -> dict[str, Any]:
+    """Pure mapping: SLIME dataset manifest -> flat wandb.config keys."""
+
+    counts = manifest.get("counts") or {}
+    config: dict[str, Any] = {
+        "dataset_kind": manifest.get("kind"),
+        "dataset_schema_version": manifest.get("schema_version"),
+        "dataset_profile": manifest.get("profile"),
+        "dataset_source": manifest.get("data_source"),
+        "dataset_source_tasks_dir": manifest.get("source_tasks_dir"),
+        "dataset_train_tasks": counts.get("train"),
+        "dataset_eval_tasks": counts.get("eval"),
+        "dataset_copied_tasks": counts.get("copied_tasks"),
+        "dataset_eval_splits": ",".join(manifest.get("eval_splits") or []),
+    }
+    if gcs_prefix:
+        config["dataset_gcs_prefix"] = gcs_prefix
+    return {key: value for key, value in config.items() if value is not None}
+
+
+def dataset_rows_from_jsonl(rows: list[dict[str, Any]], *, subset: str, max_rows: int = 512) -> list[list[Any]]:
+    """Pure per-task rows for the dataset table from a built SLIME jsonl."""
+
+    table_rows: list[list[Any]] = []
+    for row in rows[:max_rows]:
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        table_rows.append(
+            [
+                metadata.get("task_id"),
+                metadata.get("problem_id"),
+                metadata.get("split"),
+                subset,
+                len(str(row.get("prompt") or "")),
+                metadata.get("task_path"),
+            ]
+        )
+    return table_rows
+
+
+def log_dataset_info(
+    run,
+    manifest: dict[str, Any],
+    *,
+    task_rows: list[list[Any]] | None = None,
+    gcs_prefix: str = "",
+) -> dict[str, Any]:
+    """Dataset composition -> config keys + one queryable per-task table."""
+
+    config = dataset_config_from_manifest(manifest, gcs_prefix=gcs_prefix)
+    if run is None:
+        return config
+    try:
+        run.config.update(config, allow_val_change=True)
+    except Exception:  # pragma: no cover
+        pass
+    if wandb is not None and task_rows:
+        run.log({"dataset/tasks": wandb.Table(columns=list(DATASET_TABLE_COLUMNS), data=task_rows)})
+    run.summary["dataset/train_tasks"] = config.get("dataset_train_tasks")
+    run.summary["dataset/eval_tasks"] = config.get("dataset_eval_tasks")
+    return config
+
+
+def log_launch_events(run, events: list[dict[str, Any]]) -> int:
+    """SkyPilot/cloud lifecycle (attempts, job ids, teardown) as one table."""
+
+    if run is None or wandb is None or not events:
+        return 0
+    first = float(events[0].get("unix") or 0.0)
+    rows = [
+        [
+            event.get("iso"),
+            round(float(event.get("unix") or first) - first, 1),
+            event.get("event"),
+            event.get("detail", ""),
+        ]
+        for event in events
+    ]
+    run.log({"pipeline/launch_events": wandb.Table(columns=list(LAUNCH_EVENTS_COLUMNS), data=rows)})
+    return len(rows)
+
+
+def vram_rows(csv_text: str, *, max_rows: int = 512) -> tuple[list[list[Any]], float]:
+    """Pure parse of the lane's nvidia-smi csv -> (table rows, peak MiB).
+
+    Input lines look like ``2026/07/06 18:00:01.000, 0, NVIDIA A100-SXM4-80GB,
+    61440 MiB, 81920 MiB`` (timestamp, index, name, memory.used, memory.total).
+    Rows are downsampled evenly to ``max_rows``.
+    """
+
+    parsed: list[list[Any]] = []
+    peak = 0.0
+    for line in csv_text.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 5 or parts[1] and not parts[1].isdigit():
+            continue
+        used = _as_float(parts[3].split()[0] if parts[3] else None)
+        total = _as_float(parts[4].split()[0] if parts[4] else None)
+        if used is None:
+            continue
+        peak = max(peak, used)
+        parsed.append([parts[0], int(parts[1]), used, total])
+    if len(parsed) > max_rows:
+        step = len(parsed) / max_rows
+        parsed = [parsed[int(i * step)] for i in range(max_rows)]
+    return parsed, peak
+
+
+def log_vram_table(run, csv_path: str | Path, *, stage: str) -> float:
+    """Per-stage GPU memory trace -> table + peak summary metric."""
+
+    path = Path(csv_path)
+    if not path.exists():
+        return 0.0
+    rows, peak = vram_rows(path.read_text(encoding="utf-8", errors="replace"))
+    if run is None:
+        return peak
+    if wandb is not None and rows:
+        run.log(
+            {
+                f"vram/{_safe_id(stage)}_usage": wandb.Table(columns=list(VRAM_TABLE_COLUMNS), data=rows),
+                f"vram/{_safe_id(stage)}_peak_mib": peak,
+            }
+        )
+    run.summary[f"vram/{_safe_id(stage)}_peak_mib"] = peak
+    return peak
+
+
 # ----------------------------------------------------------------------- workspace
 
 # NOTE: wandb-workspaces' name validator ("no emoji") rejects "C++".
@@ -534,6 +683,16 @@ WORKSPACE_SECTIONS: tuple[dict[str, Any], ...] = (
                 "title": "Agent steps / episode wall time",
                 "x": f"{HEALTH_PREFIX}/step",
                 "y": [f"{HEALTH_PREFIX}/agent_steps_mean", f"{HEALTH_PREFIX}/wall_time_mean_s"],
+            },
+            {
+                "title": "Token capture (trained tokens per episode)",
+                "x": f"{HEALTH_PREFIX}/step",
+                "y": [f"{HEALTH_PREFIX}/trained_tokens_mean", f"{HEALTH_PREFIX}/zero_trained_tokens_rate"],
+            },
+            {
+                "title": "Response length (captured)",
+                "x": f"{HEALTH_PREFIX}/step",
+                "y": [f"{HEALTH_PREFIX}/response_length_mean", f"{HEALTH_PREFIX}/response_length_max"],
             },
         ],
     },

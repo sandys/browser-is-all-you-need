@@ -129,6 +129,8 @@ def test_generate_runs_agent_grades_file_and_flows_reward(monkeypatch, tmp_path)
     assert row["task_id"] == "pie_cpp_000001"
     assert row["all_tests_pass"] is True and row["reward"] > 1.0
     assert row["agent_steps"] == 4 and row["wall_time_s"] >= 0.0
+    # token-capture ground truth drained from the samples (fake has none -> 0)
+    assert row["trained_tokens"] == 0 and row["response_length"] == 0
 
     # rollout sampling params (not SWE-agent's greedy defaults) reach the driver
     assert driver_calls["temperature"] == 0.8

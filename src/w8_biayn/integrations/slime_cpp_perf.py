@@ -531,6 +531,58 @@ def _publish_eval_to_wandb(
         wandb_report.finish_run(run)
 
 
+def _publish_dataset_command(args: argparse.Namespace) -> None:
+    """Publish dataset composition (config + per-task table) to the pipeline run."""
+
+    manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+    task_rows: list[list[Any]] = []
+    data_dir = Path(args.manifest).parent
+    for subset, rel in (("train", "grpo/train.jsonl"), ("eval", "eval/validation.jsonl")):
+        path = data_dir / rel
+        if path.exists():
+            task_rows.extend(wandb_report.dataset_rows_from_jsonl(read_jsonl(path), subset=subset))
+    run_id = getattr(args, "run_id", "") or ""
+    run = None
+    if run_id:
+        run = wandb_report.init_run(
+            run_id=run_id,
+            stage="pipeline",
+            job_type="pipeline",
+            project=getattr(args, "wandb_project", None),
+            group=getattr(args, "wandb_group", None),
+        )
+    try:
+        config = wandb_report.log_dataset_info(
+            run, manifest, task_rows=task_rows, gcs_prefix=getattr(args, "gcs_prefix", "") or ""
+        )
+        if run is not None:
+            wandb_report.log_artifact(run, args.manifest, name=f"{run_id}-dataset-manifest", artifact_type="dataset")
+    finally:
+        wandb_report.finish_run(run)
+    print(json.dumps({"tasks_logged": len(task_rows), **config}, indent=2, sort_keys=True, default=str))
+
+
+def _publish_vram_command(args: argparse.Namespace) -> None:
+    """Publish a stage's GPU-memory trace (table + peak) onto that stage's run."""
+
+    run_id = getattr(args, "run_id", "") or ""
+    stage = getattr(args, "stage", "") or ""
+    run = None
+    if run_id and stage:
+        run = wandb_report.init_run(
+            run_id=run_id,
+            stage=stage,
+            job_type="eval" if "eval" in stage else "train",
+            project=getattr(args, "wandb_project", None),
+            group=getattr(args, "wandb_group", None),
+        )
+    try:
+        peak = wandb_report.log_vram_table(run, args.csv, stage=stage or "stage")
+    finally:
+        wandb_report.finish_run(run)
+    print(json.dumps({"stage": stage, "vram_peak_mib": peak}))
+
+
 def _compare_command(args: argparse.Namespace) -> None:
     path = write_comparison_artifact(args.summary, args.out)
     run_id = getattr(args, "run_id", "") or ""
@@ -581,6 +633,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     compare.add_argument("--out", required=True)
     _add_wandb_args(compare, stage_default="pipeline")
     compare.set_defaults(func=_compare_command)
+
+    publish_dataset = subparsers.add_parser(
+        "publish-dataset", help="Publish dataset composition (config + per-task table) to W&B"
+    )
+    publish_dataset.add_argument("--manifest", required=True)
+    publish_dataset.add_argument("--gcs-prefix", default="")
+    _add_wandb_args(publish_dataset, stage_default="pipeline")
+    publish_dataset.set_defaults(func=_publish_dataset_command)
+
+    publish_vram = subparsers.add_parser("publish-vram", help="Publish a stage's GPU memory trace to W&B")
+    publish_vram.add_argument("--csv", required=True)
+    _add_wandb_args(publish_vram, stage_default="")
+    publish_vram.set_defaults(func=_publish_vram_command)
     return parser
 
 

@@ -375,6 +375,21 @@ def test_launcher_reports_pipeline_outcome_to_wandb() -> None:
     assert 'run.summary["pipeline/outcome"]' in text
     assert '("wandb_api_key", "hf_token")' in text  # secrets never reach wandb.config
     assert "--event pipeline_complete --finalize" in text
+    # cloud-lifecycle debug trail: attempts/job ids/teardown as a W&B table,
+    # plus provenance config (git sha, pins, checkpoint GCS link).
+    for event in ("launch_started", "attempt_started", "job_submitted", "job_terminal", "attempt_failed", "teardown_done"):
+        assert f'_launch_event("{event}"' in text
+    assert "log_launch_events(run, _LAUNCH_EVENTS)" in text
+    assert '"git_sha": _git_sha()' in text
+    assert '"skypilot_pin": SKYPILOT_PIN' in text
+
+
+def test_lanes_publish_dataset_and_vram_tables() -> None:
+    agentic = ROOT / "examples/slime/glm47_swe_agent_cpp_perf/glm47_swe_agent_cpp_perf.sh"
+    for runner in (RUNNER, agentic):
+        text = runner.read_text(encoding="utf-8")
+        assert "publish-dataset" in text and '--manifest "${DATA_DIR}/manifest.json"' in text
+        assert "publish-vram" in text and '--csv "${VRAM_LOG}"' in text
 
 
 def test_cli_wandb_workspace_dry_run_prints_spec(tmp_path) -> None:

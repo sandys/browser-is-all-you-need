@@ -169,6 +169,8 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
                 "reward": 0.0,
                 "abort_reason": reason,
                 "wall_time_s": time.monotonic() - started,
+                "trained_tokens": 0,
+                "response_length": 0,
             },
         )
         return _abort_result(base_sample, reason, error=error)
@@ -229,6 +231,9 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
                 "timeout": bool(harness.timeout),
                 "agent_steps": extract.steps,
                 "wall_time_s": time.monotonic() - started,
+                # token-capture ground truth straight from the drained samples
+                "trained_tokens": sum(int(sum(getattr(s, "loss_mask", None) or [])) for s in samples),
+                "response_length": max(int(getattr(s, "response_length", 0) or 0) for s in samples),
             },
         )
         for sample in samples:

@@ -459,6 +459,10 @@ the group). Each kind of data has one home, following the drill path
 | Distributions (reward, speedup, agent steps) | `wandb.Histogram` panels |
 | Eval outcomes per stage | `eval/*` on the stage's own run (same keys across base/sft/grpo → one overlay panel) + per-task `wandb.Table` + `eval/abort/<reason>` counts, from the offline scorer |
 | Uplift verdict | comparison `wandb.Table` + `uplift/*` summary on `<run-id>-pipeline` |
+| Token capture (trained tokens/episode, zero-trained-token rate, captured response length) | `rollout_health/trained_tokens_*` — drained directly from the samples in the generate hook |
+| Dataset composition (per-task table, counts, gates, GCS link) | `dataset/tasks` table + `dataset_*` config on the pipeline run (`publish-dataset` after prepare-data) |
+| Cloud lifecycle (provision attempts, job ids, terminal states, teardown) | `pipeline/launch_events` table + provenance config (git SHA, pins, checkpoint GCS link) |
+| GPU memory per stage | `vram/<stage>_usage` table + peak summary (`publish-vram` from each stage's nvidia-smi trace) |
 | Setup timeline | `pipeline/elapsed_seconds` curve + one `pipeline/timeline` table (never raw unix scalars) |
 | Launch knobs / outcome / lineage | `wandb.config` (redacted `LaunchOptions`), `pipeline/outcome` summary, GCS checkpoint reference artifact |
 | Catastrophes | `wandb.alert`: all-abort evals, >30% abort rate with top reason, failed/interrupted launches |

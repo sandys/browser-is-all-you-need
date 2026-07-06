@@ -1142,6 +1142,16 @@ wandb_dir=${WANDB_DIR:-}
 rollout_dump_template=${ROLLOUT_DUMP_TEMPLATE}
 eval_dump_path=${EVAL_DUMP_PATH}
 EOF
+  # Debug detail to W&B: the stage's GPU-memory trace as a queryable table +
+  # peak summary on the stage's own run. Best-effort; the receipt stays truth.
+  if [ -f "${VRAM_LOG}" ]; then
+    run_repo_python -m w8_biayn.integrations.slime_cpp_perf publish-vram \
+      --csv "${VRAM_LOG}" \
+      --run-id "${RUN_ID}" \
+      --stage "${STAGE}" \
+      --wandb-project "${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}" \
+      --wandb-group "${SLIME_WANDB_GROUP:-${RUN_ID}}" || true
+  fi
 }
 
 aggregate_eval() {
@@ -1353,6 +1363,15 @@ submit_slime_job() {
 case "${STAGE}" in
   prepare-data)
     prepare_data
+    # Publish dataset composition (config keys + per-task table + manifest
+    # artifact) onto the <run-id>-pipeline W&B run. Best-effort.
+    if [ -f "${DATA_DIR}/manifest.json" ]; then
+      run_repo_python -m w8_biayn.integrations.slime_cpp_perf publish-dataset \
+        --manifest "${DATA_DIR}/manifest.json" \
+        --run-id "${RUN_ID}" \
+        --wandb-project "${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}" \
+        --wandb-group "${SLIME_WANDB_GROUP:-${RUN_ID}}" || true
+    fi
     ;;
   compare)
     compare_eval
