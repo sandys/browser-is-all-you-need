@@ -290,7 +290,8 @@ summaries for evidence. The paid GCP GLM full launch is
 Keep it a provisioning wrapper around the repo-owned GLM SLIME lane, with
 dry-run rendering, scoped secrets, downloaded local artifacts, labels, spot
 support via `--use-spot`, and automatic teardown. The W&B key resolves from
-`--wandb-api-key-file`, `WANDB_API_KEY`, or a `WANDB_KEY` entry in `.env`.
+`--wandb-api-key-file`, `WANDB_API_KEY`, or a `WANDB_KEY` entry in `.env`
+(`.env.sample` documents the only key read from `.env`).
 
 The launch restores `tasks-full` from a project-scoped, gate-keyed GCS cache
 (`gs://<project>-w8-biayn/cache/<version>/tasks-full/mintrain..-minval..-mintest..`)

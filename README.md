@@ -378,7 +378,9 @@ preemptible GPU quota; `--accelerators A100-80GB:8` is the drop-in
 80GB-class alternative), runs base eval, SFT, SFT eval, GRPO, GRPO eval, and
 compare, copies W&B/local artifacts under `.w8-biayn/slime/glm47-cpp-perf/`,
 and tears the provisioned node down. The W&B key resolves from
-`--wandb-api-key-file`, `WANDB_API_KEY`, or a `WANDB_KEY` entry in `.env`.
+`--wandb-api-key-file`, `WANDB_API_KEY`, or a `WANDB_KEY` entry in `.env`
+(copy `.env.sample` — it documents the only key the tooling reads from
+`.env`; GCP credentials live in `.gcp-service-account.json`, not `.env`).
 Cloud hardware is managed by SkyPilot behind the CLI (pinned via the `cloud`
 extra; see `w8_biayn.constants.SKYPILOT_PIN`), the training itself is pure
 SLIME inside the lane container, and the launch tracks the submitted job to a
