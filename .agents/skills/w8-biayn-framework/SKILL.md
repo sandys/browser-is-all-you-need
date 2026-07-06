@@ -71,6 +71,10 @@ upstream repos or data.
 - Eval aggregation: `src/w8_biayn/cpp_perf/eval.py`
 - SLIME setup/doctor/sandbox helpers: `src/w8_biayn/slime_integration/`
 - SLIME C++ bridge: `src/w8_biayn/integrations/slime_cpp_perf.py`
+- W&B reporting layer (metrics/tables/artifacts/alerts/workspace):
+  `src/w8_biayn/wandb_report.py`
+- Pipeline milestone logger (standalone, host+container):
+  `scripts/wandb_milestone.py`
 - SLIME train entry wrapper:
   `src/w8_biayn/integrations/slime_train_entry.py`
 - Moonlight HF export shim:

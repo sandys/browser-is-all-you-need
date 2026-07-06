@@ -220,9 +220,22 @@ bash examples/slime/glm47_swe_agent_cpp_perf/eval_grpo.sh
 bash examples/slime/glm47_swe_agent_cpp_perf/compare.sh
 ```
 
-Use W&B when configured by the lane; otherwise rely on local receipts,
-`run.log`, `run_receipt.txt`, `vram_usage.csv`, `vram_peak.txt`, debug rollout
-dumps, and eval summaries under `.w8-biayn/slime/...`. The paid GCP GLM full
+W&B is the primary observability surface; local receipts (`run.log`,
+`run_receipt.txt`, `vram_usage.csv`, `vram_peak.txt`, debug rollout dumps, eval
+summaries under `.w8-biayn/slime/...`) remain the on-disk source of truth. The
+contract lives in `src/w8_biayn/wandb_report.py` and the README Observability
+section: one launch = one group (= run id) with deterministic per-stage run
+ids/names; SLIME logs `train/*`/`rollout/*` natively; the agentic generate hook
+logs live `rollout_health/*` (abort reasons, zero-variance group fraction,
+correctness-gate rates) into the same stage run; the offline scorer publishes
+`eval/*` + per-task tables onto the stage's own run; uplift and launch outcome
+land on `<run-id>-pipeline`; failures fire `wandb.alert`. Push the curated
+saved view with `uv run --extra cloud w8-biayn wandb workspace`. GRPO group
+size must stay >= 2 (`--grpo-n-samples-per-prompt`, default 8; a group of one
+zeroes every group-relative advantage), with the global batch derived as
+rollout_batch_size * n_samples_per_prompt unless explicitly overridden.
+
+The paid GCP GLM full
 launch is `uv run --extra cloud w8-biayn launch glm47-full` (implementation
 `src/w8_biayn/cloud_launch.py`; the old
 `examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py` is a thin shim). Keep
@@ -265,8 +278,14 @@ that hardware. Any cloud helper must:
 - avoid printing credential contents;
 - pin the SkyPilot client version it invokes and treat `sky.launch` as
   submission-only, waiting for a terminal job state before any teardown;
+- arm a cluster-side autostop-down (`idle_minutes_to_autostop` with
+  `down=True`) so a killed launcher process cannot orphan a paid box; the
+  manual reaper `w8-biayn ops down-run <run-id> --execute` stays the last
+  resort;
 - label paid resources with project, phase, pipeline, run id, owner, and TTL
-  when resources are created.
+  when resources are created;
+- stamp the launch outcome, redacted config, and a GCS checkpoint reference
+  artifact on the `<run-id>-pipeline` W&B run, and alert on failure.
 
 Do not infer paid-resource count from local SkyPilot executor processes. Use
 explicit provider/status commands for actual resource accounting.
@@ -276,6 +295,7 @@ explicit provider/status commands for actual resource accounting.
 ```text
 scripts/bootstrap.sh                         fresh-machine bootstrap
 scripts/prepare_dapo_math_dataset.py         optional SLIME text-smoke data prep
+scripts/wandb_milestone.py                   standalone pipeline-milestone logger (elapsed curve + timeline table)
 examples/slime/moonlight_cpp_perf/           active Moonlight C++ lane
 examples/slime/moonlight_lora_cpp_perf/      rank-16 LoRA Moonlight C++ lane
 examples/slime/glm47_cpp_perf/               active GLM C++ lane when present
@@ -285,6 +305,7 @@ examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
 examples/slime/multi_agent/                  generic text-only SLIME smoke
 src/local.py                                 Moonlight Megatron local-layer shim
 src/w8_biayn/cloud_launch.py                 SkyPilot-backed paid GLM launch (w8-biayn launch glm47-full)
+src/w8_biayn/wandb_report.py                 W&B data->surface contract (eval/health metrics, tables, artifacts, alerts, workspace template)
 src/w8_biayn/cpp_perf/                       PIE task, prompt, sandbox, reward, eval code
 src/w8_biayn/slime_integration/              SLIME doctor/setup/sandbox helpers
 src/w8_biayn/integrations/slime_cpp_perf.py  SLIME C++ data/reward/eval bridge

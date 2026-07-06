@@ -557,9 +557,11 @@ Formal uplift requires GRPO to beat base and SFT on
 ```text
 scripts/bootstrap.sh                         fresh-machine bootstrap
 scripts/prepare_dapo_math_dataset.py         optional SLIME text-smoke data prep
+scripts/wandb_milestone.py                   standalone pipeline-milestone logger (elapsed curve + timeline table)
 examples/slime/moonlight_cpp_perf/           active Moonlight C++ lane
 examples/slime/moonlight_lora_cpp_perf/      rank-16 LoRA Moonlight C++ lane
 examples/slime/glm47_cpp_perf/               active GLM C++ lane when present
+examples/slime/glm47_swe_agent_cpp_perf/     agentic SWE-agent file-state C++ lane
 examples/slime/cpp_perf/                     single-launcher Moonlight C++ RL profile
 examples/slime/retool/                       Moonlight ReTool lane
 examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
@@ -578,6 +580,10 @@ src/w8_biayn/cpp_perf/judge.py               contest-style stdout comparison
 src/w8_biayn/cpp_perf/sandbox.py             Docker compile/test/runtime harness
 src/w8_biayn/cpp_perf/reward.py              correctness-gated efficiency reward
 src/w8_biayn/integrations/slime_cpp_perf.py  SLIME C++ data/reward/eval bridge
+src/w8_biayn/integrations/slime_swe_agent_cpp_perf.py
+                                             agentic SWE-agent generate() hook (file-state reward + rollout health)
+src/w8_biayn/integrations/swe_agent_driver.py
+                                             single-instance SWE-agent run + candidate.cpp extraction
 src/w8_biayn/integrations/slime_train_entry.py
                                              repo-owned SLIME train entry wrapper
 src/w8_biayn/integrations/slime_moonlight_hf_export.py
@@ -586,6 +592,7 @@ src/w8_biayn/slime_integration/doctor.py     pinned SLIME clone doctor
 src/w8_biayn/slime_integration/setup.py      SLIME container launcher/bootstrap writer
 src/w8_biayn/slime_integration/sandbox.py    SLIME agent sandbox backends
 src/w8_biayn/slime_integration/lora.py       runtime-native LoRA flag resolution
+src/w8_biayn/wandb_report.py                 W&B data->surface contract (eval/health metrics, tables, artifacts, alerts, workspace template)
 src/w8_biayn/reporting.py                    raw Markdown/CSV/SVG run evidence reports
 src/w8_biayn/shell.py                        dry-run-aware subprocess wrapper
 src/w8_biayn/gcp_auth.py                     scoped GCP auth
