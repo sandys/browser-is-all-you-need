@@ -227,6 +227,57 @@ def test_build_run_config_sets_endpoint_cost_limits_and_repo():
     assert merged["extra"] == 1  # untouched base keys survive
 
 
+def test_swerex_upload_patch_and_abort_error_detail(monkeypatch, tmp_path):
+    # SWE-agent uploads tool bundles to the FIXED /root/tools/{bundle} and the
+    # repo to /{name} via swerex LocalRuntime.upload = bare shutil.copytree ->
+    # FileExistsError for every episode after the first on a shared local FS.
+    # The driver patches upload to be idempotent; the patched copy must succeed
+    # when the target already exists.
+    import sys
+    import types
+
+    swerex_local = types.ModuleType("swerex.runtime.local")
+
+    class UploadResponse:  # noqa: D401 - stand-in for the swerex response type
+        pass
+
+    class LocalRuntime:
+        async def upload(self, request):  # pragma: no cover - replaced by the patch
+            raise AssertionError("unpatched")
+
+    swerex_local.UploadResponse = UploadResponse
+    swerex_local.LocalRuntime = LocalRuntime
+    swerex_pkg = types.ModuleType("swerex")
+    swerex_runtime = types.ModuleType("swerex.runtime")
+    monkeypatch.setitem(sys.modules, "swerex", swerex_pkg)
+    monkeypatch.setitem(sys.modules, "swerex.runtime", swerex_runtime)
+    monkeypatch.setitem(sys.modules, "swerex.runtime.local", swerex_local)
+    monkeypatch.setattr(swe_agent_driver, "_SWEREX_UPLOAD_PATCHED", False)
+
+    swe_agent_driver._patch_swerex_local_upload()
+
+    source = tmp_path / "bundle"
+    source.mkdir()
+    (source / "tool.sh").write_text("echo hi\n", encoding="utf-8")
+    target = tmp_path / "root-tools" / "bundle"
+    request = SimpleNamespace(source_path=str(source), target_path=str(target))
+    runtime = LocalRuntime()
+    asyncio.run(runtime.upload(request))
+    asyncio.run(runtime.upload(request))  # second episode: must NOT raise
+    assert (target / "tool.sh").exists()
+
+    # abort husks now carry the exception MESSAGE, not just the type name
+    sample = SimpleNamespace(metadata={})
+    gen._abort_result(sample, "exception:FileExistsError", error="[Errno 17] File exists: '/root/tools/x'" * 40)
+    assert sample.metadata["abort_reason"] == "exception:FileExistsError"
+    assert sample.metadata["abort_error"].startswith("[Errno 17] File exists")
+    assert len(sample.metadata["abort_error"]) <= 500
+    record = slime_cpp_perf.record_from_debug_sample(
+        {"index": 0, "response": "", "reward": 0.0, "metadata": dict(sample.metadata, task_id="t")}, label="grpo"
+    )
+    assert record["abort_error"].startswith("[Errno 17]")
+
+
 def test_repo_basename_is_unique_per_attempt_and_cleaned_up():
     # swerex's local upload is shutil.copytree WITHOUT dirs_exist_ok onto the
     # long-lived container root FS; deterministic sid-only basenames collided

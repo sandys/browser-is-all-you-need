@@ -161,7 +161,7 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
     metadata = _sample_metadata(base_sample)
     started = time.monotonic()
 
-    def _abort(reason: str, *, task_id: Any = None) -> list[Any]:
+    def _abort(reason: str, *, task_id: Any = None, error: str = "") -> list[Any]:
         _health_add(
             state,
             {
@@ -171,7 +171,7 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
                 "wall_time_s": time.monotonic() - started,
             },
         )
-        return _abort_result(base_sample, reason)
+        return _abort_result(base_sample, reason, error=error)
 
     task_path = metadata.get("task_path")
     if not task_path:
@@ -244,7 +244,7 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
     except asyncio.TimeoutError:
         return _abort("wall_clock_timeout", task_id=task.task_id)
     except Exception as exc:  # pragma: no cover - guards real rollout workers
-        return _abort(f"exception:{type(exc).__name__}", task_id=task.task_id)
+        return _abort(f"exception:{type(exc).__name__}", task_id=task.task_id, error=str(exc))
     finally:
         await _drop_session_quietly(state, sid)
 
@@ -285,8 +285,13 @@ def _aborted_status() -> Any:
         return "aborted"
 
 
-def _abort_result(sample: Any, reason: str) -> list[Any]:
-    """Mark ``sample`` aborted in place and return it in the fan-out list shape."""
+def _abort_result(sample: Any, reason: str, *, error: str = "") -> list[Any]:
+    """Mark ``sample`` aborted in place and return it in the fan-out list shape.
+
+    ``error`` carries the exception MESSAGE (path, errno, ...) into metadata:
+    the reason alone ("exception:FileExistsError") once cost a full paid smoke
+    because the colliding path was invisible everywhere.
+    """
 
     sample.tokens = [0, 0]
     sample.response = ""
@@ -297,4 +302,6 @@ def _abort_result(sample: Any, reason: str) -> list[Any]:
     sample.remove_sample = True
     sample.status = _aborted_status()
     sample.metadata = {**(getattr(sample, "metadata", None) or {}), "abort_reason": reason}
+    if error:
+        sample.metadata["abort_error"] = error[:500]
     return [sample]

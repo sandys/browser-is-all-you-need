@@ -321,6 +321,42 @@ def _run_steps(result: Any) -> int:
     return 0
 
 
+_SWEREX_UPLOAD_PATCHED = False
+
+
+def _patch_swerex_local_upload() -> None:
+    """Make swerex's local-runtime upload idempotent (``dirs_exist_ok``).
+
+    SWE-agent uploads its tool bundles to the FIXED path
+    ``/root/tools/{bundle}`` (sweagent tools/tools.py ``_upload_bundles``) and
+    the repo to ``/{repo_name}`` through ``LocalRuntime.upload``, which is a
+    bare ``shutil.copytree`` (swerex runtime/local.py) -- it raises
+    FileExistsError for every episode after the first one sharing this node's
+    filesystem. That was the 15/18 eval + 16/16 GRPO abort storm: episodes died
+    at tool install before their first model call. Overwrite semantics are safe
+    here: bundle contents are identical across episodes and repo targets are
+    unique per attempt. Vendored-surface shim -- re-check on swe-rex pin bumps.
+    """
+
+    global _SWEREX_UPLOAD_PATCHED
+    if _SWEREX_UPLOAD_PATCHED:
+        return
+    from swerex.runtime import local as swerex_local  # type: ignore
+
+    async def upload(self, request):  # type: ignore[no-untyped-def]
+        source = Path(request.source_path)
+        target = Path(request.target_path)
+        if source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(source, target)
+        return swerex_local.UploadResponse()
+
+    swerex_local.LocalRuntime.upload = upload
+    _SWEREX_UPLOAD_PATCHED = True
+
+
 def run_swe_agent_and_extract(
     task: Any,
     v0_code: str,
@@ -347,6 +383,7 @@ def run_swe_agent_and_extract(
     from sweagent.environment.swe_env import SWEEnv  # type: ignore
     from sweagent.run.run_single import RunSingleConfig  # type: ignore
 
+    _patch_swerex_local_upload()
     work = Path(work_root)
     repo = _materialize_repo(work / _unique_repo_name(sid), v0_code, task=task)
     base = _load_base_config()

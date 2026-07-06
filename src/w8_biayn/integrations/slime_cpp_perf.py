@@ -394,7 +394,7 @@ def record_from_debug_sample(sample: dict[str, Any], *, label: str | None = None
     # Agentic diagnostics live on sample metadata, not the reward record --
     # aborted rollouts never reach the grader, so abort_reason is the ONLY
     # signal of what happened and must survive into eval records / W&B tables.
-    for key in ("abort_reason", "agent_steps", "swe_exit_status", "round_number"):
+    for key in ("abort_reason", "abort_error", "agent_steps", "swe_exit_status", "round_number"):
         value = _sample_metadata(sample).get(key)
         if value is not None:
             record.setdefault(key, value)
