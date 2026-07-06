@@ -106,6 +106,8 @@ app.add_typer(ops_app, name="ops")
 app.add_typer(eval_app, name="eval")
 launch_app = typer.Typer(help="Provision GCP GPU hardware and run full SLIME lanes.")
 app.add_typer(launch_app, name="launch")
+wandb_app = typer.Typer(help="Manage the W&B observability surface (workspace template).")
+app.add_typer(wandb_app, name="wandb")
 console = Console()
 
 LEGACY_SKYRL_MESSAGE = (
@@ -2418,6 +2420,32 @@ def _render_options(
         eval_max_tasks=eval_max_tasks,
         allow_low_multinode_utilization=allow_low_multinode_utilization,
     )
+
+
+@wandb_app.command("workspace")
+def wandb_workspace_command(
+    project: str = typer.Option("slime-glm47-cpp-perf", help="W&B project to attach the saved view to."),
+    entity: str = typer.Option("", help="W&B entity; defaults to the logged-in default entity."),
+    dry_run: bool = typer.Option(False, help="Print the workspace layout spec without pushing."),
+) -> None:
+    """Push the curated observability workspace (saved view) to W&B.
+
+    The default auto-workspace is an unordered dump of every metric; this
+    template pins the drill-path sections: Uplift & Eval Comparison, Rollout
+    Health (live), Training Dynamics, and Pipeline.
+    """
+
+    from .wandb_report import build_workspace_spec, push_workspace
+
+    if dry_run:
+        console.print_json(json.dumps(build_workspace_spec(project=project, entity=entity)))
+        return
+    try:
+        url = push_workspace(project=project, entity=entity)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+    console.print(f"workspace saved: {url}")
 
 
 @launch_app.command("glm47-full")

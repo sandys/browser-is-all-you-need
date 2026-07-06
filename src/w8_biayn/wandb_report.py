@@ -486,6 +486,128 @@ def define_health_metrics() -> None:
         pass
 
 
+# ----------------------------------------------------------------------- workspace
+
+# NOTE: wandb-workspaces' name validator ("no emoji") rejects "C++".
+WORKSPACE_NAME = "w8-biayn cpp RL observability"
+
+#: Curated saved-view layout: the default W&B workspace is an unordered dump of
+#: every metric key; this template puts the drill-path panels where people look.
+#: Panels referencing keys a run has not logged simply render empty.
+WORKSPACE_SECTIONS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "Uplift & Eval Comparison",
+        "panels": [
+            {"title": "Held-out pass rate (base vs sft vs grpo)", "x": None, "y": ["eval/pass_rate"]},
+            {"title": "Correct+faster rate", "x": None, "y": ["eval/correct_and_faster_rate"]},
+            {"title": "Mean winner speedup", "x": None, "y": ["eval/mean_correct_faster_speedup"]},
+            {"title": "Eval abort rate", "x": None, "y": ["eval/abort_rate"]},
+        ],
+    },
+    {
+        "name": "Rollout Health (live)",
+        "panels": [
+            {
+                "title": "Zero-variance group fraction (GRPO heartbeat)",
+                "x": f"{HEALTH_PREFIX}/step",
+                "y": [f"{HEALTH_PREFIX}/zero_variance_group_fraction"],
+            },
+            {"title": "Abort rate", "x": f"{HEALTH_PREFIX}/step", "y": [f"{HEALTH_PREFIX}/abort_rate"]},
+            {
+                "title": "Reward mean / std",
+                "x": f"{HEALTH_PREFIX}/step",
+                "y": [f"{HEALTH_PREFIX}/reward_mean", f"{HEALTH_PREFIX}/reward_std"],
+            },
+            {
+                "title": "Correctness gates",
+                "x": f"{HEALTH_PREFIX}/step",
+                "y": [
+                    f"{HEALTH_PREFIX}/format_valid_rate",
+                    f"{HEALTH_PREFIX}/all_tests_pass_rate",
+                    f"{HEALTH_PREFIX}/compile_error_rate",
+                    f"{HEALTH_PREFIX}/timeout_rate",
+                ],
+            },
+            {
+                "title": "Agent steps / episode wall time",
+                "x": f"{HEALTH_PREFIX}/step",
+                "y": [f"{HEALTH_PREFIX}/agent_steps_mean", f"{HEALTH_PREFIX}/wall_time_mean_s"],
+            },
+        ],
+    },
+    {
+        "name": "Training Dynamics",
+        "panels": [
+            {"title": "KL (NaN watch)", "x": "train/step", "y": ["train/ppo_kl", "train/kl_loss"]},
+            {"title": "Clip fraction", "x": "train/step", "y": ["train/pg_clipfrac"]},
+            {"title": "Grad norm", "x": "train/step", "y": ["train/grad_norm"]},
+            {
+                "title": "Rollout vs train logprob drift (engine mismatch)",
+                "x": "train/step",
+                "y": ["train/train_rollout_logprob_abs_diff"],
+            },
+            {"title": "Rollout reward", "x": "rollout/step", "y": ["rollout/rewards"]},
+            {"title": "Response length", "x": "rollout/step", "y": ["rollout/response_length"]},
+            {
+                "title": "Pass@k buckets",
+                "x": "rollout/step",
+                "y": ["passrate/pass@1", "passrate/pass@2", "passrate/pass@4", "passrate/pass@8"],
+            },
+        ],
+    },
+    {
+        "name": "Pipeline",
+        "panels": [
+            {"title": "Launch progress (elapsed seconds)", "x": "pipeline/step", "y": ["pipeline/elapsed_seconds"]},
+        ],
+    },
+)
+
+
+def build_workspace_spec(*, project: str, entity: str = "") -> dict[str, Any]:
+    """Pure workspace layout spec (unit-testable without wandb-workspaces)."""
+
+    return {
+        "project": project,
+        "entity": entity,
+        "name": WORKSPACE_NAME,
+        "sections": [
+            {"name": section["name"], "panels": [dict(panel) for panel in section["panels"]]}
+            for section in WORKSPACE_SECTIONS
+        ],
+    }
+
+
+def push_workspace(*, project: str, entity: str = "") -> str:
+    """Create/update the curated saved view on W&B; returns its URL."""
+
+    spec = build_workspace_spec(project=project, entity=entity)
+    try:
+        import wandb_workspaces.reports.v2 as wr
+        import wandb_workspaces.workspaces as ws
+    except ImportError as exc:  # pragma: no cover - depends on the cloud extra
+        raise RuntimeError(
+            "wandb-workspaces is required for `w8-biayn wandb workspace`; "
+            "run through the cloud extra: uv run --extra cloud w8-biayn wandb workspace"
+        ) from exc
+    if not entity:
+        import wandb
+
+        entity = wandb.Api().default_entity
+    sections = []
+    for section in spec["sections"]:
+        panels = []
+        for panel in section["panels"]:
+            kwargs: dict[str, Any] = {"title": panel["title"], "y": list(panel["y"])}
+            if panel.get("x"):
+                kwargs["x"] = panel["x"]
+            panels.append(wr.LinePlot(**kwargs))
+        sections.append(ws.Section(name=section["name"], panels=panels, is_open=True))
+    workspace = ws.Workspace(entity=entity, project=spec["project"], name=spec["name"], sections=sections)
+    workspace.save()
+    return str(workspace.url)
+
+
 # ------------------------------------------------------------------------ helpers
 
 

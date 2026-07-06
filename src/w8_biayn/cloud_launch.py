@@ -281,6 +281,7 @@ def launch_glm47_full(options: LaunchOptions) -> int:
                     down_cluster(options.cluster_name)
                 else:
                     print("No cluster was acquired; nothing to tear down.", flush=True)
+                _report_pipeline_outcome(options, wandb_api_key=wandb_api_key, status=training_status)
 
             print(f"orchestrator_log={log_path}")
             print(f"downloaded_run_root={local_run_root}")
@@ -289,6 +290,58 @@ def launch_glm47_full(options: LaunchOptions) -> int:
             if comparison.exists():
                 print(f"comparison_json={comparison}")
     return training_status
+
+
+def _report_pipeline_outcome(options: LaunchOptions, *, wandb_api_key: str, status: int) -> None:
+    """Stamp the launch outcome on the <run-id>-pipeline W&B run (best-effort).
+
+    Config = the redacted launch knobs (cross-run comparison via the runs table
+    and parallel coordinates); summary = terminal outcome; a reference artifact
+    tracks the GCS checkpoint prefix (lineage, no bytes); failures fire an alert
+    so nobody discovers a dead paid run by SSH hours later.
+    """
+
+    from . import wandb_report
+
+    if wandb_api_key and not os.environ.get("WANDB_API_KEY"):
+        os.environ["WANDB_API_KEY"] = wandb_api_key
+    run = wandb_report.init_run(
+        run_id=options.run_id,
+        stage="pipeline",
+        job_type="pipeline",
+        project=options.wandb_project,
+        group=options.run_id,
+        entity=options.wandb_entity or None,
+        config={
+            key: value
+            for key, value in vars(options).items()
+            if key not in ("wandb_api_key", "hf_token") and isinstance(value, (str, int, float, bool, list))
+        },
+    )
+    if run is None:
+        return
+    try:
+        outcome = {0: "succeeded", 130: "interrupted"}.get(status, "failed")
+        run.summary["pipeline/outcome"] = outcome
+        run.summary["pipeline/exit_status"] = status
+        if options.artifact_bucket:
+            wandb_report.log_reference_artifact(
+                run,
+                f"gs://{options.artifact_bucket}/runs/glm47/{options.run_id}",
+                name=f"{options.run_id}-checkpoints",
+                artifact_type="checkpoints",
+            )
+        if outcome != "succeeded":
+            wandb_report.alert(
+                run,
+                title=f"GLM launch {options.run_id} {outcome}",
+                text=f"exit={status} cluster={options.cluster_name} lane={options.lane}; "
+                "artifacts downloaded and teardown attempted -- verify with "
+                "`w8-biayn ops down-run` and the instance list.",
+                level="ERROR",
+            )
+    finally:
+        wandb_report.finish_run(run)
 
 
 def _acquire_and_run(

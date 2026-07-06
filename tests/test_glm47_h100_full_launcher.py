@@ -327,6 +327,25 @@ def test_cli_launch_glm47_full_rejects_disallowed_region(tmp_path) -> None:
     assert "us-central1" in result.output
 
 
+def test_launcher_reports_pipeline_outcome_to_wandb() -> None:
+    # The pipeline run must carry the launch outcome, the redacted knobs as
+    # config, a GCS checkpoint reference artifact, and an alert on failure.
+    text = LAUNCH_MODULE.read_text(encoding="utf-8")
+    assert "_report_pipeline_outcome(options, wandb_api_key=wandb_api_key, status=training_status)" in text
+    assert "log_reference_artifact(" in text
+    assert 'run.summary["pipeline/outcome"]' in text
+    assert '("wandb_api_key", "hf_token")' in text  # secrets never reach wandb.config
+    assert "--event pipeline_complete --finalize" in text
+
+
+def test_cli_wandb_workspace_dry_run_prints_spec(tmp_path) -> None:
+    result = CliRunner().invoke(app, ["wandb", "workspace", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Rollout Health (live)" in result.output
+    assert "zero_variance_group_fraction" in result.output
+
+
 def test_lanes_pin_deterministic_stage_run_identity() -> None:
     # slime's wandb init ignores --wandb-run-id and names every run after the
     # group; the lanes must pin a deterministic per-stage id via the WANDB_RUN_ID

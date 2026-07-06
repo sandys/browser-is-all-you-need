@@ -207,6 +207,26 @@ def test_alert_and_disabled_paths() -> None:
     assert alert(None, title="x", text="y") is False
 
 
+def test_workspace_spec_pins_drill_path_sections() -> None:
+    spec = wandb_report.build_workspace_spec(project="proj", entity="me")
+
+    names = [section["name"] for section in spec["sections"]]
+    assert names == ["Uplift & Eval Comparison", "Rollout Health (live)", "Training Dynamics", "Pipeline"]
+    all_panels = [panel for section in spec["sections"] for panel in section["panels"]]
+    all_keys = [key for panel in all_panels for key in panel["y"]]
+    # the GRPO heartbeat and the NaN-watch panels must exist
+    assert "rollout_health/zero_variance_group_fraction" in all_keys
+    assert "train/ppo_kl" in all_keys
+    assert "pipeline/elapsed_seconds" in all_keys
+    # panels with a custom axis carry it; eval comparison panels use the default
+    health = [p for p in all_panels if "rollout_health/abort_rate" in p["y"]][0]
+    assert health["x"] == "rollout_health/step"
+    evals = [p for p in all_panels if "eval/pass_rate" in p["y"]][0]
+    assert evals["x"] is None
+    # workspace name must survive wandb-workspaces' no-emoji validator (rejects "C++")
+    assert "C++" not in spec["name"]
+
+
 def test_init_run_returns_none_without_project_or_wandb(monkeypatch) -> None:
     monkeypatch.delenv("SLIME_WANDB_PROJECT", raising=False)
     monkeypatch.delenv("WANDB_API_KEY", raising=False)
