@@ -227,6 +227,26 @@ def test_build_run_config_sets_endpoint_cost_limits_and_repo():
     assert merged["extra"] == 1  # untouched base keys survive
 
 
+def test_repo_basename_is_unique_per_attempt_and_cleaned_up():
+    # swerex's local upload is shutil.copytree WITHOUT dirs_exist_ok onto the
+    # long-lived container root FS; deterministic sid-only basenames collided
+    # with earlier stages' leftovers and killed 16/16 GRPO episodes with
+    # FileExistsError before the first model call. Two attempts with the SAME
+    # sid must therefore get different basenames, and the driver must remove
+    # the root-FS copy when the episode ends.
+    from w8_biayn.integrations.swe_agent_driver import _unique_repo_name
+
+    first = _unique_repo_name("w8swe-task-0-0")
+    second = _unique_repo_name("w8swe-task-0-0")
+    assert first != second
+    assert first.startswith("repo-w8swe-task-0-0-") and second.startswith("repo-w8swe-task-0-0-")
+    assert _safe_repo_name("w8swe-task-0-0") == "repo-w8swe-task-0-0"
+
+    source = Path(swe_agent_driver.__file__).read_text(encoding="utf-8")
+    assert "_materialize_repo(work / _unique_repo_name(sid)" in source
+    assert 'shutil.rmtree(Path("/") / repo.name, ignore_errors=True)' in source
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git required to seed the SWE-agent repo")
 def test_materialize_repo_creates_clean_committed_repo(tmp_path):
     repo = _materialize_repo(tmp_path / "repo", "int main(){return 0;}\n", task=sample_task())

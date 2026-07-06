@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -127,16 +129,28 @@ COMPILE_HELPER = "#!/usr/bin/env bash\nset -e\ng++ -O3 -std=c++20 candidate.cpp 
 
 
 def _safe_repo_name(sid: str) -> str:
-    """A filesystem-safe, per-session repo basename.
-
-    Under the local deployment swerex copies the repo to the FS root
-    ``/{repo_name}`` (``LocalRepoConfig.copy``), so concurrent rollouts on one
-    worker must not share a basename or they collide at ``/repo``. Key it off the
-    session id, which is unique per sample.
-    """
+    """A filesystem-safe repo basename prefix derived from the session id."""
 
     safe = re.sub(r"[^A-Za-z0-9_-]", "-", sid).strip("-") or "session"
     return f"repo-{safe}"
+
+
+def _unique_repo_name(sid: str) -> str:
+    """A per-ATTEMPT unique repo basename: ``repo-<safe sid>-<random>``.
+
+    Under the local deployment swerex copies the repo to the FS root
+    ``/{repo_name}`` via ``shutil.copytree`` WITHOUT ``dirs_exist_ok``
+    (swerex runtime/local.py upload), and that root filesystem is the
+    long-lived training container shared by every stage of a launch. Session
+    ids are deterministic (task/index/group), so a sid-only basename collides
+    with leftovers from earlier stages or same-prompt siblings and every such
+    episode dies with FileExistsError before its first model call -- the
+    16/16-abort GRPO smoke. The random suffix makes the target unique per
+    attempt unconditionally; :func:`run_swe_agent_and_extract` removes the
+    copy in its ``finally``.
+    """
+
+    return f"{_safe_repo_name(sid)}-{secrets.token_hex(4)}"
 
 
 def _materialize_repo(work_dir: str | Path, v0_code: str, *, task: Any | None = None) -> Path:
@@ -334,7 +348,7 @@ def run_swe_agent_and_extract(
     from sweagent.run.run_single import RunSingleConfig  # type: ignore
 
     work = Path(work_root)
-    repo = _materialize_repo(work / _safe_repo_name(sid), v0_code, task=task)
+    repo = _materialize_repo(work / _unique_repo_name(sid), v0_code, task=task)
     base = _load_base_config()
     config_dict = build_run_config(
         base,
@@ -373,6 +387,10 @@ def run_swe_agent_and_extract(
             env.close()
         except Exception:  # pragma: no cover - close must never mask the run outcome
             pass
+        # The local deployment copied the repo to the container-root FS, which
+        # outlives this episode (and this stage). Remove it or thousands of
+        # episodes fill the root disk with dead copies.
+        shutil.rmtree(Path("/") / repo.name, ignore_errors=True)
 
     if not candidate_code.strip():
         # The read failed or came back empty; grade the v0 program rather than
