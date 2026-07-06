@@ -217,6 +217,21 @@ def build_run_config(
         "name": f"openai/{model_label}",
         "api_base": adapter_url,
         "api_key": sid,
+        # Belt over the bearer: the adapter resolves the session as
+        # bearer -> body.metadata.session_id -> body.user (slime
+        # agent/adapters/common.py sid_from_bearer/sid_from_body). If LiteLLM's
+        # openai/ provider ever drops the Authorization header on a custom
+        # api_base, turns would file under "default" and finish_session(sid)
+        # would drain EMPTY -- every sample aborting adapter_session_empty with
+        # response_length 1. Carrying the sid in the request body as well makes
+        # session routing survive either path. completion_kwargs is SWE-agent's
+        # documented passthrough into litellm.completion (models.py:95, spread
+        # at the query call); `user` is a first-class OpenAI param and
+        # extra_body merges into the JSON body.
+        "completion_kwargs": {
+            "user": sid,
+            "extra_body": {"metadata": {"session_id": sid}},
+        },
         # Cost limiting MUST be off: litellm cannot price an unknown local model,
         # and any nonzero limit kills the run on the first query.
         "per_instance_cost_limit": 0.0,

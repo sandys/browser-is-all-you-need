@@ -198,6 +198,11 @@ def test_build_run_config_sets_endpoint_cost_limits_and_repo():
     assert model["name"] == "openai/slime-actor"
     assert model["api_base"] == "http://127.0.0.1:9/v1"
     assert model["api_key"] == "sess-123"
+    # sid rides in the request BODY too (adapter falls back bearer ->
+    # metadata.session_id -> user); a dropped Authorization header must not
+    # file every turn under "default" and drain finish_session empty.
+    assert model["completion_kwargs"]["user"] == "sess-123"
+    assert model["completion_kwargs"]["extra_body"] == {"metadata": {"session_id": "sess-123"}}
     # cost limiting disabled (both), loop bounded by call limit instead
     assert model["per_instance_cost_limit"] == 0.0
     assert model["total_cost_limit"] == 0.0
