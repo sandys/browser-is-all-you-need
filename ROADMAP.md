@@ -111,8 +111,11 @@ turns and the final file is graded with the same reward ladder above
 (compile/tests/child-CPU-ns) in the repo's Docker sandbox (not E2B). Reward
 flows via the SLIME OpenAI adapter `finish_session`, so the single-turn
 "Required Output Format" does not apply to this lane. SFT stays single-turn as a
-C++-quality warm-start; base/sft/grpo evals and GRPO are agentic. See
-`slime_swe_agent_cpp_perf.py` and `swe_agent_driver.py`.
+C++-quality warm-start; base/sft/grpo evals and GRPO are agentic. SWE-agent runs
+its edit/bash loop in-process on the rollout worker via swerex `LocalDeployment`
+(no sibling container, no `--network host` — which collided with Ray); only the
+final-file grading re-enters the Docker sandbox. See `slime_swe_agent_cpp_perf.py`
+and `swe_agent_driver.py`.
 
 ## Stage 0: Prove The Local Runtime
 

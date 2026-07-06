@@ -230,8 +230,13 @@ and the correctness-gated reward flows via the OpenAI adapter `finish_session`.
 The `generate` hook is `w8_biayn.integrations.slime_swe_agent_cpp_perf.generate`;
 the driver is `swe_agent_driver.py`; the grader seam is
 `w8_biayn.cpp_perf.sandbox.run_in_directory_prewritten`. SFT stays single-turn;
-base/sft/grpo evals and GRPO are agentic. Build the edit-loop image with
-`uv run w8-biayn cpp harness swe-image --build-base`:
+base/sft/grpo evals and GRPO are agentic. SWE-agent runs its edit/bash loop
+in-process on the rollout worker via swerex `LocalDeployment` (`{"type":
+"local"}`) — there is no sibling execution container and no `--network host`
+(which collided with Ray's `127.0.0.1` node-ip), and each concurrent rollout
+copies the repo to a unique basename so drivers do not share one working tree.
+Only final-file grading re-enters the hardened `w8-biayn-cpp-perf` Docker image;
+the `swe-image` CLI/dockerfile stays for reference but is off the hot path.
 
 ```bash
 bash examples/slime/glm47_swe_agent_cpp_perf/prepare_data.sh
@@ -286,12 +291,18 @@ tool and its documentation:
   `sky.launch` on API-server builds resolves at job submission, so the CLI
   tracks the job to a terminal state before declaring success; the client
   version must match any locally running sky API server.
-- Teardown safety: SkyPilot tags every instance with `labels.run_id=<run>`
-  (the same id used for the W&B group). The launch tears down on any exit,
-  but a killed/hung launch process cannot, so
-  `w8-biayn ops down-run <run-id> --execute` is the launcher-independent
-  reaper: it downs the cluster by name and deletes any GCE instance still
-  carrying the run-id label. After any launch, confirm no orphan with
+- Teardown safety (three layers): (1) the launch downloads artifacts and downs
+  the cluster on any exit — but a killed/hung launch process cannot run its
+  `finally` block; (2) so the launch arms SkyPilot `idle_minutes_to_autostop`
+  (default 20, `--idle-autostop-minutes`, `0` disables) with `down=True`, and
+  the on-cluster autostop *terminates* the cluster once the job ends and it
+  idles, independent of the launcher process (this closes the gap that once
+  orphaned a paid A100 for ~6 hours when a background launcher was SIGKILLed
+  mid-teardown); (3) as a last resort every instance is tagged
+  `labels.run_id=<run>` (the W&B group id) so
+  `w8-biayn ops down-run <run-id> --execute` is the launcher-independent reaper
+  that downs the cluster by name and deletes any GCE instance still carrying the
+  label. After any launch, confirm no orphan with
   `gcloud compute instances list --filter=labels.project=w8-biayn`.
 - Training: lane scripts wrap SLIME (pinned checkout at
   `.cache/upstreams/slime`, docs under `.cache/upstreams/slime/docs`).

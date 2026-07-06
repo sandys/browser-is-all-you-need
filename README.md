@@ -73,7 +73,12 @@ child-process CPU time), and reward flows through SLIME's OpenAI adapter
 single-turn responses unscoreable. It uses SWE-agent (not claude-code) and the
 repo's Docker grader (not E2B), via
 `src/w8_biayn/integrations/slime_swe_agent_cpp_perf.py` (the `generate` hook)
-and `src/w8_biayn/integrations/swe_agent_driver.py`.
+and `src/w8_biayn/integrations/swe_agent_driver.py`. SWE-agent runs its
+edit/bash loop in-process on the rollout worker through swerex `LocalDeployment`
+(`{"type": "local"}`) — no sibling execution container and no `--network host`
+(which collided with Ray) — and each concurrent rollout copies the repo to a
+unique basename so the drivers do not fight over one working tree. Only the
+final-file grading crosses back into the hardened Docker sandbox.
 
 ## Fresh Machine Setup
 
@@ -401,12 +406,24 @@ The first run for a given key pays the ~20-minute PIE build; later runs and
 other users restore in seconds. Cache ops use the node's ambient credentials
 and are best-effort — a node without bucket write still trains.
 
-**Teardown.** The launch tears the node down on exit, but if the launch
-process is killed or hangs it cannot. Every instance is tagged
-`labels.run_id=<run-id>` (the same id as the W&B group), so
-`uv run --extra cloud w8-biayn ops down-run <run-id> --execute` is the
-launcher-independent reaper — it downs the cluster and deletes any instance
-still carrying the tag. After a run, verify with
+**Teardown.** Three layers, so a dead launcher process can never orphan a paid
+box:
+
+1. *Launcher teardown (fast path).* When the launch process is alive it
+   downloads artifacts and downs the cluster on exit.
+2. *Cluster-side autostop (automatic backstop).* The launch arms SkyPilot
+   `idle_minutes_to_autostop` (default 20, `--idle-autostop-minutes`) with
+   `down=True`, so once the job ends and the node goes idle SkyPilot
+   *terminates* the cluster on its own — independent of the launcher process.
+   This closes the gap that once left a cluster UP for ~6 hours when a
+   background launcher was killed mid-teardown and its `finally` block never
+   ran. Set `0` to disable and rely on launcher-only teardown.
+3. *Manual reaper (last resort).* Every instance is tagged
+   `labels.run_id=<run-id>` (the same id as the W&B group), so
+   `uv run --extra cloud w8-biayn ops down-run <run-id> --execute` downs the
+   cluster and deletes any instance still carrying the tag.
+
+After a run, verify with
 `gcloud compute instances list --filter=labels.project=w8-biayn`.
 
 **Progress in W&B.** Alongside the per-stage runs, each launch writes a
