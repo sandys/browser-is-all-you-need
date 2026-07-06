@@ -83,6 +83,13 @@ class LaunchOptions:
     grpo_global_batch_size: int = 4
     eval_samples_per_prompt: int = 2
     disk_size: int = 1024
+    # Cluster-side safety net: SkyPilot's on-cluster autostop TERMINATES the
+    # cluster after this many idle minutes, independent of this launcher process.
+    # A killed launcher (e.g. parent shell dies mid-teardown) then cannot orphan a
+    # paid box -- the cluster self-terminates once the job ends and it goes idle.
+    # 0 disables it (reverts to launcher-only teardown). The `ops down-run` reaper
+    # remains the manual backstop.
+    idle_minutes_to_autostop: int = 20
     resume_from_run: str = ""
     dry_run: bool = False
     artifact_bucket: str = ""
@@ -215,6 +222,7 @@ def launch_glm47_full(options: LaunchOptions) -> int:
                     "accelerators": options.accelerators,
                     "use_spot": options.use_spot,
                     "lane": options.lane,
+                    "idle_minutes_to_autostop": options.idle_minutes_to_autostop,
                     "config": str(config_path),
                 },
                 indent=2,
@@ -349,7 +357,16 @@ def _acquire_and_run(
                 request_id = sky.launch(
                     task,
                     cluster_name=options.cluster_name,
-                    down=False,
+                    # Cluster-side autostop-DOWN as a process-independent safety
+                    # net: if this launcher is killed before its finally-block
+                    # teardown runs (as happened once -- a background launcher was
+                    # SIGKILLed mid-artifact-download when its parent shell exited,
+                    # orphaning the box for hours), SkyPilot's on-cluster autostop
+                    # still terminates the cluster once the job ends and it idles.
+                    # When the launcher is alive it downs the cluster immediately
+                    # after the job, well before this timer elapses.
+                    down=options.idle_minutes_to_autostop > 0,
+                    idle_minutes_to_autostop=(options.idle_minutes_to_autostop or None),
                     no_setup=False,
                     _need_confirmation=False,
                 )

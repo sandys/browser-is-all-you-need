@@ -279,6 +279,36 @@ def test_cli_launch_agentic_lane_dry_run_sets_lane(tmp_path) -> None:
     assert '"lane": "glm47_swe_agent_cpp_perf"' in result.output
 
 
+def test_launch_arms_cluster_side_autostop_down_independent_of_launcher() -> None:
+    # A killed launcher process cannot run its finally-block teardown, so the
+    # cluster must self-terminate. sky.launch is armed with idle autostop tied to
+    # down=True (terminate, not stop) so an orphan cannot outlive the job.
+    text = LAUNCH_MODULE.read_text(encoding="utf-8")
+    assert "idle_minutes_to_autostop=(options.idle_minutes_to_autostop or None)" in text
+    assert "down=options.idle_minutes_to_autostop > 0" in text
+
+
+def test_cli_launch_reports_idle_autostop_in_dry_run(tmp_path) -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "launch",
+            "glm47-full",
+            "--run-id",
+            "unittest-autostop",
+            "--idle-autostop-minutes",
+            "35",
+            "--local-output-root",
+            str(tmp_path),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = json.loads((tmp_path / "cloud-runs" / "unittest-autostop" / "launch_config.json").read_text())
+    assert config["idle_minutes_to_autostop"] == 35
+
+
 def test_cli_launch_glm47_full_rejects_disallowed_region(tmp_path) -> None:
     result = CliRunner().invoke(
         app,

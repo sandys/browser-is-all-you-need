@@ -2459,6 +2459,7 @@ def launch_glm47_full_command(
     grpo_global_batch_size: int = typer.Option(4, help="GRPO global batch size."),
     eval_samples_per_prompt: int = typer.Option(2, help="Eval samples per held-out prompt."),
     disk_size: int = typer.Option(1024, help="Boot disk GB; the 30B model is staged ~4x so 256GB runs out mid-export."),
+    idle_autostop_minutes: int = typer.Option(20, help="Cluster-side safety net: SkyPilot terminates the cluster after this many idle minutes even if this launcher process dies. 0 disables (launcher-only teardown)."),
     resume_from_run: str = typer.Option("", help="Resume: restore a prior run id's GCS checkpoints and skip its finished train stages."),
     dry_run: bool = typer.Option(False, help="Print the planned cluster, config, and scripts without launching."),
 ) -> None:
@@ -2497,6 +2498,7 @@ def launch_glm47_full_command(
             grpo_global_batch_size=grpo_global_batch_size,
             eval_samples_per_prompt=eval_samples_per_prompt,
             disk_size=disk_size,
+            idle_minutes_to_autostop=idle_autostop_minutes,
             resume_from_run=resume_from_run,
             dry_run=dry_run,
         )
