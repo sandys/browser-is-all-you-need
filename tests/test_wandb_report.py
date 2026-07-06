@@ -280,6 +280,12 @@ def test_rollout_health_token_capture_metrics() -> None:
     assert metrics["rollout_health/response_length_mean"] == pytest.approx(300.0)
     assert metrics["rollout_health/response_length_max"] == 900.0
 
+    # fork drops surface as a mean so a too-low merge threshold is visible
+    fork_health = RolloutHealth(window=2, log_fn=lambda m: None)
+    fork_health.add({"task_id": "a", "reward": 1.0, "fork_samples_dropped": 2})
+    fork_metrics = fork_health.add({"task_id": "a", "reward": 1.0, "fork_samples_dropped": 0})
+    assert fork_metrics["rollout_health/fork_samples_dropped_mean"] == 1.0
+
 
 def test_workspace_spec_pins_drill_path_sections() -> None:
     spec = wandb_report.build_workspace_spec(project="proj", entity="me")

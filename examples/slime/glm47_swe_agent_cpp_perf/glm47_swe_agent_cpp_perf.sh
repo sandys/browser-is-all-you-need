@@ -147,6 +147,13 @@ SWE_AGENT_MAX_INPUT_TOKENS="${W8_SWE_AGENT_MAX_INPUT_TOKENS:-${ROLLOUT_MAX_CONTE
 SWE_AGENT_MAX_OUTPUT_TOKENS="${W8_SWE_AGENT_MAX_OUTPUT_TOKENS:-2048}"
 SWE_AGENT_CONCURRENCY="${W8_SWE_AGENT_CONCURRENCY:-4}"
 SWE_ROLLOUT_GUARD_SEC="${W8_SWE_ROLLOUT_GUARD_SEC:-1800}"
+# Adapter fork/merge threshold: GLM's chat template strips <think> blocks from
+# history, so every turn re-tokenizes with up to a response-budget of drift.
+# Below the threshold the trajectory REALIGNs (absorbs the dropped tokens)
+# into ONE trainable sample per episode; above it, it forks into several --
+# and GRPO group math requires exactly one sample per episode. Keep this
+# comfortably above SWE_AGENT_MAX_OUTPUT_TOKENS.
+SWE_FORK_MERGE_MAX_RESPONSE_TOKENS="${SLIME_SWE_FORK_MERGE_MAX_RESPONSE_TOKENS:-4096}"
 ADAPTER_BIND_HOST="${W8_ADAPTER_BIND_HOST:-127.0.0.1}"
 ADAPTER_PORT="${W8_ADAPTER_PORT:-18011}"
 # SWE-agent 1.x installs from an editable git clone (its config/ + tools/ are
@@ -1009,6 +1016,7 @@ env = {
     "W8_SWE_AGENT_MAX_OUTPUT_TOKENS": "${SWE_AGENT_MAX_OUTPUT_TOKENS}",
     "W8_SWE_AGENT_CONCURRENCY": "${SWE_AGENT_CONCURRENCY}",
     "W8_SWE_ROLLOUT_GUARD_SEC": "${SWE_ROLLOUT_GUARD_SEC}",
+    "W8_SWE_FORK_MERGE_MAX_RESPONSE_TOKENS": "${SWE_FORK_MERGE_MAX_RESPONSE_TOKENS}",
     "W8_ADAPTER_BIND_HOST": "${ADAPTER_BIND_HOST}",
     "W8_ADAPTER_PORT": "${ADAPTER_PORT}",
     "SWE_AGENT_CONFIG_DIR": "${SWE_AGENT_CLONE_DIR}/config",

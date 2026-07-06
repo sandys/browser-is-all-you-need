@@ -454,6 +454,13 @@ class RolloutHealth:
         if lengths:
             metrics[f"{HEALTH_PREFIX}/response_length_mean"] = _mean(lengths)
             metrics[f"{HEALTH_PREFIX}/response_length_max"] = max(lengths)
+        # forks dropped to satisfy GRPO's one-sample-per-episode contract; a
+        # persistently high mean means the merge threshold is too low and
+        # trained tokens are being thrown away.
+        forks = [_as_float(row.get("fork_samples_dropped")) for row in rows]
+        forks = [value for value in forks if value is not None]
+        if forks:
+            metrics[f"{HEALTH_PREFIX}/fork_samples_dropped_mean"] = _mean(forks)
         for reason, count in sorted(Counter(str(row.get("abort_reason")) for row in aborted).items()):
             metrics[f"{HEALTH_PREFIX}/abort/{_safe_id(reason)}"] = count
 

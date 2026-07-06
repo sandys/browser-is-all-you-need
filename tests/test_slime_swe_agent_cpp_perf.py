@@ -35,16 +35,21 @@ def sample_task() -> CppTask:
 
 
 class _FakeAdapter:
-    def __init__(self) -> None:
+    def __init__(self, drained: list | None = None) -> None:
         self.opened: dict | None = None
         self.finished: dict | None = None
         self.dropped: str | None = None
+        self._drained = drained
 
     def open_session(self, sid, *, sampling_defaults=None, max_context_tokens=0):
         self.opened = {"sid": sid, "sampling_defaults": sampling_defaults, "max_context_tokens": max_context_tokens}
 
     async def finish_session(self, sid, *, base_sample, reward=0.0, **_kw):
         self.finished = {"sid": sid, "reward": reward}
+        if self._drained is not None:
+            for sample in self._drained:
+                sample.reward = reward
+            return list(self._drained)
         # finish_session sets response/reward on the drained samples; emulate one.
         return [SimpleNamespace(metadata={}, reward=reward, index=0, group_index=0, rollout_id="r0", response="")]
 
@@ -138,6 +143,42 @@ def test_generate_runs_agent_grades_file_and_flows_reward(monkeypatch, tmp_path)
     assert driver_calls["sid"] == sid
     assert driver_calls["adapter_url"] == "http://127.0.0.1:9/v1"
     assert driver_calls["v0_code"] == task.prompt_code
+
+
+def test_generate_collapses_forked_drain_to_one_sample(monkeypatch, tmp_path):
+    # GRPO reshapes rewards as (prompts, n_samples_per_prompt): a 3-fork drain
+    # produced 48 rewards where 16 were expected and killed the stage. The hook
+    # must return exactly ONE sample per episode -- the fork with the most
+    # trained tokens -- and count the drops for the health panel.
+    task = sample_task()
+    task_json = task.write_json(tmp_path / "task.json")
+    forks = [
+        SimpleNamespace(metadata={}, index=0, group_index=0, rollout_id="r0", response="", loss_mask=[1, 0], response_length=2),
+        SimpleNamespace(metadata={}, index=0, group_index=0, rollout_id="r0", response="", loss_mask=[1] * 40, response_length=50),
+        SimpleNamespace(metadata={}, index=0, group_index=0, rollout_id="r0", response="", loss_mask=[1, 1], response_length=4),
+    ]
+    adapter = _FakeAdapter(drained=forks)
+    health = _FakeHealth()
+    monkeypatch.setattr(gen, "_adapter_service", lambda args: _fake_state(adapter, health))
+    monkeypatch.setattr(
+        swe_agent_driver,
+        "run_swe_agent_and_extract",
+        lambda *a, **k: ExtractResult(candidate_code="int main(){return 0;}\n", exit_status="submitted", steps=3, submission=None),
+    )
+    monkeypatch.setattr(
+        gen,
+        "_grade_file_state",
+        lambda *a, **k: HarnessResult(tests_passed=2, tests_total=2, runtime_cpu_ns=500, reference_runtime_cpu_ns=1000, runtime_speedup=2.0),
+    )
+
+    base = SimpleNamespace(metadata={"task_path": str(task_json)}, session_id=None, index=0, group_index=0)
+    samples = asyncio.run(gen.generate(SimpleNamespace(), base, {}))
+
+    assert len(samples) == 1
+    assert samples[0].loss_mask == [1] * 40  # the fork with the most trained tokens
+    row = health.rows[0]
+    assert row["fork_samples_dropped"] == 2
+    assert row["trained_tokens"] == 40 and row["response_length"] == 50
 
 
 def test_generate_aborts_on_missing_task_path(monkeypatch):

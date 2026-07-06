@@ -219,6 +219,18 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
         if not samples:
             return _abort("adapter_session_empty", task_id=task.task_id)
 
+        # GRPO's group math requires EXACTLY one trainable sample per episode:
+        # slime reshapes rewards as (prompts, n_samples_per_prompt) and
+        # --log-passrate asserts on it (a 3-fork drain made 48 rewards where 16
+        # were expected and killed the stage). When the trajectory still forks
+        # (re-tokenization drift beyond the merge threshold), keep the fork
+        # carrying the most trained tokens; the rest are dropped and counted.
+        fork_samples_dropped = 0
+        if len(samples) > 1:
+            samples.sort(key=lambda s: int(sum(getattr(s, "loss_mask", None) or [])), reverse=True)
+            fork_samples_dropped = len(samples) - 1
+            samples = samples[:1]
+
         record = reward_record_from_breakdown(base_sample, task, breakdown)
         _health_add(
             state,
@@ -234,6 +246,7 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
                 # token-capture ground truth straight from the drained samples
                 "trained_tokens": sum(int(sum(getattr(s, "loss_mask", None) or [])) for s in samples),
                 "response_length": max(int(getattr(s, "response_length", 0) or 0) for s in samples),
+                "fork_samples_dropped": fork_samples_dropped,
             },
         )
         for sample in samples:
