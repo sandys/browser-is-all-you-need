@@ -1,0 +1,13 @@
+{"time":"2026-07-07T04:29:28.215661672+05:30","level":"INFO","msg":"stream: starting","core version":"0.21.4"}
+{"time":"2026-07-07T04:29:29.735035068+05:30","level":"INFO","msg":"stream: created new stream","id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:29.735123655+05:30","level":"INFO","msg":"stream: started","id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:29.735179734+05:30","level":"INFO","msg":"writer: started","stream_id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:29.735204104+05:30","level":"INFO","msg":"sender: started","stream_id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:29.735317584+05:30","level":"INFO","msg":"handler: started","stream_id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:36.925494663+05:30","level":"INFO","msg":"handler: operation stats","stats":{"operations":[{"desc":"updating run metadata","runtime_seconds":4.759333785},{"desc":"uploading artifact run-w8swe-20260706213427-pipeline-pipelinelaunch_events-g9ITGg","runtime_seconds":3.734576639},{"desc":"uploading artifact w8swe-20260706213427-checkpoints","runtime_seconds":0.369230437}],"total_operations":3}}
+{"time":"2026-07-07T04:29:37.287007224+05:30","level":"INFO","msg":"sender: sendAlert: notified scriptable run alert","data":{"notifyScriptableRunAlert":{"success":true}}}
+{"time":"2026-07-07T04:29:39.784826177+05:30","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-07-07T04:29:40.444283629+05:30","level":"INFO","msg":"stream: closing","id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:40.444306962+05:30","level":"INFO","msg":"handler: closed","stream_id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:40.444365368+05:30","level":"INFO","msg":"sender: closed","stream_id":"w8swe-20260706213427-pipeline"}
+{"time":"2026-07-07T04:29:40.444372514+05:30","level":"INFO","msg":"stream: closed","id":"w8swe-20260706213427-pipeline"}

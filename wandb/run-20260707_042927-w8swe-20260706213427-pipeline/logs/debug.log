@@ -1,0 +1,28 @@
+2026-07-07 04:29:27,996 INFO    MainThread:2489 [wandb_setup.py:_flush():81] Current SDK version is 0.21.4
+2026-07-07 04:29:27,996 INFO    MainThread:2489 [wandb_setup.py:_flush():81] Configure stats pid to 2489
+2026-07-07 04:29:27,996 INFO    MainThread:2489 [wandb_setup.py:_flush():81] Loading settings from /home/sss/.config/wandb/settings
+2026-07-07 04:29:27,996 INFO    MainThread:2489 [wandb_setup.py:_flush():81] Loading settings from /home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime/wandb/settings
+2026-07-07 04:29:27,997 INFO    MainThread:2489 [wandb_setup.py:_flush():81] Loading settings from environment variables
+2026-07-07 04:29:27,997 INFO    MainThread:2489 [wandb_init.py:setup_run_log_directory():686] Logging user logs to /home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime/wandb/run-20260707_042927-w8swe-20260706213427-pipeline/logs/debug.log
+2026-07-07 04:29:27,997 INFO    MainThread:2489 [wandb_init.py:setup_run_log_directory():687] Logging internal logs to /home/sss/Code/agi-house/browser-is-all-you-need/.worktrees/slime/wandb/run-20260707_042927-w8swe-20260706213427-pipeline/logs/debug-internal.log
+2026-07-07 04:29:27,997 INFO    MainThread:2489 [wandb_init.py:init():813] calling init triggers
+2026-07-07 04:29:27,997 INFO    MainThread:2489 [wandb_init.py:init():818] wandb.init called with sweep_config: {}
+config: {'_wandb': {}}
+2026-07-07 04:29:27,997 INFO    MainThread:2489 [wandb_init.py:init():854] starting backend
+2026-07-07 04:29:28,206 INFO    MainThread:2489 [wandb_init.py:init():857] sending inform_init request
+2026-07-07 04:29:28,211 INFO    MainThread:2489 [wandb_init.py:init():865] backend started and connected
+2026-07-07 04:29:28,212 INFO    MainThread:2489 [wandb_init.py:init():936] updated telemetry
+2026-07-07 04:29:28,216 INFO    MainThread:2489 [wandb_init.py:init():960] communicating run to backend with 90.0 second timeout
+2026-07-07 04:29:32,150 INFO    MainThread:2489 [wandb_init.py:init():1006] run resumed
+2026-07-07 04:29:32,152 INFO    MainThread:2489 [wandb_init.py:init():1011] starting run threads in backend
+2026-07-07 04:29:32,256 INFO    MainThread:2489 [wandb_run.py:_console_start():2506] atexit reg
+2026-07-07 04:29:32,256 INFO    MainThread:2489 [wandb_run.py:_redirect():2354] redirect: wrap_raw
+2026-07-07 04:29:32,256 INFO    MainThread:2489 [wandb_run.py:_redirect():2423] Wrapping output streams.
+2026-07-07 04:29:32,256 INFO    MainThread:2489 [wandb_run.py:_redirect():2446] Redirects installed.
+2026-07-07 04:29:32,258 INFO    MainThread:2489 [wandb_init.py:init():1049] run started, returning control to user process
+2026-07-07 04:29:32,258 INFO    MainThread:2489 [wandb_run.py:_config_callback():1392] config_cb None None {'run_id': 'w8swe-20260706213427', 'regions': ['asia-southeast1'], 'accelerators': 'A100-80GB:8', 'use_spot': True, 'retry_sleep_seconds': 300, 'max_attempts': 12, 'cluster_name': 'w8-glm47-h100-w8swe-20260706213427', 'credentials': '.gcp-service-account.json', 'slime_image': 'slimerl/slime:latest', 'lane': 'glm47_swe_agent_cpp_perf', 'wandb_api_key_file': '', 'wandb_project': 'slime-glm47-cpp-perf', 'wandb_entity': '', 'wandb_base_url': '', 'hf_token_file': '', 'local_output_root': '.w8-biayn/slime/glm47-cpp-perf', 'train_limit': 8, 'eval_limit': 8, 'min_train_tasks': 1000, 'min_validation_tasks': 100, 'min_test_tasks': 100, 'coverage_jobs': 32, 'grpo_num_rollout': 1, 'grpo_rollout_batch_size': 2, 'grpo_n_samples_per_prompt': 8, 'grpo_global_batch_size': 16, 'eval_samples_per_prompt': 2, 'disk_size': 1024, 'idle_minutes_to_autostop': 20, 'resume_from_run': 'w8swe-20260706124520', 'dry_run': False, 'artifact_bucket': 'lifeandhalf-24122025-w8-biayn'}
+2026-07-07 04:29:32,260 INFO    MainThread:2489 [wandb_run.py:_config_callback():1392] config_cb None None {'git_sha': '3a7c593', 'skypilot_pin': 'skypilot-nightly[gcp]==1.0.0.dev20260516', 'slime_pin': 'a897e1f40357fdf3b148f1eb4ce26e1aeccfcd2c', 'model_architecture': 'GLM-4.7-Flash 30B-A3B MoE (64 experts, top-4)', 'checkpoints_gcs': 'gs://lifeandhalf-24122025-w8-biayn/runs/glm47/w8swe-20260706213427'}
+2026-07-07 04:29:36,924 INFO    MainThread:2489 [wandb_run.py:_finish():2272] finishing run wootzapp-devs-wootzapp/slime-glm47-cpp-perf/w8swe-20260706213427-pipeline
+2026-07-07 04:29:36,924 INFO    MainThread:2489 [wandb_run.py:_atexit_cleanup():2471] got exitcode: 0
+2026-07-07 04:29:36,924 INFO    MainThread:2489 [wandb_run.py:_restore():2453] restore
+2026-07-07 04:29:36,924 INFO    MainThread:2489 [wandb_run.py:_restore():2459] restore done
