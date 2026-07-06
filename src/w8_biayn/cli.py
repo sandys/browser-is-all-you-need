@@ -2484,7 +2484,13 @@ def launch_glm47_full_command(
     coverage_jobs: int = typer.Option(32, help="Parallel workers for remote PIE coverage measurement."),
     grpo_num_rollout: int = typer.Option(8, help="GRPO rollout count."),
     grpo_rollout_batch_size: int = typer.Option(4, help="GRPO rollout batch size."),
-    grpo_global_batch_size: int = typer.Option(4, help="GRPO global batch size."),
+    grpo_n_samples_per_prompt: int = typer.Option(
+        8,
+        help="GRPO group size per prompt; must be >= 2 or advantages collapse to zero (the kl-NaN failure).",
+    ),
+    grpo_global_batch_size: int = typer.Option(
+        0, help="GRPO global batch size; 0 derives rollout_batch_size * n_samples_per_prompt."
+    ),
     eval_samples_per_prompt: int = typer.Option(2, help="Eval samples per held-out prompt."),
     disk_size: int = typer.Option(1024, help="Boot disk GB; the 30B model is staged ~4x so 256GB runs out mid-export."),
     idle_autostop_minutes: int = typer.Option(20, help="Cluster-side safety net: SkyPilot terminates the cluster after this many idle minutes even if this launcher process dies. 0 disables (launcher-only teardown)."),
@@ -2523,6 +2529,7 @@ def launch_glm47_full_command(
             coverage_jobs=coverage_jobs,
             grpo_num_rollout=grpo_num_rollout,
             grpo_rollout_batch_size=grpo_rollout_batch_size,
+            grpo_n_samples_per_prompt=grpo_n_samples_per_prompt,
             grpo_global_batch_size=grpo_global_batch_size,
             eval_samples_per_prompt=eval_samples_per_prompt,
             disk_size=disk_size,

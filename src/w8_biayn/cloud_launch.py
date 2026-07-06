@@ -80,7 +80,14 @@ class LaunchOptions:
     coverage_jobs: int = 32
     grpo_num_rollout: int = 8
     grpo_rollout_batch_size: int = 4
-    grpo_global_batch_size: int = 4
+    # GRPO group size per prompt. MUST be >= 2: with a single sample per prompt
+    # the group-relative advantage is reward - mean(group) == 0 for every sample
+    # (zero learning signal; the observed kl=NaN GRPO smoke). SLIME also
+    # force-disables grpo_std_normalization at 1.
+    grpo_n_samples_per_prompt: int = 8
+    # 0 derives rollout_batch_size * n_samples_per_prompt (one train step per
+    # rollout, SLIME's own rule); set explicitly only for multi-step splits.
+    grpo_global_batch_size: int = 0
     eval_samples_per_prompt: int = 2
     disk_size: int = 1024
     # Cluster-side safety net: SkyPilot's on-cluster autostop TERMINATES the
@@ -104,6 +111,16 @@ class LaunchOptions:
             raise LaunchError(f"lane {self.lane!r} is not in the known set {KNOWN_LANES}")
         if not self.cluster_name:
             self.cluster_name = default_cluster_name(self.run_id)
+        if self.grpo_n_samples_per_prompt < 1:
+            raise LaunchError("grpo_n_samples_per_prompt must be >= 1 (and >= 2 for a usable GRPO signal)")
+        group_samples = self.grpo_rollout_batch_size * self.grpo_n_samples_per_prompt
+        if self.grpo_global_batch_size <= 0:
+            self.grpo_global_batch_size = group_samples
+        elif group_samples % self.grpo_global_batch_size != 0:
+            raise LaunchError(
+                f"grpo_global_batch_size {self.grpo_global_batch_size} must divide "
+                f"rollout_batch_size*n_samples_per_prompt ({group_samples})"
+            )
 
 
 class Tee:
@@ -389,6 +406,7 @@ def _acquire_and_run(
                     "W8_GLM47_COVERAGE_JOBS": str(options.coverage_jobs),
                     "W8_GLM47_GRPO_NUM_ROLLOUT": str(options.grpo_num_rollout),
                     "W8_GLM47_GRPO_ROLLOUT_BATCH_SIZE": str(options.grpo_rollout_batch_size),
+                    "W8_GLM47_GRPO_N_SAMPLES_PER_PROMPT": str(options.grpo_n_samples_per_prompt),
                     "W8_GLM47_GRPO_GLOBAL_BATCH_SIZE": str(options.grpo_global_batch_size),
                     "W8_GLM47_EVAL_SAMPLES_PER_PROMPT": str(options.eval_samples_per_prompt),
                 },
@@ -681,6 +699,7 @@ def build_run_script() -> str:
           -e W8_GLM47_MIN_TEST \
           -e W8_GLM47_GRPO_NUM_ROLLOUT \
           -e W8_GLM47_GRPO_ROLLOUT_BATCH_SIZE \
+          -e W8_GLM47_GRPO_N_SAMPLES_PER_PROMPT \
           -e W8_GLM47_GRPO_GLOBAL_BATCH_SIZE \
           -e W8_GLM47_EVAL_SAMPLES_PER_PROMPT \
           -e SLIME_NOFILE_SOFT_LIMIT="${{SLIME_NOFILE_SOFT_LIMIT:-65536}}" \
@@ -816,7 +835,7 @@ def build_container_script() -> str:
         export SLIME_GRPO_LOAD_WEIGHTS_ONLY=1
         export SLIME_GRPO_ROLLOUT_BATCH_SIZE="$W8_GLM47_GRPO_ROLLOUT_BATCH_SIZE"
         export SLIME_GRPO_GLOBAL_BATCH_SIZE="$W8_GLM47_GRPO_GLOBAL_BATCH_SIZE"
-        export SLIME_GRPO_N_SAMPLES_PER_PROMPT=1
+        export SLIME_GRPO_N_SAMPLES_PER_PROMPT="$W8_GLM47_GRPO_N_SAMPLES_PER_PROMPT"
         export SLIME_EVAL_N_SAMPLES_PER_PROMPT="$W8_GLM47_EVAL_SAMPLES_PER_PROMPT"
         export SLIME_SAVE_HF_EXPORTS=1
         export SLIME_STANDALONE_HF_EXPORTS=1

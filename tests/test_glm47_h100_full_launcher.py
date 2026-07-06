@@ -327,6 +327,45 @@ def test_cli_launch_glm47_full_rejects_disallowed_region(tmp_path) -> None:
     assert "us-central1" in result.output
 
 
+def test_grpo_group_size_is_a_real_knob_not_hardcoded_one() -> None:
+    # The kl-NaN root cause: SLIME_GRPO_N_SAMPLES_PER_PROMPT was a literal 1 in
+    # the container script, collapsing every GRPO advantage to reward-mean == 0.
+    text = LAUNCH_MODULE.read_text(encoding="utf-8")
+    assert "SLIME_GRPO_N_SAMPLES_PER_PROMPT=1" not in text
+    assert 'export SLIME_GRPO_N_SAMPLES_PER_PROMPT="$W8_GLM47_GRPO_N_SAMPLES_PER_PROMPT"' in text
+    assert "-e W8_GLM47_GRPO_N_SAMPLES_PER_PROMPT \\" in text
+    assert '"W8_GLM47_GRPO_N_SAMPLES_PER_PROMPT": str(options.grpo_n_samples_per_prompt)' in text
+
+    agentic = ROOT / "examples/slime/glm47_swe_agent_cpp_perf/glm47_swe_agent_cpp_perf.sh"
+    for runner in (RUNNER, agentic):
+        lane_text = runner.read_text(encoding="utf-8")
+        assert 'GRPO_N_SAMPLES_PER_PROMPT="${SLIME_GRPO_N_SAMPLES_PER_PROMPT:-8}"' in lane_text
+        assert (
+            'GRPO_GLOBAL_BATCH_SIZE="${SLIME_GRPO_GLOBAL_BATCH_SIZE'
+            ':-$((GRPO_ROLLOUT_BATCH_SIZE * GRPO_N_SAMPLES_PER_PROMPT))}"'
+        ) in lane_text
+
+
+def test_launch_options_derive_global_batch_from_group_size() -> None:
+    from w8_biayn.cloud_launch import LaunchError, LaunchOptions
+
+    options = LaunchOptions(run_id="t", dry_run=True)
+    assert options.grpo_n_samples_per_prompt == 8
+    assert options.grpo_global_batch_size == options.grpo_rollout_batch_size * 8
+
+    explicit = LaunchOptions(
+        run_id="t", dry_run=True, grpo_rollout_batch_size=4, grpo_n_samples_per_prompt=4, grpo_global_batch_size=8
+    )
+    assert explicit.grpo_global_batch_size == 8  # explicit divisor is kept
+
+    try:
+        LaunchOptions(run_id="t", dry_run=True, grpo_n_samples_per_prompt=3, grpo_global_batch_size=5)
+    except LaunchError as exc:
+        assert "must divide" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("non-divisor global batch must be rejected")
+
+
 def test_launcher_reports_pipeline_outcome_to_wandb() -> None:
     # The pipeline run must carry the launch outcome, the redacted knobs as
     # config, a GCS checkpoint reference artifact, and an alert on failure.
