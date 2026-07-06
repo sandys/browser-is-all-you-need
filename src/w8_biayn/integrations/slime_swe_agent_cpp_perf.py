@@ -306,7 +306,14 @@ def _abort_result(sample: Any, reason: str, *, error: str = "") -> list[Any]:
     sample.reward = 0.0
     sample.remove_sample = True
     sample.status = _aborted_status()
-    sample.metadata = {**(getattr(sample, "metadata", None) or {}), "abort_reason": reason}
+    sample.metadata = {
+        **(getattr(sample, "metadata", None) or {}),
+        "abort_reason": reason,
+        # slime's --log-multi-turn does sample.metadata["round_number"] (a
+        # DIRECT KeyError) on every sample that reaches the trainer -- and
+        # abort husks do reach it. A missing key killed a whole GRPO stage.
+        "round_number": 0,
+    }
     if error:
         sample.metadata["abort_error"] = error[:500]
     return [sample]

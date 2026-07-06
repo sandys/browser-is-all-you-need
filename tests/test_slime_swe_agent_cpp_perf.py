@@ -153,6 +153,9 @@ def test_generate_aborts_on_missing_task_path(monkeypatch):
     # aborts are health-visible too: reason + zero reward reach the aggregator
     assert health.rows and health.rows[0]["abort_reason"] == "missing_task_path"
     assert health.rows[0]["reward"] == 0.0
+    # slime --log-multi-turn KeyErrors on any trainer-reaching sample without
+    # round_number; abort husks must carry it (killed a whole GRPO stage).
+    assert samples[0].metadata["round_number"] == 0
     assert samples[0].reward == 0.0
     assert samples[0].metadata["abort_reason"] == "missing_task_path"
     # aborted before any session was opened
