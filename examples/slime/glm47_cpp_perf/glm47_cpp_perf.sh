@@ -1051,10 +1051,16 @@ aggregate_eval() {
     echo "Missing eval debug rollout dump: ${EVAL_DUMP_PATH}" >&2
     exit 2
   fi
+  # --run-id/--stage let the scorer resume the stage's own W&B run (the id the
+  # lane pinned via WANDB_RUN_ID) and publish eval/* + tables + abort reasons.
   run_repo_python -m w8_biayn.integrations.slime_cpp_perf aggregate-debug \
     --label "${STAGE_LABEL}" \
     --debug-rollout "${EVAL_DUMP_PATH}" \
-    --out "${RUN_ROOT}/eval"
+    --out "${RUN_ROOT}/eval" \
+    --run-id "${RUN_ID}" \
+    --stage "${STAGE}" \
+    --wandb-project "${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}" \
+    --wandb-group "${SLIME_WANDB_GROUP:-${RUN_ID}}"
 }
 
 compare_eval() {
@@ -1062,7 +1068,10 @@ compare_eval() {
     --summary "${RUN_ROOT}/eval/base.summary.json" \
     --summary "${RUN_ROOT}/eval/sft.summary.json" \
     --summary "${RUN_ROOT}/eval/grpo.summary.json" \
-    --out "${RUN_ROOT}/eval/comparison.json"
+    --out "${RUN_ROOT}/eval/comparison.json" \
+    --run-id "${RUN_ID}" \
+    --wandb-project "${SLIME_WANDB_PROJECT:-slime-glm47-cpp-perf}" \
+    --wandb-group "${SLIME_WANDB_GROUP:-${RUN_ID}}"
 }
 
 stage_already_complete() {

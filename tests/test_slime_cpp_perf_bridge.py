@@ -200,6 +200,118 @@ def test_write_eval_artifacts_and_comparison_from_json_samples(tmp_path: Path) -
     assert comparison["uplift_gate"]["missing_required_labels"] == ["sft", "grpo"]
 
 
+def test_record_from_debug_sample_surfaces_abort_metadata() -> None:
+    # Aborted agentic rollouts never reach the grader: metadata.abort_reason is
+    # the only diagnostic and must land in eval records (and thus W&B tables).
+    sample = {
+        "index": 2,
+        "rollout_id": 1,
+        "response": "",
+        "reward": 0.0,
+        "metadata": {
+            "task_id": "t9",
+            "abort_reason": "adapter_session_empty",
+            "agent_steps": 0,
+            "swe_exit_status": "",
+        },
+    }
+
+    record = record_from_debug_sample(sample, label="grpo")
+
+    assert record["abort_reason"] == "adapter_session_empty"
+    assert record["reason"] == "abort:adapter_session_empty"
+    assert record["agent_steps"] == 0
+
+
+def test_aggregate_command_publishes_eval_to_wandb_and_alerts_on_all_abort(tmp_path: Path, monkeypatch) -> None:
+    from w8_biayn import wandb_report
+    from w8_biayn.integrations import slime_cpp_perf
+
+    class FakeRun:
+        def __init__(self) -> None:
+            self.logged: list[dict] = []
+            self.summary: dict = {}
+            self.alerts: list[dict] = []
+            self.config = SimpleNamespace(update=lambda *a, **k: None)
+
+        def log(self, metrics: dict) -> None:
+            self.logged.append(metrics)
+
+        def alert(self, **kwargs) -> None:
+            self.alerts.append(kwargs)
+
+        def finish(self) -> None:
+            pass
+
+    fake_run = FakeRun()
+    captured_init: dict = {}
+
+    def fake_init_run(**kwargs):
+        captured_init.update(kwargs)
+        return fake_run
+
+    monkeypatch.setattr(wandb_report, "init_run", fake_init_run)
+
+    samples_path = tmp_path / "grpo.samples.jsonl"
+    aborted = {
+        "index": 0,
+        "rollout_id": 0,
+        "response": "",
+        "reward": 0.0,
+        "metadata": {"task_id": "t1", "abort_reason": "adapter_session_empty"},
+    }
+    samples_path.write_text(json.dumps(aborted) + "\n" + json.dumps({**aborted, "index": 1}) + "\n", encoding="utf-8")
+
+    slime_cpp_perf.main(
+        [
+            "aggregate-debug",
+            "--label",
+            "grpo",
+            "--debug-rollout",
+            str(samples_path),
+            "--out",
+            str(tmp_path / "eval"),
+            "--run-id",
+            "r1",
+            "--stage",
+            "grpo-eval",
+            "--wandb-project",
+            "proj",
+            "--wandb-group",
+            "r1",
+        ]
+    )
+
+    # resumes the stage's own run identity
+    assert captured_init["run_id"] == "r1" and captured_init["stage"] == "grpo-eval"
+    assert captured_init["project"] == "proj"
+    # eval metrics + abort distribution logged; disk artifacts still written
+    logged_keys = {key for metrics in fake_run.logged for key in metrics}
+    assert "eval/pass_rate" in logged_keys
+    assert "eval/abort/adapter_session_empty" in logged_keys
+    assert (tmp_path / "eval" / "grpo.records.jsonl").exists()
+    # 100% aborts must page a human
+    assert any(alert["level"] == "ERROR" or "ALL" in str(alert.get("title")) for alert in fake_run.alerts)
+
+    # and without any W&B identity the command still works (no run resolution)
+    slime_cpp_perf.main(
+        [
+            "aggregate-debug",
+            "--label",
+            "base",
+            "--debug-rollout",
+            str(samples_path),
+            "--out",
+            str(tmp_path / "eval2"),
+            "--run-id",
+            "",
+            "--stage",
+            "",
+        ]
+    )
+    assert (tmp_path / "eval2" / "base.records.jsonl").exists()
+
+
 def test_reward_record_from_breakdown_carries_cxx_metrics() -> None:
     sample = SimpleNamespace(index=0, rollout_id=0, response="ok", metadata={})
     task = sample_task("validation-1", "validation")

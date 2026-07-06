@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from w8_biayn import wandb_report
 from w8_biayn.cpp_perf.eval import aggregate_eval_records, compare_eval_summaries, read_jsonl, write_json
 from w8_biayn.cpp_perf.reward import RewardBreakdown, compute_reward
 from w8_biayn.cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE, run_in_sandbox
@@ -390,6 +391,15 @@ def record_from_debug_sample(sample: dict[str, Any], *, label: str | None = None
     record.setdefault("sample_index", sample.get("index"))
     record.setdefault("rollout_id", sample.get("rollout_id"))
     record.setdefault("response", sample.get("response", ""))
+    # Agentic diagnostics live on sample metadata, not the reward record --
+    # aborted rollouts never reach the grader, so abort_reason is the ONLY
+    # signal of what happened and must survive into eval records / W&B tables.
+    for key in ("abort_reason", "agent_steps", "swe_exit_status", "round_number"):
+        value = _sample_metadata(sample).get(key)
+        if value is not None:
+            record.setdefault(key, value)
+    if record.get("abort_reason") and record.get("reason") in (None, "", "unknown"):
+        record["reason"] = f"abort:{record['abort_reason']}"
     if label is not None:
         record["label"] = label
     if "all_tests_pass" not in record:
@@ -397,6 +407,25 @@ def record_from_debug_sample(sample: dict[str, Any], *, label: str | None = None
             "tests_total"
         )
     return record
+
+
+def score_debug_dump(
+    *,
+    label: str,
+    debug_samples_path: str | Path,
+    output_dir: str | Path,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Path]]:
+    """Score a SLIME debug rollout dump: per-sample records, summary, file paths."""
+
+    samples = load_slime_debug_samples(debug_samples_path)
+    records = [record_from_debug_sample(sample, label=label) for sample in samples]
+    summary = aggregate_eval_records(records, label=label)
+    output = Path(output_dir)
+    records_path = output / f"{label}.records.jsonl"
+    summary_path = output / f"{label}.summary.json"
+    _write_jsonl(records_path, records)
+    write_json(summary_path, summary)
+    return records, summary, {"records": records_path, "summary": summary_path}
 
 
 def write_eval_artifacts(
@@ -407,14 +436,10 @@ def write_eval_artifacts(
 ) -> dict[str, Path]:
     """Write records and an aggregate summary from a SLIME debug rollout dump."""
 
-    samples = load_slime_debug_samples(debug_samples_path)
-    records = [record_from_debug_sample(sample, label=label) for sample in samples]
-    output = Path(output_dir)
-    records_path = output / f"{label}.records.jsonl"
-    summary_path = output / f"{label}.summary.json"
-    _write_jsonl(records_path, records)
-    write_json(summary_path, aggregate_eval_records(records, label=label))
-    return {"records": records_path, "summary": summary_path}
+    _records, _summary, paths = score_debug_dump(
+        label=label, debug_samples_path=debug_samples_path, output_dir=output_dir
+    )
+    return paths
 
 
 def write_comparison_artifact(summary_paths: Iterable[str | Path], output_path: str | Path) -> Path:
@@ -437,13 +462,94 @@ def _build_data_command(args: argparse.Namespace) -> None:
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2, sort_keys=True))
 
 
+ABORT_RATE_ALERT_THRESHOLD = 0.3
+
+
 def _aggregate_command(args: argparse.Namespace) -> None:
-    paths = write_eval_artifacts(label=args.label, debug_samples_path=args.debug_rollout, output_dir=args.out)
+    records, summary, paths = score_debug_dump(
+        label=args.label, debug_samples_path=args.debug_rollout, output_dir=args.out
+    )
+    _publish_eval_to_wandb(args, records=records, summary=summary, records_path=paths["records"])
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2, sort_keys=True))
+
+
+def _publish_eval_to_wandb(
+    args: argparse.Namespace,
+    *,
+    records: list[dict[str, Any]],
+    summary: dict[str, Any],
+    records_path: Path,
+) -> None:
+    """Decorate the eval stage's own W&B run (id ``<run-id>-<stage>``).
+
+    The lane already opens that run id via the ``WANDB_RUN_ID`` env, so resuming
+    it turns the near-empty eval run into the eval scoreboard: identical
+    ``eval/*`` keys across stages let W&B overlay base/sft/grpo in one panel.
+    Entirely best-effort; disk artifacts stay the source of truth.
+    """
+
+    run_id = getattr(args, "run_id", "") or ""
+    stage = getattr(args, "stage", "") or ""
+    if not run_id or not stage:
+        return
+    run = wandb_report.init_run(
+        run_id=run_id,
+        stage=stage,
+        job_type="eval",
+        project=getattr(args, "wandb_project", None),
+        group=getattr(args, "wandb_group", None),
+        config={"eval_label": args.label},
+    )
+    if run is None:
+        return
+    try:
+        wandb_report.log_eval_summary(run, summary)
+        wandb_report.log_records_table(run, records)
+        counts = wandb_report.log_abort_distribution(run, records)
+        wandb_report.log_artifact(
+            run, records_path, name=f"{run_id}-{args.label}-eval-records", artifact_type="eval-records"
+        )
+        total = len(records)
+        aborted = sum(counts.values())
+        if total and counts:
+            top_reason, top_count = max(counts.items(), key=lambda item: item[1])
+            if aborted == total:
+                wandb_report.alert(
+                    run,
+                    title=f"{args.label} eval: ALL {total} rollouts aborted",
+                    text=f"every sample aborted; top reason {top_reason} ({top_count}/{total})",
+                    level="ERROR",
+                )
+            elif aborted / total > ABORT_RATE_ALERT_THRESHOLD:
+                wandb_report.alert(
+                    run,
+                    title=f"{args.label} eval: abort rate {aborted / total:.0%}",
+                    text=f"top reason {top_reason} ({top_count}/{total})",
+                    level="WARN",
+                )
+    finally:
+        wandb_report.finish_run(run)
 
 
 def _compare_command(args: argparse.Namespace) -> None:
     path = write_comparison_artifact(args.summary, args.out)
+    run_id = getattr(args, "run_id", "") or ""
+    if run_id:
+        # The uplift verdict is the launch's goal metric -> pipeline run.
+        run = wandb_report.init_run(
+            run_id=run_id,
+            stage="pipeline",
+            job_type="pipeline",
+            project=getattr(args, "wandb_project", None),
+            group=getattr(args, "wandb_group", None),
+        )
+        if run is not None:
+            try:
+                comparison = json.loads(Path(path).read_text(encoding="utf-8"))
+                wandb_report.log_uplift(run, comparison)
+                wandb_report.log_artifact(run, path, name=f"{run_id}-uplift-summary", artifact_type="uplift-summary")
+            finally:
+                wandb_report.finish_run(run)
     print(str(path))
 
 
@@ -467,13 +573,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     aggregate.add_argument("--label", required=True, choices=("base", "sft", "grpo"))
     aggregate.add_argument("--debug-rollout", required=True)
     aggregate.add_argument("--out", required=True)
+    _add_wandb_args(aggregate, stage_default=os.environ.get("SLIME_CPP_STAGE", ""))
     aggregate.set_defaults(func=_aggregate_command)
 
     compare = subparsers.add_parser("compare", help="Compare base/SFT/GRPO summary JSON files")
     compare.add_argument("--summary", action="append", required=True)
     compare.add_argument("--out", required=True)
+    _add_wandb_args(compare, stage_default="pipeline")
     compare.set_defaults(func=_compare_command)
     return parser
+
+
+def _add_wandb_args(parser: argparse.ArgumentParser, *, stage_default: str) -> None:
+    """Optional W&B identity flags; defaults come from the lane's exported env."""
+
+    parser.add_argument("--run-id", default=os.environ.get("SLIME_RUN_ID", ""))
+    parser.add_argument("--stage", default=stage_default, help="Stage run to resume, e.g. base-eval.")
+    parser.add_argument("--wandb-project", default=os.environ.get("SLIME_WANDB_PROJECT", ""))
+    parser.add_argument("--wandb-group", default=os.environ.get("SLIME_WANDB_GROUP", ""))
 
 
 def main(argv: Sequence[str] | None = None) -> None:
