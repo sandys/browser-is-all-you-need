@@ -31,10 +31,12 @@ from __future__ import annotations
 import asyncio
 import os
 import secrets
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from w8_biayn import wandb_report
 from w8_biayn.cpp_perf.reward import file_state_reward
 from w8_biayn.cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE, run_in_directory_prewritten
 from w8_biayn.cpp_perf.schema import CppTask, HarnessResult
@@ -113,6 +115,15 @@ class _AdapterService:
         self.limits = swe_agent_driver.SweAgentLimits.from_env()
         self.rollout_guard_sec = _int_env(os.environ, ROLLOUT_GUARD_ENV, DEFAULT_ROLLOUT_GUARD_SEC)
 
+        # Live rollout-health telemetry into the stage's W&B run: this process
+        # (the SLIME rollout actor) is already attached in shared mode, so
+        # RolloutHealth's wandb.log lands next to train/* and rollout/*. Window
+        # = one rollout step so the panels line up with rollout/step.
+        batch = int(getattr(args, "rollout_batch_size", 0) or 0)
+        group = int(getattr(args, "n_samples_per_prompt", 1) or 1)
+        wandb_report.define_health_metrics()
+        self.health = wandb_report.RolloutHealth(window=(batch * group) or 16)
+
 
 def _adapter_service(args: Any) -> _AdapterService:
     global _ADAPTER_SERVICE
@@ -148,13 +159,27 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
 
     state = _adapter_service(args)
     metadata = _sample_metadata(base_sample)
+    started = time.monotonic()
+
+    def _abort(reason: str, *, task_id: Any = None) -> list[Any]:
+        _health_add(
+            state,
+            {
+                "task_id": task_id or metadata.get("task_id"),
+                "reward": 0.0,
+                "abort_reason": reason,
+                "wall_time_s": time.monotonic() - started,
+            },
+        )
+        return _abort_result(base_sample, reason)
+
     task_path = metadata.get("task_path")
     if not task_path:
-        return _abort_result(base_sample, "missing_task_path")
+        return _abort("missing_task_path")
     try:
         task = CppTask.read_json(_resolve_task_path(str(task_path), metadata=metadata))
     except Exception as exc:  # pragma: no cover - guards real rollout data bugs
-        return _abort_result(base_sample, f"task_load_error:{type(exc).__name__}")
+        return _abort(f"task_load_error:{type(exc).__name__}")
 
     sid = _session_id(base_sample, task.task_id)
     base_sample.session_id = sid
@@ -190,21 +215,36 @@ async def generate(args: Any, base_sample: Any, sampling_params: Any) -> list[An
         breakdown = file_state_reward(harness, code=extract.candidate_code)
         samples = await state.adapter.finish_session(sid, base_sample=base_sample, reward=float(breakdown.reward))
         if not samples:
-            return _abort_result(base_sample, "adapter_session_empty")
+            return _abort("adapter_session_empty", task_id=task.task_id)
 
         record = reward_record_from_breakdown(base_sample, task, breakdown)
+        _health_add(
+            state,
+            {
+                "task_id": task.task_id,
+                "reward": float(breakdown.reward),
+                "format_valid": bool(breakdown.format_valid),
+                "all_tests_pass": bool(harness.all_tests_pass),
+                "compile_error": bool(harness.compile_error),
+                "timeout": bool(harness.timeout),
+                "agent_steps": extract.steps,
+                "wall_time_s": time.monotonic() - started,
+            },
+        )
         for sample in samples:
             sample.metadata = {
                 **(getattr(sample, "metadata", None) or {}),
                 "cpp_reward_record": record,
                 "swe_exit_status": extract.exit_status,
                 "agent_steps": extract.steps,
+                # SLIME --log-multi-turn reads round_number for multi_turn_metric/*.
+                "round_number": int(extract.steps or 0),
             }
         return samples
     except asyncio.TimeoutError:
-        return _abort_result(base_sample, "wall_clock_timeout")
+        return _abort("wall_clock_timeout", task_id=task.task_id)
     except Exception as exc:  # pragma: no cover - guards real rollout workers
-        return _abort_result(base_sample, f"exception:{type(exc).__name__}")
+        return _abort(f"exception:{type(exc).__name__}", task_id=task.task_id)
     finally:
         await _drop_session_quietly(state, sid)
 
@@ -213,6 +253,15 @@ async def _drop_session_quietly(state: Any, sid: str) -> None:
     try:
         await state.adapter.drop_session(sid)
     except Exception:  # pragma: no cover - cleanup only, must never raise
+        pass
+
+
+def _health_add(state: Any, row: dict[str, Any]) -> None:
+    """Feed the live rollout-health aggregator; telemetry must never break rollouts."""
+
+    try:
+        state.health.add(row)
+    except Exception:  # pragma: no cover - best-effort telemetry
         pass
 
 

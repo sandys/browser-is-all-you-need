@@ -832,6 +832,8 @@ stage_args() {
         --rollout-temperature "${GRPO_TEMPERATURE}"
         --global-batch-size "${GRPO_GLOBAL_BATCH_SIZE}"
         --balance-data
+        # W&B rollout surface: passrate/* pass@k buckets per rollout step.
+        --log-passrate
       )
       ALGO_ARGS=(
         --advantage-estimator grpo

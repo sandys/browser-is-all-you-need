@@ -868,6 +868,10 @@ stage_args() {
         --rollout-temperature "${GRPO_TEMPERATURE}"
         --global-batch-size "${GRPO_GLOBAL_BATCH_SIZE}"
         --balance-data
+        # W&B rollout surfaces: passrate/* buckets and multi_turn_metric/* round
+        # counts (the generate hook stamps metadata.round_number per sample).
+        --log-passrate
+        --log-multi-turn
       )
       ALGO_ARGS=(
         --advantage-estimator grpo

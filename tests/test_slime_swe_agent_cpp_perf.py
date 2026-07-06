@@ -52,7 +52,15 @@ class _FakeAdapter:
         self.dropped = sid
 
 
-def _fake_state(adapter: _FakeAdapter) -> SimpleNamespace:
+class _FakeHealth:
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+
+    def add(self, row: dict) -> None:
+        self.rows.append(row)
+
+
+def _fake_state(adapter: _FakeAdapter, health: _FakeHealth | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         adapter=adapter,
         adapter_url="http://127.0.0.1:9/v1",
@@ -63,6 +71,7 @@ def _fake_state(adapter: _FakeAdapter) -> SimpleNamespace:
         grader_image="gcc:13",
         grader_cpu="3",
         rollout_guard_sec=60,
+        health=health or _FakeHealth(),
     )
 
 
@@ -71,7 +80,8 @@ def test_generate_runs_agent_grades_file_and_flows_reward(monkeypatch, tmp_path)
     task_json = task.write_json(tmp_path / "task.json")
 
     adapter = _FakeAdapter()
-    monkeypatch.setattr(gen, "_adapter_service", lambda args: _fake_state(adapter))
+    health = _FakeHealth()
+    monkeypatch.setattr(gen, "_adapter_service", lambda args: _fake_state(adapter, health))
 
     driver_calls: dict = {}
 
@@ -110,6 +120,15 @@ def test_generate_runs_agent_grades_file_and_flows_reward(monkeypatch, tmp_path)
     assert record["runtime_speedup"] == pytest.approx(2.0)
     assert samples[0].metadata["swe_exit_status"] == "submitted"
     assert samples[0].metadata["agent_steps"] == 4
+    # SLIME --log-multi-turn contract: round_number drives multi_turn_metric/*.
+    assert samples[0].metadata["round_number"] == 4
+
+    # live rollout-health row fed into the shared-mode W&B aggregator
+    assert len(health.rows) == 1
+    row = health.rows[0]
+    assert row["task_id"] == "pie_cpp_000001"
+    assert row["all_tests_pass"] is True and row["reward"] > 1.0
+    assert row["agent_steps"] == 4 and row["wall_time_s"] >= 0.0
 
     # rollout sampling params (not SWE-agent's greedy defaults) reach the driver
     assert driver_calls["temperature"] == 0.8
@@ -121,13 +140,17 @@ def test_generate_runs_agent_grades_file_and_flows_reward(monkeypatch, tmp_path)
 
 def test_generate_aborts_on_missing_task_path(monkeypatch):
     adapter = _FakeAdapter()
-    monkeypatch.setattr(gen, "_adapter_service", lambda args: _fake_state(adapter))
+    health = _FakeHealth()
+    monkeypatch.setattr(gen, "_adapter_service", lambda args: _fake_state(adapter, health))
 
     base = SimpleNamespace(metadata={}, session_id=None, index=0, group_index=0)
     samples = asyncio.run(gen.generate(SimpleNamespace(), base, {}))
 
     assert len(samples) == 1
     assert samples[0].remove_sample is True
+    # aborts are health-visible too: reason + zero reward reach the aggregator
+    assert health.rows and health.rows[0]["abort_reason"] == "missing_task_path"
+    assert health.rows[0]["reward"] == 0.0
     assert samples[0].reward == 0.0
     assert samples[0].metadata["abort_reason"] == "missing_task_path"
     # aborted before any session was opened
