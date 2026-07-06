@@ -630,7 +630,11 @@ def build_run_script() -> str:
           if [ -d "$W8_REMOTE_RUN_ROOT/checkpoints" ] || [ -d "$W8_REMOTE_RUN_ROOT/hf" ]; then
             # Loud, retried persist: a silently swallowed rsync failure once
             # left an HF export in GCS with index/config but NO weight shards,
-            # poisoning the next resumed run.
+            # poisoning the next resumed run. Root cause of the read failures:
+            # the training container writes exports as root with restrictive
+            # modes, and this persist runs on the host as gcpuser -- make the
+            # tree world-readable first or the shard files never upload.
+            sudo chmod -R a+rX "$W8_REMOTE_RUN_ROOT" 2>/dev/null || chmod -R a+rX "$W8_REMOTE_RUN_ROOT" || true
             persist_ok=0
             for persist_try in 1 2; do
               if gcloud storage rsync --recursive "$W8_REMOTE_RUN_ROOT" \

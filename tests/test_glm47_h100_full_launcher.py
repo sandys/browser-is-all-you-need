@@ -397,6 +397,9 @@ def test_hf_export_gates_require_weight_shards_and_persist_is_validated() -> Non
     launch_text = LAUNCH_MODULE.read_text(encoding="utf-8")
     assert "pruning weightless restored HF export" in launch_text
     assert "CHECKPOINT PERSIST FAILED after retries" in launch_text
+    # container writes exports as root; the host-side persist must be able to
+    # read the shard files or they silently never reach GCS
+    assert 'chmod -R a+rX "$W8_REMOTE_RUN_ROOT"' in launch_text
     assert ">/dev/null 2>&1" not in launch_text.split("Loud, retried persist")[1].split("fi")[0]
 
 
