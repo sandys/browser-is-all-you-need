@@ -254,12 +254,28 @@ sft-eval` run the in-process SWE-agent loop and grade files. Two first-smoke
 plumbing bugs are fixed and re-confirmed on GPU: Ray vs `--network host`
 (dissolved by the LocalDeployment switch above) and a `tokenizers` bump breaking
 `transformers` (pinned by a frozen-env `--constraint` on the editable SWE-agent
-install in `ensure_swe_agent_runtime`). Open before the full run: GRPO NaNs
-(`kl=nan`) — rollouts return `response_length≈1` and the launcher requests one
-sample per prompt, so group-relative advantage has zero variance. Fixes: set
-`n-samples-per-prompt >= 2`, and confirm the OpenAI adapter / `TrajectoryManager`
-captures served-model tokens across SWE-agent turns (samples carry ~0 trained
-tokens today).
+install in `ensure_swe_agent_runtime`). The GRPO-NaN causes are fixed pending
+the next smoke: group size is `--grpo-n-samples-per-prompt` (default 8; the old
+hardcoded 1 sample/prompt made every group-relative advantage reward − mean = 0,
+hence `kl=nan`; global batch derives as rollout_batch × n_samples), and the sid
+now also rides in the request body via SWE-agent's `completion_kwargs`
+(`user` + `extra_body.metadata.session_id`) so adapter session routing survives
+a dropped bearer (`adapter_session_empty` aborts, `response_length≈1`).
+
+W&B is the primary observability surface (module `src/w8_biayn/wandb_report.py`;
+one launch = one group = run id; per-stage runs `<run-id>-<stage>` with
+deterministic ids via `WANDB_RUN_ID` + a train-entry rename shim because pinned
+slime ignores `--wandb-run-id`). Where data goes: SLIME `train/*`/`rollout/*`
+natively; live `rollout_health/*` (abort reasons, zero-variance group fraction,
+correctness-gate rates, agent steps) from the generate hook via shared mode;
+`eval/*` + per-task tables + `eval/abort/<reason>` from the offline scorer onto
+the stage's own run (same keys overlay base/sft/grpo); uplift table + summary
+and launch outcome/config/checkpoint-reference-artifact on `<run-id>-pipeline`;
+`pipeline/elapsed_seconds` + a timeline table for milestones (never raw unix
+scalars); `wandb.alert` on all-abort evals, >30% abort rate, and failed
+launches. Push the curated saved view with
+`uv run --extra cloud w8-biayn wandb workspace` (wandb + wandb-workspaces live
+in the cloud extra).
 
 Use local receipts (`run.log`, `run_receipt.txt`, `vram_usage.csv`,
 `vram_peak.txt`), debug rollout dumps, W&B links when configured, and eval

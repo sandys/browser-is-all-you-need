@@ -86,13 +86,16 @@ loop are proven on GPU: GLM-4.7-Flash downloads and torch_dist-converts, and
 files it leaves. Two plumbing bugs from the first smoke are fixed and
 re-confirmed on GPU — Ray vs `--network host` (dissolved by the LocalDeployment
 switch) and a `tokenizers` bump breaking `transformers` (pinned by a
-frozen-env `--constraint` on the editable SWE-agent install). **Open before a
-full run:** GRPO NaNs because rollouts return with `response_length≈1` and the
-launcher requests one sample per prompt, so group-relative advantage has zero
-variance (`kl=nan`). Two fixes needed: set `n-samples-per-prompt >= 2`, and
-confirm the OpenAI adapter / `TrajectoryManager` actually captures the
-served-model tokens across SWE-agent turns (samples currently carry ~0 trained
-tokens).
+frozen-env `--constraint` on the editable SWE-agent install). The GRPO-NaN
+smoke's two causes are fixed and await the next bounded smoke: (1) group size
+was hardcoded to one sample per prompt (advantage = reward − mean(group) = 0
+for every sample) — now `--grpo-n-samples-per-prompt`, default 8, with the
+global batch derived; (2) all agentic samples aborted `adapter_session_empty`
+(`response_length≈1` is the abort signature) — the suspected sid-routing gap is
+closed by carrying the session id in the request body (`user` +
+`extra_body.metadata.session_id`) in addition to the bearer key. The
+`rollout_health/*` panels (abort reasons, zero-variance group fraction) are the
+instrument that confirms both on the smoke.
 
 ## Fresh Machine Setup
 
@@ -440,11 +443,33 @@ box:
 After a run, verify with
 `gcloud compute instances list --filter=labels.project=w8-biayn`.
 
-**Progress in W&B.** Alongside the per-stage runs, each launch writes a
-`<run-id>-pipeline` run (group = run id) with timestamped milestones
-(`host_preflight_done`, `data_restore_hit`/`data_build_done`,
-`model_download_finished`, `checkpoint_convert_finished`, `stage_*_started`),
-so the long remote preamble is visible from the W&B UI without reading logs.
+**Observability (W&B).** One launch = one W&B group (= the run id) containing
+per-stage runs with deterministic ids and distinct names (`<run-id>-<stage>`;
+the lanes pin `WANDB_RUN_ID` and the train-entry shim renames the live run,
+because pinned slime ignores `--wandb-run-id` and would name every run after
+the group). Each kind of data has one home, following the drill path
+*curve → distribution → sample → artifact*:
+
+| Data | Where |
+|---|---|
+| Training dynamics (kl, clipfrac, grad_norm, logprob drift) | SLIME `train/*`, `rollout/*` (native) |
+| Live rollout health (reward mean/std, **zero-variance group fraction** — the GRPO signal heartbeat, abort/format/compile/test/timeout rates, agent steps, wall time) | `rollout_health/*` in the same stage run, logged by the generate hook via SLIME's shared mode |
+| Distributions (reward, speedup, agent steps) | `wandb.Histogram` panels |
+| Eval outcomes per stage | `eval/*` on the stage's own run (same keys across base/sft/grpo → one overlay panel) + per-task `wandb.Table` + `eval/abort/<reason>` counts, from the offline scorer |
+| Uplift verdict | comparison `wandb.Table` + `uplift/*` summary on `<run-id>-pipeline` |
+| Setup timeline | `pipeline/elapsed_seconds` curve + one `pipeline/timeline` table (never raw unix scalars) |
+| Launch knobs / outcome / lineage | `wandb.config` (redacted `LaunchOptions`), `pipeline/outcome` summary, GCS checkpoint reference artifact |
+| Catastrophes | `wandb.alert`: all-abort evals, >30% abort rate with top reason, failed/interrupted launches |
+
+`uv run --extra cloud w8-biayn wandb workspace` pushes the curated saved view
+(sections: Uplift & Eval Comparison, Rollout Health, Training Dynamics,
+Pipeline) so the project does not render as an unordered metric dump. The
+agentic lane also enables SLIME's `--log-passrate`/`--log-multi-turn`
+(`passrate/*`, `multi_turn_metric/*`). GRPO group size is
+`--grpo-n-samples-per-prompt` (default 8; it must be >= 2 — one sample per
+prompt collapses every group-relative advantage to zero, the kl-NaN failure)
+and the global batch derives as `rollout_batch_size * n_samples_per_prompt`
+unless overridden.
 
 ## Moonlight MoE Smoke
 

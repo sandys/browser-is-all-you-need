@@ -122,11 +122,16 @@ GLM-4.7-Flash downloads and torch_dist-converts, and `base-eval → SFT →
 sft-eval` run the in-process SWE-agent loop and grade files. The two first-smoke
 plumbing bugs are fixed and re-confirmed (Ray vs `--network host`, resolved by
 LocalDeployment; a `tokenizers` bump breaking `transformers`, pinned by a
-frozen-env constraint on the editable install). Open before the full run: GRPO
-NaNs (`kl=nan`) because rollouts return `response_length≈1` and the launcher
-requests one sample per prompt — needs `n-samples-per-prompt >= 2` plus
-confirmation that the adapter/`TrajectoryManager` captures served-model tokens
-across SWE-agent turns.
+frozen-env constraint on the editable install). The GRPO-NaN causes are fixed
+pending the next smoke: group size is now `--grpo-n-samples-per-prompt`
+(default 8; one sample per prompt zeroed every group-relative advantage) with
+the global batch derived, and the sid now rides in the request body
+(`user` + `extra_body.metadata.session_id`) besides the bearer so adapter
+session routing cannot silently file turns under "default"
+(`adapter_session_empty`, `response_length≈1`). W&B is the verification
+instrument: live `rollout_health/*` (abort reasons, zero-variance group
+fraction), per-stage `eval/*` overlays, uplift tables, and alerts — see the
+README Observability section and `w8-biayn wandb workspace`.
 
 ## Stage 0: Prove The Local Runtime
 
