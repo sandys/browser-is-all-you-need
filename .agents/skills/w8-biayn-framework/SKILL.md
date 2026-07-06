@@ -295,6 +295,11 @@ launches. Push the curated saved view with
 `uv run --extra cloud w8-biayn wandb workspace` (wandb + wandb-workspaces live
 in the cloud extra).
 
+For a GPU box you SSH into yourself (no GCP/SkyPilot/Google keys), follow the
+README "SSH Manual Run" section: host setup + local PIE build, then
+`.w8-biayn/slime/run-container.sh` and the lane stages with `SLIME_*` env
+knobs; only `WANDB_KEY` from `.env` is needed, and checkpoints stay local.
+
 Use local receipts (`run.log`, `run_receipt.txt`, `vram_usage.csv`,
 `vram_peak.txt`), debug rollout dumps, W&B links when configured, and eval
 summaries for evidence. The paid GCP GLM full launch is

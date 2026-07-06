@@ -491,6 +491,98 @@ prompt collapses every group-relative advantage to zero, the kl-NaN failure)
 and the global batch derives as `rollout_batch_size * n_samples_per_prompt`
 unless overridden.
 
+## SSH Manual Run
+
+Use this when you SSH into a GPU machine you already own (no GCP, no SkyPilot,
+no Google keys) and want to run the GLM lanes by hand. Everything the paid
+launcher automates is reproducible from the repo checkout; the GCS dataset
+cache, checkpoint persist, autostop, and reaper simply do not apply — your
+box, your disk, your checkpoints. Assumptions: the repo source is on the node,
+Docker + the NVIDIA container toolkit work (`docker run --gpus all` succeeds),
+and `.env` at the repo root carries `WANDB_KEY` (see `.env.sample`; W&B is
+optional — without a key the lanes skip it). 8× 80GB GPUs match the default
+GLM parallelism (TP2 · PP2 · CP2 · EP4).
+
+1. Host setup (installs `uv`, checks tools, pulls the SLIME image, builds the
+   C++ grader image on the HOST daemon — the reward sandbox runs through the
+   mounted docker socket):
+
+   ```bash
+   ./scripts/bootstrap.sh --no-sky
+   uv run w8-biayn data doctor
+   uv run w8-biayn upstreams clone slime
+   uv run w8-biayn slime doctor
+   uv run w8-biayn slime setup          # writes .w8-biayn/slime/run-container.sh
+   uv run w8-biayn cpp harness preflight --cpu 3
+   ```
+
+2. Build the dataset locally on the node (downloads PIE, prepares, measures
+   coverage, admits tasks into `.w8-biayn/data/tasks-full`):
+
+   ```bash
+   uv run w8-biayn data pie download --out .w8-biayn/data/pie
+   uv run w8-biayn data pie prepare-full --source-root .w8-biayn/data/pie --out .w8-biayn/data/pie-full --force
+   uv run w8-biayn data pie measure-coverage --prepared-root .w8-biayn/data/pie-full \
+     --out .w8-biayn/data/pie-full/coverage.json --report-out .w8-biayn/data/pie-full/coverage-report.json
+   uv run w8-biayn data pie build-full-tasks --prepared-root .w8-biayn/data/pie-full \
+     --coverage-json .w8-biayn/data/pie-full/coverage.json --out .w8-biayn/data/tasks-full \
+     --min-train 1000 --min-validation 100 --min-test 100 --force
+   ```
+
+3. Enter the training container. It mounts the repo at
+   `/workspace/<repo-name>`, `$HOME/models` at `/root/models` (override with
+   `HOST_MODELS_DIR`), and the host docker socket (for the grader):
+
+   ```bash
+   bash .w8-biayn/slime/run-container.sh
+   ```
+
+4. Inside the container, set the run knobs. The env is NOT inherited from the
+   host shell, so export what you need here (the GLM checkpoint auto-downloads
+   to `/root/models/GLM-4.7-Flash` and torch_dist-converts on first use):
+
+   ```bash
+   cd /workspace/<repo-name>
+   # W&B (optional): the only key the tooling reads from .env
+   export WANDB_API_KEY="$(grep -m1 '^WANDB_KEY=' .env | cut -d= -f2-)"
+   export SLIME_WANDB_PROJECT=slime-glm47-cpp-perf   # enables W&B logging
+
+   export SLIME_RUN_ID="manual-$(date -u +%Y%m%d%H%M%S)"   # = W&B group
+   export SLIME_CPP_TRAIN_LIMIT=8 SLIME_CPP_EVAL_LIMIT=8   # bound the smoke; unset for full
+   export SLIME_GRPO_NUM_ROLLOUT=1                          # bump for real training
+   # Group size must stay >= 2 (defaults to 8); global batch derives from it.
+   # export SLIME_GRPO_N_SAMPLES_PER_PROMPT=8
+   # export SLIME_NUM_GPUS=8   # with fewer GPUs also override the parallelism
+   #                           # envs (SLIME_EXPERT_MODEL_PARALLEL_SIZE etc.)
+   ```
+
+5. Run the agentic lane stage by stage (single-turn lane: swap the directory
+   for `glm47_cpp_perf`):
+
+   ```bash
+   bash examples/slime/glm47_swe_agent_cpp_perf/prepare_data.sh
+   bash examples/slime/glm47_swe_agent_cpp_perf/eval_base.sh
+   bash examples/slime/glm47_swe_agent_cpp_perf/sft.sh
+   bash examples/slime/glm47_swe_agent_cpp_perf/eval_sft.sh
+   bash examples/slime/glm47_swe_agent_cpp_perf/grpo.sh
+   bash examples/slime/glm47_swe_agent_cpp_perf/eval_grpo.sh
+   bash examples/slime/glm47_swe_agent_cpp_perf/compare.sh
+   ```
+
+6. Results land under
+   `.w8-biayn/slime/glm47-cpp-perf/runs/<run-id>/` — per-stage
+   `run_receipt.txt`, `run.log`, VRAM traces, eval records/summaries, and
+   `eval/comparison.json` (the uplift verdict). With a W&B key the same run id
+   is the W&B group: per-stage runs, `rollout_health/*` live panels, eval
+   tables, and the pipeline timeline.
+
+Notes for manual boxes: checkpoints stay on the node (nothing persists to GCS
+— copy `runs/<run-id>/checkpoints` + `hf/` yourself if you need durability);
+there is no autostop or reaper, so nothing tears the machine down; the lane
+re-clones SWE-agent into `.cache/sweagent` at a pinned commit on first agentic
+stage; keep the swerex LocalDeployment invariants in mind if you hack on the
+driver (see the lane status section above).
+
 ## Moonlight MoE Smoke
 
 For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses a Moonlight-16B-A3B Instruct checkpoint, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.
