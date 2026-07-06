@@ -80,22 +80,36 @@ edit/bash loop in-process on the rollout worker through swerex `LocalDeployment`
 unique basename so the drivers do not fight over one working tree. Only the
 final-file grading crosses back into the hardened Docker sandbox.
 
-**Status (bounded A100-80GB:8 spot smoke).** The expensive setup and the agentic
-loop are proven on GPU: GLM-4.7-Flash downloads and torch_dist-converts, and
-`base-eval → SFT → sft-eval` all run the in-process SWE-agent loop and grade the
-files it leaves. Two plumbing bugs from the first smoke are fixed and
-re-confirmed on GPU — Ray vs `--network host` (dissolved by the LocalDeployment
-switch) and a `tokenizers` bump breaking `transformers` (pinned by a
-frozen-env `--constraint` on the editable SWE-agent install). The GRPO-NaN
-smoke's two causes are fixed and await the next bounded smoke: (1) group size
-was hardcoded to one sample per prompt (advantage = reward − mean(group) = 0
-for every sample) — now `--grpo-n-samples-per-prompt`, default 8, with the
-global batch derived; (2) all agentic samples aborted `adapter_session_empty`
-(`response_length≈1` is the abort signature) — the suspected sid-routing gap is
-closed by carrying the session id in the request body (`user` +
-`extra_body.metadata.session_id`) in addition to the bearer key. The
-`rollout_health/*` panels (abort reasons, zero-variance group fraction) are the
-instrument that confirms both on the smoke.
+**Status (after four bounded A100-80GB:8 spot smokes).** The agentic loop is
+fully proven on GPU: base-eval runs 48 SWE-agent episodes with **0% aborts and
+an 87.5% pass rate**, SFT (re)trains and exports, sft-eval grades the SFT
+model, and GRPO completes its rollout into the trainer. Every smoke converted
+a latent bug into a committed fix; the load-bearing lessons:
+
+- **swerex LocalDeployment shares one filesystem across every episode and
+  stage.** Its `upload` is a bare `shutil.copytree` (no `dirs_exist_ok`), and
+  SWE-agent uploads tool bundles to the fixed path `/root/tools/{bundle}` —
+  so episode 2+ died with `FileExistsError` before the first model call. The
+  driver monkeypatches the upload to be idempotent, gives each attempt a
+  unique repo basename, and removes the root-FS copy afterward.
+- **HF-export gates must demand real weight shards.** A GCS persist that fails
+  partway leaves `config.json` + `model.safetensors.index.json` without
+  shards; the old existence gate accepted that and SGLang hung ~85 min on a
+  weightless model. Gates now require `*.safetensors`/`*.bin`, restores prune
+  weightless exports, and the persist rsync is loud with a retry.
+- **Every sample that reaches the trainer must carry
+  `metadata.round_number`** — slime's `--log-multi-turn` does a direct dict
+  access, and abort husks do reach the trainer (also the mechanism behind the
+  original all-abort NaN). Success and abort paths both stamp it.
+- Earlier fixes hold: Ray vs `--network host` (dissolved by LocalDeployment),
+  `tokenizers` pinned via frozen-env `--constraint`, group size
+  `--grpo-n-samples-per-prompt` (default 8; 1 zeroes every group-relative
+  advantage), sid carried in the request body besides the bearer.
+
+Remaining: one clean GRPO train step + grpo-eval + compare end-to-end; the
+`rollout_health/*` panels (abort reasons, `trained_tokens_mean`,
+`zero_trained_tokens_rate`, zero-variance group fraction) are the live verdict
+instrument.
 
 ## Fresh Machine Setup
 

@@ -208,7 +208,13 @@ GLM agentic SWE-agent file-state lane. SWE-agent (not claude-code) edits
 `candidate.cpp` over many turns; the final FILE is graded in the repo's Docker
 sandbox (not E2B) and the correctness-gated reward flows via the OpenAI adapter
 `finish_session` (no `--custom-rm-path`). SFT stays single-turn; base/sft/grpo
-evals and GRPO are agentic:
+evals and GRPO are agentic. Lane invariants (each cost a paid smoke): swerex
+LocalDeployment shares one filesystem across episodes and stages, so the driver
+patches its non-idempotent `upload`, uses unique per-attempt repo basenames,
+and cleans the root-FS copy; HF-export gates require real weight shards (an
+index without shards hangs SGLang); every trainer-reaching sample — abort husks
+included — must carry `metadata.round_number` or slime's `--log-multi-turn`
+KeyErrors:
 
 ```bash
 bash examples/slime/glm47_swe_agent_cpp_perf/prepare_data.sh
@@ -229,7 +235,10 @@ ids/names; SLIME logs `train/*`/`rollout/*` natively; the agentic generate hook
 logs live `rollout_health/*` (abort reasons, zero-variance group fraction,
 correctness-gate rates) into the same stage run; the offline scorer publishes
 `eval/*` + per-task tables onto the stage's own run; uplift and launch outcome
-land on `<run-id>-pipeline`; failures fire `wandb.alert`. Push the curated
+land on `<run-id>-pipeline`; failures fire `wandb.alert`. Debug detail rides as
+queryable tables: dataset composition (`publish-dataset`), per-stage GPU memory
+(`publish-vram`), the SkyPilot lifecycle (`pipeline/launch_events`), and live
+token capture (`rollout_health/trained_tokens_*`). Push the curated
 saved view with `uv run --extra cloud w8-biayn wandb workspace`. GRPO group
 size must stay >= 2 (`--grpo-n-samples-per-prompt`, default 8; a group of one
 zeroes every group-relative advantage), with the global batch derived as

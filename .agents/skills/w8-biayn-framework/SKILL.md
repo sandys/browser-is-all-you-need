@@ -252,19 +252,33 @@ bash examples/slime/glm47_swe_agent_cpp_perf/eval_grpo.sh
 bash examples/slime/glm47_swe_agent_cpp_perf/compare.sh
 ```
 
-Status (bounded A100-80GB:8 spot smoke): setup + the agentic loop are GPU-proven
-— GLM-4.7-Flash downloads and torch_dist-converts, and `base-eval → SFT →
-sft-eval` run the in-process SWE-agent loop and grade files. Two first-smoke
-plumbing bugs are fixed and re-confirmed on GPU: Ray vs `--network host`
-(dissolved by the LocalDeployment switch above) and a `tokenizers` bump breaking
-`transformers` (pinned by a frozen-env `--constraint` on the editable SWE-agent
-install in `ensure_swe_agent_runtime`). The GRPO-NaN causes are fixed pending
-the next smoke: group size is `--grpo-n-samples-per-prompt` (default 8; the old
-hardcoded 1 sample/prompt made every group-relative advantage reward − mean = 0,
-hence `kl=nan`; global batch derives as rollout_batch × n_samples), and the sid
-now also rides in the request body via SWE-agent's `completion_kwargs`
-(`user` + `extra_body.metadata.session_id`) so adapter session routing survives
-a dropped bearer (`adapter_session_empty` aborts, `response_length≈1`).
+Status (after four bounded A100-80GB:8 spot smokes): the agentic loop is
+GPU-proven end-to-end short of one clean GRPO train step — base-eval runs 48
+SWE-agent episodes at 0% aborts / 87.5% pass, SFT (re)trains and exports,
+sft-eval grades the SFT model, and GRPO completes its rollout into the trainer.
+
+Hard-won invariants for this lane (each one cost a paid smoke; keep them):
+
+- **swerex LocalDeployment shares one filesystem across episodes AND stages.**
+  Its `upload` is bare `shutil.copytree` (no `dirs_exist_ok`); SWE-agent
+  uploads tool bundles to the fixed `/root/tools/{bundle}`. The driver
+  monkeypatches `LocalRuntime.upload` to be idempotent
+  (`_patch_swerex_local_upload`, a vendored-surface shim — re-check on swe-rex
+  pin bumps), uses a unique repo basename per attempt, and rmtrees the root-FS
+  copy afterward. Also note `/root/state.json` is shared by concurrent
+  episodes (tool-state bleed; accepted for now).
+- **HF-export gates require real weight shards** (`hf_export_ready`), restores
+  prune weightless exports, and the GCS persist is loud with one retry — an
+  index-without-shards restore once hung SGLang ~85 min.
+- **Every trainer-reaching sample needs `metadata.round_number`** (slime's
+  `--log-multi-turn` KeyErrors otherwise); abort husks reach the trainer, so
+  `_abort_result` stamps it too, plus `abort_reason`/`abort_error` (exception
+  message — never strip it to just the type name).
+- Group size `--grpo-n-samples-per-prompt` (default 8; 1 zeroes every
+  group-relative advantage, `kl=nan`); global batch derives as
+  rollout_batch × n_samples. The sid rides in the request body via SWE-agent's
+  `completion_kwargs` (`user` + `extra_body.metadata.session_id`) besides the
+  bearer.
 
 W&B is the primary observability surface (module `src/w8_biayn/wandb_report.py`;
 one launch = one group = run id; per-stage runs `<run-id>-<stage>` with

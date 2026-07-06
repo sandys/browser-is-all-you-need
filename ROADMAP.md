@@ -117,21 +117,22 @@ its edit/bash loop in-process on the rollout worker via swerex `LocalDeployment`
 final-file grading re-enters the Docker sandbox. See `slime_swe_agent_cpp_perf.py`
 and `swe_agent_driver.py`.
 
-Status (bounded A100 smoke): setup + the agentic loop are GPU-proven —
-GLM-4.7-Flash downloads and torch_dist-converts, and `base-eval → SFT →
-sft-eval` run the in-process SWE-agent loop and grade files. The two first-smoke
-plumbing bugs are fixed and re-confirmed (Ray vs `--network host`, resolved by
-LocalDeployment; a `tokenizers` bump breaking `transformers`, pinned by a
-frozen-env constraint on the editable install). The GRPO-NaN causes are fixed
-pending the next smoke: group size is now `--grpo-n-samples-per-prompt`
-(default 8; one sample per prompt zeroed every group-relative advantage) with
-the global batch derived, and the sid now rides in the request body
-(`user` + `extra_body.metadata.session_id`) besides the bearer so adapter
-session routing cannot silently file turns under "default"
-(`adapter_session_empty`, `response_length≈1`). W&B is the verification
-instrument: live `rollout_health/*` (abort reasons, zero-variance group
-fraction), per-stage `eval/*` overlays, uplift tables, and alerts — see the
-README Observability section and `w8-biayn wandb workspace`.
+Status (after four bounded A100 smokes): the agentic loop is GPU-proven
+end-to-end short of one clean GRPO train step — base-eval runs 48 SWE-agent
+episodes at 0% aborts / 87.5% pass, SFT (re)trains and exports, sft-eval grades
+the SFT model, and GRPO completes its rollout into the trainer. Fixes the
+smokes forced, in order: Ray vs `--network host` (LocalDeployment);
+`tokenizers` frozen-env constraint; group size `--grpo-n-samples-per-prompt`
+(default 8) + sid in the request body; swerex local-upload idempotency (fixed
+`/root/tools` + repo copytree collisions that aborted every episode after the
+first); weight-shard-validating HF export gates + loud/retried GCS persist +
+restore pruning (a weightless restored export hung SGLang ~85 min); and
+`metadata.round_number` stamped on abort husks (slime `--log-multi-turn`
+KeyErrors on any trainer-reaching sample without it). W&B is the verification
+instrument: live `rollout_health/*` (abort reasons + messages,
+trained-token capture, zero-variance group fraction), per-stage `eval/*`
+overlays, dataset/launch-events/VRAM tables, uplift tables, and alerts — see
+the README Observability section and `w8-biayn wandb workspace`.
 
 ## Stage 0: Prove The Local Runtime
 
