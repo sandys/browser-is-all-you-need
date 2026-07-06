@@ -780,6 +780,10 @@ def build_container_script() -> str:
         bash "${W8_LANE_DIR}/grpo.sh"
         bash "${W8_LANE_DIR}/eval_grpo.sh"
         bash "${W8_LANE_DIR}/compare.sh"
+        # Publish the whole launch timeline as one pipeline/timeline table.
+        python "$W8_GLM47_REPO_DIR/scripts/wandb_milestone.py" \
+          --project "$W8_GLM47_WANDB_PROJECT" --run-id "$W8_GLM47_RUN_ID" \
+          --event pipeline_complete --finalize >/dev/null 2>&1 || true
         """
     )
 
