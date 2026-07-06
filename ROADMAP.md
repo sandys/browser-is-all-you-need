@@ -117,6 +117,17 @@ its edit/bash loop in-process on the rollout worker via swerex `LocalDeployment`
 final-file grading re-enters the Docker sandbox. See `slime_swe_agent_cpp_perf.py`
 and `swe_agent_driver.py`.
 
+Status (bounded A100 smoke): setup + the agentic loop are GPU-proven —
+GLM-4.7-Flash downloads and torch_dist-converts, and `base-eval → SFT →
+sft-eval` run the in-process SWE-agent loop and grade files. The two first-smoke
+plumbing bugs are fixed and re-confirmed (Ray vs `--network host`, resolved by
+LocalDeployment; a `tokenizers` bump breaking `transformers`, pinned by a
+frozen-env constraint on the editable install). Open before the full run: GRPO
+NaNs (`kl=nan`) because rollouts return `response_length≈1` and the launcher
+requests one sample per prompt — needs `n-samples-per-prompt >= 2` plus
+confirmation that the adapter/`TrajectoryManager` captures served-model tokens
+across SWE-agent turns.
+
 ## Stage 0: Prove The Local Runtime
 
 Question:

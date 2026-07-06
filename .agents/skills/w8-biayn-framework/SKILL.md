@@ -248,6 +248,19 @@ bash examples/slime/glm47_swe_agent_cpp_perf/eval_grpo.sh
 bash examples/slime/glm47_swe_agent_cpp_perf/compare.sh
 ```
 
+Status (bounded A100-80GB:8 spot smoke): setup + the agentic loop are GPU-proven
+— GLM-4.7-Flash downloads and torch_dist-converts, and `base-eval → SFT →
+sft-eval` run the in-process SWE-agent loop and grade files. Two first-smoke
+plumbing bugs are fixed and re-confirmed on GPU: Ray vs `--network host`
+(dissolved by the LocalDeployment switch above) and a `tokenizers` bump breaking
+`transformers` (pinned by a frozen-env `--constraint` on the editable SWE-agent
+install in `ensure_swe_agent_runtime`). Open before the full run: GRPO NaNs
+(`kl=nan`) — rollouts return `response_length≈1` and the launcher requests one
+sample per prompt, so group-relative advantage has zero variance. Fixes: set
+`n-samples-per-prompt >= 2`, and confirm the OpenAI adapter / `TrajectoryManager`
+captures served-model tokens across SWE-agent turns (samples carry ~0 trained
+tokens today).
+
 Use local receipts (`run.log`, `run_receipt.txt`, `vram_usage.csv`,
 `vram_peak.txt`), debug rollout dumps, W&B links when configured, and eval
 summaries for evidence. The paid GCP GLM full launch is

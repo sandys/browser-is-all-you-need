@@ -80,6 +80,20 @@ edit/bash loop in-process on the rollout worker through swerex `LocalDeployment`
 unique basename so the drivers do not fight over one working tree. Only the
 final-file grading crosses back into the hardened Docker sandbox.
 
+**Status (bounded A100-80GB:8 spot smoke).** The expensive setup and the agentic
+loop are proven on GPU: GLM-4.7-Flash downloads and torch_dist-converts, and
+`base-eval → SFT → sft-eval` all run the in-process SWE-agent loop and grade the
+files it leaves. Two plumbing bugs from the first smoke are fixed and
+re-confirmed on GPU — Ray vs `--network host` (dissolved by the LocalDeployment
+switch) and a `tokenizers` bump breaking `transformers` (pinned by a
+frozen-env `--constraint` on the editable SWE-agent install). **Open before a
+full run:** GRPO NaNs because rollouts return with `response_length≈1` and the
+launcher requests one sample per prompt, so group-relative advantage has zero
+variance (`kl=nan`). Two fixes needed: set `n-samples-per-prompt >= 2`, and
+confirm the OpenAI adapter / `TrajectoryManager` actually captures the
+served-model tokens across SWE-agent turns (samples currently carry ~0 trained
+tokens).
+
 ## Fresh Machine Setup
 
 Run from a clean clone:
