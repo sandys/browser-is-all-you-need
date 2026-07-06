@@ -686,6 +686,14 @@ wandb_args() {
     if [ -n "${WANDB_KEY}" ]; then
       WANDB_ARGS+=(--wandb-key "${WANDB_KEY}")
     fi
+    # slime's wandb init ignores --wandb-run-id and names every run after the
+    # group, leaving all stages of a launch indistinguishable. Two repo-owned
+    # fixes: WANDB_RUN_ID (wandb.init falls back to it when no id is passed)
+    # pins a deterministic per-stage id -- crash retries resume it and the
+    # offline eval scorer decorates the same run -- and slime_train_entry
+    # renames the live run to SLIME_WANDB_RUN_NAME right after init_tracking.
+    export WANDB_RUN_ID="${SLIME_WANDB_RUN_ID:-${RUN_ID}-${STAGE}}"
+    export SLIME_WANDB_RUN_NAME="${WANDB_RUN_ID}"
   fi
 }
 
@@ -936,6 +944,8 @@ for key in (
     "WANDB_MODE",
     "WANDB_ENTITY",
     "WANDB_BASE_URL",
+    "WANDB_RUN_ID",
+    "SLIME_WANDB_RUN_NAME",
     "DOCKER_HOST",
 ):
     if key in os.environ:

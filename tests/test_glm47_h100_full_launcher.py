@@ -327,6 +327,23 @@ def test_cli_launch_glm47_full_rejects_disallowed_region(tmp_path) -> None:
     assert "us-central1" in result.output
 
 
+def test_lanes_pin_deterministic_stage_run_identity() -> None:
+    # slime's wandb init ignores --wandb-run-id and names every run after the
+    # group; the lanes must pin a deterministic per-stage id via the WANDB_RUN_ID
+    # env fallback and hand the display name to the train-entry rename shim.
+    agentic = ROOT / "examples/slime/glm47_swe_agent_cpp_perf/glm47_swe_agent_cpp_perf.sh"
+    entry = ROOT / "src/w8_biayn/integrations/slime_train_entry.py"
+    for runner in (RUNNER, agentic):
+        text = runner.read_text(encoding="utf-8")
+        assert 'export WANDB_RUN_ID="${SLIME_WANDB_RUN_ID:-${RUN_ID}-${STAGE}}"' in text
+        assert 'export SLIME_WANDB_RUN_NAME="${WANDB_RUN_ID}"' in text
+        # both must reach the Ray job, not just the lane shell
+        assert '"WANDB_RUN_ID",' in text
+        assert '"SLIME_WANDB_RUN_NAME",' in text
+    entry_text = entry.read_text(encoding="utf-8")
+    assert "init_tracking(args)\n    _apply_wandb_run_name()" in entry_text
+
+
 def test_glm_runner_default_parallelism_fits_eight_gpus() -> None:
     text = RUNNER.read_text(encoding="utf-8")
 

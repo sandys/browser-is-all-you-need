@@ -90,6 +90,29 @@ def _patch_final_train_sleep() -> None:
     actor_module.MegatronTrainRayActor.save_model = patched_save_model
 
 
+def _apply_wandb_run_name() -> None:
+    """Rename the live W&B run to the per-stage name the lane exports.
+
+    slime's ``init_wandb_primary`` ignores ``--wandb-run-id`` and sets the run
+    NAME to the group, so every stage of one launch displays identically in the
+    runs table. The run id is already stage-unique via the ``WANDB_RUN_ID`` env
+    fallback; this fixes the display name. Vendored-shim note: re-check against
+    ``slime/utils/wandb_utils.py`` on every SLIME_PIN bump.
+    """
+
+    name = os.environ.get("SLIME_WANDB_RUN_NAME", "").strip()
+    if not name:
+        return
+    try:
+        import wandb
+
+        if wandb.run is not None and wandb.run.name != name:
+            wandb.run.name = name
+            LOGGER.info("Renamed W&B run to %s", name)
+    except Exception:  # pragma: no cover - display-name polish must never kill training
+        LOGGER.warning("Could not rename W&B run to %s", name, exc_info=True)
+
+
 def train(args):  # type: ignore[no-untyped-def]
     from slime.ray.placement_group import create_placement_groups, create_rollout_manager, create_training_models
     from slime.utils.logging_utils import configure_logger, finish_tracking, init_tracking
@@ -98,6 +121,7 @@ def train(args):  # type: ignore[no-untyped-def]
     configure_logger()
     placement_groups = create_placement_groups(args)
     init_tracking(args)
+    _apply_wandb_run_name()
 
     rollout_manager, num_rollout_per_epoch = create_rollout_manager(args, placement_groups["rollout"])
     actor_model, critic_model = create_training_models(args, placement_groups, rollout_manager)
