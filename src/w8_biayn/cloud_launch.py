@@ -628,11 +628,25 @@ def build_run_script() -> str:
           # on EXIT, so a partially-completed run (e.g. SFT done, GRPO failed)
           # still saves what finished. Best-effort; never fails the run.
           if [ -d "$W8_REMOTE_RUN_ROOT/checkpoints" ] || [ -d "$W8_REMOTE_RUN_ROOT/hf" ]; then
-            gcloud storage rsync --recursive "$W8_REMOTE_RUN_ROOT" \
-              "gs://${{W8_GLM47_ARTIFACT_BUCKET}}/runs/glm47/${{W8_GLM47_RUN_ID}}" \
-              --exclude ".*rollout_dumps.*" >/dev/null 2>&1 \
-              && echo "checkpoints persisted to gs://${{W8_GLM47_ARTIFACT_BUCKET}}/runs/glm47/${{W8_GLM47_RUN_ID}}" \
-              || echo "checkpoint persist skipped (no bucket write?)" >&2
+            # Loud, retried persist: a silently swallowed rsync failure once
+            # left an HF export in GCS with index/config but NO weight shards,
+            # poisoning the next resumed run.
+            persist_ok=0
+            for persist_try in 1 2; do
+              if gcloud storage rsync --recursive "$W8_REMOTE_RUN_ROOT" \
+                   "gs://${{W8_GLM47_ARTIFACT_BUCKET}}/runs/glm47/${{W8_GLM47_RUN_ID}}" \
+                   --exclude ".*rollout_dumps.*"; then
+                persist_ok=1
+                break
+              fi
+              echo "checkpoint persist attempt $persist_try FAILED; retrying" >&2
+              sleep 15
+            done
+            if [ "$persist_ok" = 1 ]; then
+              echo "checkpoints persisted to gs://${{W8_GLM47_ARTIFACT_BUCKET}}/runs/glm47/${{W8_GLM47_RUN_ID}}"
+            else
+              echo "CHECKPOINT PERSIST FAILED after retries; this run is NOT resumable" >&2
+            fi
           fi
           mkdir -p "$W8_REMOTE_EXPORT_ROOT/data-build"
           for evidence in .w8-biayn/data/pie-full/coverage-report.json .w8-biayn/data/pie-full/coverage.json .w8-biayn/data/tasks-full/_w8_task_build_report.json; do
@@ -712,6 +726,18 @@ def build_run_script() -> str:
                "$W8_REMOTE_RUN_ROOT"; then
             export SLIME_RESUME_SKIP_COMPLETED=1
             echo "resumed checkpoints from run ${{W8_GLM47_RESUME_FROM}}"
+            # Prune weightless HF exports: a persist that failed mid-upload
+            # leaves index/config without shards, which passes naive existence
+            # checks and hangs SGLang on a weightless model. Delete such
+            # exports so the lane retrains/re-exports instead.
+            for hf_index in "$W8_REMOTE_RUN_ROOT"/hf/*/rollout_*/model.safetensors.index.json; do
+              [ -f "$hf_index" ] || continue
+              hf_dir="$(dirname "$hf_index")"
+              if ! ls "$hf_dir"/*.safetensors >/dev/null 2>&1; then
+                echo "pruning weightless restored HF export: $hf_dir" >&2
+                rm -rf "$hf_dir"
+              fi
+            done
           else
             echo "resume source gs://.../runs/glm47/${{W8_GLM47_RESUME_FROM}} not found; starting fresh" >&2
           fi

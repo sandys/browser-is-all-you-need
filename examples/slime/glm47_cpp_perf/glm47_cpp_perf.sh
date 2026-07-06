@@ -299,7 +299,10 @@ checkpoint_ready() {
 
 hf_export_ready() {
   local checkpoint_dir="$1"
-  [ -f "${checkpoint_dir}/config.json" ] && find "${checkpoint_dir}" -maxdepth 1 -type f \( -name "*.safetensors" -o -name "*.bin" -o -name "model.safetensors.index.json" -o -name "pytorch_model.bin.index.json" \) -print -quit | grep -q .
+  # Requires ACTUAL weight shards. An index.json without its shards (e.g. a
+  # GCS persist that failed partway) previously satisfied this gate and hung
+  # SGLang for ~85 minutes trying to load a weightless model.
+  [ -f "${checkpoint_dir}/config.json" ] && find "${checkpoint_dir}" -maxdepth 1 -type f \( -name "*.safetensors" -o -name "*.bin" \) ! -name "*.index.json" -print -quit | grep -q .
 }
 
 ensure_slime_runtime() {

@@ -384,6 +384,22 @@ def test_launcher_reports_pipeline_outcome_to_wandb() -> None:
     assert '"skypilot_pin": SKYPILOT_PIN' in text
 
 
+def test_hf_export_gates_require_weight_shards_and_persist_is_validated() -> None:
+    # A GCS persist that failed mid-upload left index/config WITHOUT shards;
+    # the old gate accepted the index alone and SGLang hung ~85 min on a
+    # weightless model. Gates must demand real shards, restores must prune
+    # weightless exports, and the persist must fail LOUDLY with a retry.
+    agentic = ROOT / "examples/slime/glm47_swe_agent_cpp_perf/glm47_swe_agent_cpp_perf.sh"
+    for runner in (RUNNER, agentic):
+        text = runner.read_text(encoding="utf-8")
+        assert '! -name "*.index.json"' in text
+        assert '-o -name "model.safetensors.index.json"' not in text
+    launch_text = LAUNCH_MODULE.read_text(encoding="utf-8")
+    assert "pruning weightless restored HF export" in launch_text
+    assert "CHECKPOINT PERSIST FAILED after retries" in launch_text
+    assert ">/dev/null 2>&1" not in launch_text.split("Loud, retried persist")[1].split("fi")[0]
+
+
 def test_lanes_publish_dataset_and_vram_tables() -> None:
     agentic = ROOT / "examples/slime/glm47_swe_agent_cpp_perf/glm47_swe_agent_cpp_perf.sh"
     for runner in (RUNNER, agentic):
