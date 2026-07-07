@@ -529,7 +529,10 @@ box, your disk, your checkpoints. Assumptions: the repo source is on the node,
 Docker + the NVIDIA container toolkit work (`docker run --gpus all` succeeds),
 and `.env` at the repo root carries `WANDB_KEY` (see `.env.sample`; W&B is
 optional — without a key the lanes skip it). 8× 80GB GPUs match the default
-GLM parallelism (TP2 · PP2 · CP2 · EP4).
+GLM parallelism (TP2 · PP2 · CP2 · EP4). Before a long run,
+`uv run w8-biayn ops net-check` (keyless) probes connectivity — on a manual
+box GitHub (SWE-agent clone, model download) and `api.wandb.ai` are the ones
+that matter; the googleapis probes are only relevant with GCP.
 
 1. Host setup (installs `uv`, checks tools, pulls the SLIME image, builds the
    C++ grader image on the HOST daemon — the reward sandbox runs through the
@@ -582,6 +585,10 @@ GLM parallelism (TP2 · PP2 · CP2 · EP4).
    # export SLIME_GRPO_N_SAMPLES_PER_PROMPT=8
    # export SLIME_NUM_GPUS=8   # with fewer GPUs also override the parallelism
    #                           # envs (SLIME_EXPERT_MODEL_PARALLEL_SIZE etc.)
+   # Adapter fork/merge threshold (defaults 4096; keep > the response budget).
+   # Watch rollout_health/fork_samples_dropped_mean in W&B: persistently high
+   # means trained tokens are being discarded to keep GRPO's group shape.
+   # export SLIME_SWE_FORK_MERGE_MAX_RESPONSE_TOKENS=4096
    ```
 
 5. Run the agentic lane stage by stage (single-turn lane: swap the directory
