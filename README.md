@@ -80,11 +80,16 @@ edit/bash loop in-process on the rollout worker through swerex `LocalDeployment`
 unique basename so the drivers do not fight over one working tree. Only the
 final-file grading crosses back into the hardened Docker sandbox.
 
-**Status (after four bounded A100-80GB:8 spot smokes).** The agentic loop is
-fully proven on GPU: base-eval runs 48 SWE-agent episodes with **0% aborts and
-an 87.5% pass rate**, SFT (re)trains and exports, sft-eval grades the SFT
-model, and GRPO completes its rollout into the trainer. Every smoke converted
-a latent bug into a committed fix; the load-bearing lessons:
+**Status: the pipeline is proven END-TO-END.** Run `w8swe-20260707091714`
+completed all seven stages in 78 minutes on an A100-80GB:8 spot box —
+base-eval → SFT → sft-eval → **GRPO with a clean weight update** → grpo-eval →
+compare — with the verdict on the live panels: `train/ppo_kl` finite,
+`grad_norm` 5.6, `zero_variance_group_fraction` 0, `trained_tokens_mean` 161,
+1/16 aborts, 87.5% eval pass across all three model stages, and the run's
+checkpoints + HF exports fully persisted to GCS (resumable). The
+eight-smoke campaign that got here converted every failure into a committed
+fix and a regression lint (`tests/test_regression_lints.py`, one guard per
+paid incident); the load-bearing lessons:
 
 - **swerex LocalDeployment shares one filesystem across every episode and
   stage.** Its `upload` is a bare `shutil.copytree` (no `dirs_exist_ok`), and
@@ -101,15 +106,28 @@ a latent bug into a committed fix; the load-bearing lessons:
   `metadata.round_number`** — slime's `--log-multi-turn` does a direct dict
   access, and abort husks do reach the trainer (also the mechanism behind the
   original all-abort NaN). Success and abort paths both stamp it.
+- **GRPO needs exactly one trainable sample per episode.** GLM's chat template
+  strips `<think>` from history, so turns re-tokenize past the adapter's fork
+  threshold and a 3-turn episode drained 3 samples (48 rewards where the
+  `(prompts × n_samples)` reshape expected 16). The lane raises the merge
+  threshold and the hook keeps the fork with the most trained tokens,
+  reporting drops as `rollout_health/fork_samples_dropped_mean`.
+- **Spot preemption is a delay, not a hang.** A vanished cluster returns
+  `CLUSTER_LOST` into the provisioning retry loop (it once ghost-polled for
+  two hours); network reachability is preflighted before any spend and
+  watchdogged throughout (`net_degraded`/`net_recovered` launch events,
+  `w8-biayn ops net-check` for the manual probe).
 - Earlier fixes hold: Ray vs `--network host` (dissolved by LocalDeployment),
   `tokenizers` pinned via frozen-env `--constraint`, group size
   `--grpo-n-samples-per-prompt` (default 8; 1 zeroes every group-relative
-  advantage), sid carried in the request body besides the bearer.
+  advantage), sid carried in the request body besides the bearer, pinned
+  upstream fetches skipped when the commit is already local.
 
-Remaining: one clean GRPO train step + grpo-eval + compare end-to-end; the
-`rollout_health/*` panels (abort reasons, `trained_tokens_mean`,
-`zero_trained_tokens_rate`, zero-variance group fraction) are the live verdict
-instrument.
+Open before a full run: the fork-merge threshold did not actually prevent
+3-way episode forks (the keep-best guard preserved group math but discards
+~2/3 of captured tokens — investigate adapter REALIGN vs GLM think-stripping),
+plus the pre-existing full-run gates (thinking budget, PIE admission
+coverage, model/torch_dist GCS cache).
 
 ## Fresh Machine Setup
 
@@ -459,6 +477,16 @@ box:
 After a run, verify with
 `gcloud compute instances list --filter=labels.project=w8-biayn`.
 
+**Network honesty.** Every launch probes its dependencies
+(compute/storage.googleapis.com, GitHub, W&B) BEFORE spending — unreachable
+GCP endpoints fail the launch fast — and a watchdog thread reports
+`net_degraded` / `net_still_degraded` / `net_recovered` transitions into the
+console log and the `pipeline/launch_events` table for the whole run (a local
+DNS blip once stalled provisioning in silent client retries). A vanished spot
+cluster is terminal (`CLUSTER_LOST`) and re-enters the provisioning retry
+loop instead of being polled forever. Manual probe:
+`uv run w8-biayn ops net-check`.
+
 **Observability (W&B).** One launch = one W&B group (= the run id) containing
 per-stage runs with deterministic ids and distinct names (`<run-id>-<stage>`;
 the lanes pin `WANDB_RUN_ID` and the train-entry shim renames the live run,
@@ -705,6 +733,7 @@ src/w8_biayn/slime_integration/setup.py      SLIME container launcher/bootstrap 
 src/w8_biayn/slime_integration/sandbox.py    SLIME agent sandbox backends
 src/w8_biayn/slime_integration/lora.py       runtime-native LoRA flag resolution
 src/w8_biayn/wandb_report.py                 W&B data->surface contract (eval/health metrics, tables, artifacts, alerts, workspace template)
+src/w8_biayn/net_health.py                   reachability probes, launch preflight, net watchdog (ops net-check)
 src/w8_biayn/reporting.py                    raw Markdown/CSV/SVG run evidence reports
 src/w8_biayn/shell.py                        dry-run-aware subprocess wrapper
 src/w8_biayn/gcp_auth.py                     scoped GCP auth

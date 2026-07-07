@@ -117,22 +117,22 @@ its edit/bash loop in-process on the rollout worker via swerex `LocalDeployment`
 final-file grading re-enters the Docker sandbox. See `slime_swe_agent_cpp_perf.py`
 and `swe_agent_driver.py`.
 
-Status (after four bounded A100 smokes): the agentic loop is GPU-proven
-end-to-end short of one clean GRPO train step — base-eval runs 48 SWE-agent
-episodes at 0% aborts / 87.5% pass, SFT (re)trains and exports, sft-eval grades
-the SFT model, and GRPO completes its rollout into the trainer. Fixes the
-smokes forced, in order: Ray vs `--network host` (LocalDeployment);
-`tokenizers` frozen-env constraint; group size `--grpo-n-samples-per-prompt`
-(default 8) + sid in the request body; swerex local-upload idempotency (fixed
-`/root/tools` + repo copytree collisions that aborted every episode after the
-first); weight-shard-validating HF export gates + loud/retried GCS persist +
-restore pruning (a weightless restored export hung SGLang ~85 min); and
-`metadata.round_number` stamped on abort husks (slime `--log-multi-turn`
-KeyErrors on any trainer-reaching sample without it). W&B is the verification
-instrument: live `rollout_health/*` (abort reasons + messages,
-trained-token capture, zero-variance group fraction), per-stage `eval/*`
-overlays, dataset/launch-events/VRAM tables, uplift tables, and alerts — see
-the README Observability section and `w8-biayn wandb workspace`.
+Status: **proven end-to-end.** Run `w8swe-20260707091714` completed all seven
+stages in 78 minutes on spot A100s — including a clean GRPO weight update
+(`train/ppo_kl` finite, `zero_variance_group_fraction` 0,
+`trained_tokens_mean` 161, 87.5% eval pass at every stage) — with checkpoints
+and HF exports fully persisted to GCS. The eight-smoke campaign's fixes are
+each pinned by a regression lint (`tests/test_regression_lints.py`): swerex
+shared-filesystem collisions, weight-shard export gates + readable/loud/
+retried persist, `round_number` on every trainer sample, one trainable sample
+per episode (GRPO group shape), pin-local upstream fetches, network
+preflight + watchdog, and `CLUSTER_LOST` spot-preemption auto-retry. W&B is
+the verification instrument throughout (README Observability section,
+`w8-biayn wandb workspace`). Open before the full run: episode forks still
+occur at 3/episode (the keep-best guard preserves group math but discards
+~2/3 of captured tokens — investigate adapter REALIGN vs GLM think-stripping)
+plus the pre-existing gates (thinking budget, PIE admission coverage,
+model/torch_dist GCS cache).
 
 ## Stage 0: Prove The Local Runtime
 

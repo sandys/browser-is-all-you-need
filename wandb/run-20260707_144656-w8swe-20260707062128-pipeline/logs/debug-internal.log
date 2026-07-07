@@ -1,0 +1,13 @@
+{"time":"2026-07-07T14:46:56.813951357+05:30","level":"INFO","msg":"stream: starting","core version":"0.21.4"}
+{"time":"2026-07-07T14:46:57.359794035+05:30","level":"INFO","msg":"stream: created new stream","id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:46:57.359833321+05:30","level":"INFO","msg":"stream: started","id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:46:57.359902229+05:30","level":"INFO","msg":"writer: started","stream_id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:46:57.359925706+05:30","level":"INFO","msg":"handler: started","stream_id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:46:57.35997757+05:30","level":"INFO","msg":"sender: started","stream_id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:47:01.578880067+05:30","level":"INFO","msg":"handler: operation stats","stats":{"operations":[{"desc":"updating run metadata","runtime_seconds":3.38149642},{"desc":"uploading artifact run-w8swe-20260707062128-pipeline-pipelinelaunch_events-B0VvFg","runtime_seconds":2.366629902,"subtasks":[{"desc":"pipeline/launch_events.table.json","runtime_seconds":0.405705634,"progress":"1.0KB/1.0KB"}]},{"desc":"uploading artifact w8swe-20260707062128-checkpoints","runtime_seconds":0.392879772}],"total_operations":3}}
+{"time":"2026-07-07T14:47:01.922730136+05:30","level":"INFO","msg":"sender: sendAlert: notified scriptable run alert","data":{"notifyScriptableRunAlert":{"success":true}}}
+{"time":"2026-07-07T14:47:03.661898883+05:30","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-07-07T14:47:04.185102175+05:30","level":"INFO","msg":"stream: closing","id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:47:04.185130244+05:30","level":"INFO","msg":"handler: closed","stream_id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:47:04.185195109+05:30","level":"INFO","msg":"sender: closed","stream_id":"w8swe-20260707062128-pipeline"}
+{"time":"2026-07-07T14:47:04.185202734+05:30","level":"INFO","msg":"stream: closed","id":"w8swe-20260707062128-pipeline"}

@@ -73,6 +73,9 @@ upstream repos or data.
 - SLIME C++ bridge: `src/w8_biayn/integrations/slime_cpp_perf.py`
 - W&B reporting layer (metrics/tables/artifacts/alerts/workspace):
   `src/w8_biayn/wandb_report.py`
+- Network reachability probes + launch watchdog: `src/w8_biayn/net_health.py`
+- Regression lints (one guard per paid incident):
+  `tests/test_regression_lints.py`
 - Pipeline milestone logger (standalone, host+container):
   `scripts/wandb_milestone.py`
 - SLIME train entry wrapper:
@@ -252,10 +255,15 @@ bash examples/slime/glm47_swe_agent_cpp_perf/eval_grpo.sh
 bash examples/slime/glm47_swe_agent_cpp_perf/compare.sh
 ```
 
-Status (after four bounded A100-80GB:8 spot smokes): the agentic loop is
-GPU-proven end-to-end short of one clean GRPO train step — base-eval runs 48
-SWE-agent episodes at 0% aborts / 87.5% pass, SFT (re)trains and exports,
-sft-eval grades the SFT model, and GRPO completes its rollout into the trainer.
+Status: **proven end-to-end** (run `w8swe-20260707091714`, 78 min, all seven
+stages incl. a clean GRPO weight update: finite kl, zero-variance-fraction 0,
+trained_tokens_mean 161, 87.5% eval pass everywhere, checkpoints + HF exports
+persisted to GCS). Every campaign incident is pinned by a regression lint in
+`tests/test_regression_lints.py` — if one fires, read its docstring before
+"fixing" the assert. Open before a full run: episodes still fork 3-ways in
+the adapter (keep-best guard preserves GRPO group shape but discards ~2/3 of
+captured tokens; investigate REALIGN vs GLM think-stripping), plus thinking
+budget, PIE admission coverage, and the model/torch_dist GCS cache.
 
 Hard-won invariants for this lane (each one cost a paid smoke; keep them):
 
@@ -279,6 +287,17 @@ Hard-won invariants for this lane (each one cost a paid smoke; keep them):
   rollout_batch × n_samples. The sid rides in the request body via SWE-agent's
   `completion_kwargs` (`user` + `extra_body.metadata.session_id`) besides the
   bearer.
+- **Exactly one trainable sample per episode**: slime reshapes rewards as
+  (prompts × n_samples) and `--log-passrate` asserts on it; the hook keeps the
+  fork with the most trained tokens and reports drops as
+  `rollout_health/fork_samples_dropped_mean`.
+- **Network failures bubble up**: launches preflight reachability before
+  spending (hard-fail on dead googleapis), a watchdog emits
+  `net_degraded`/`net_recovered` launch events throughout, and a vanished spot
+  cluster returns `CLUSTER_LOST` into the provisioning retry loop instead of
+  being ghost-polled. Manual probe: `w8-biayn ops net-check`
+  (`src/w8_biayn/net_health.py`). Pinned upstream fetches skip the network
+  when the commit is already local.
 
 W&B is the primary observability surface (module `src/w8_biayn/wandb_report.py`;
 one launch = one group = run id; per-stage runs `<run-id>-<stage>` with

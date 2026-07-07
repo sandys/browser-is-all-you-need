@@ -287,6 +287,11 @@ that hardware. Any cloud helper must:
 - avoid printing credential contents;
 - pin the SkyPilot client version it invokes and treat `sky.launch` as
   submission-only, waiting for a terminal job state before any teardown;
+- preflight network reachability before spending and watchdog it for the whole
+  launch (`net_degraded`/`net_recovered` launch events via
+  `w8_biayn.net_health`; manual probe `w8-biayn ops net-check`), and treat a
+  vanished cluster as terminal (`CLUSTER_LOST` re-enters the provisioning
+  retry loop; never ghost-poll a preempted box);
 - arm a cluster-side autostop-down (`idle_minutes_to_autostop` with
   `down=True`) so a killed launcher process cannot orphan a paid box; the
   manual reaper `w8-biayn ops down-run <run-id> --execute` stays the last
@@ -315,6 +320,8 @@ examples/slime/multi_agent/                  generic text-only SLIME smoke
 src/local.py                                 Moonlight Megatron local-layer shim
 src/w8_biayn/cloud_launch.py                 SkyPilot-backed paid GLM launch (w8-biayn launch glm47-full)
 src/w8_biayn/wandb_report.py                 W&B data->surface contract (eval/health metrics, tables, artifacts, alerts, workspace template)
+src/w8_biayn/net_health.py                   reachability probes, launch preflight, net watchdog (ops net-check)
+tests/test_regression_lints.py               one guard per bug the GPU smoke campaign paid to find
 src/w8_biayn/cpp_perf/                       PIE task, prompt, sandbox, reward, eval code
 src/w8_biayn/slime_integration/              SLIME doctor/setup/sandbox helpers
 src/w8_biayn/integrations/slime_cpp_perf.py  SLIME C++ data/reward/eval bridge
