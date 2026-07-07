@@ -1656,6 +1656,26 @@ def gcp_cleanup(
     )
 
 
+@ops_app.command("net-check")
+def ops_net_check() -> None:
+    """Probe the endpoints a launch depends on (GCP APIs, GCS, GitHub, W&B).
+
+    A launch once stalled in silent client-library retries because local DNS
+    died mid-provision; this is the manual version of the launch preflight and
+    watchdog. Exits nonzero when any endpoint is unreachable.
+    """
+
+    from .net_health import check_endpoints
+
+    statuses = check_endpoints()
+    failed = 0
+    for status in statuses:
+        console.print(("[green]ok[/green]    " if status.ok else "[red]FAIL[/red]  ") + status.describe())
+        failed += 0 if status.ok else 1
+    if failed:
+        raise typer.Exit(code=1)
+
+
 @ops_app.command("status")
 def ops_status(
     credentials: str = typer.Option(DEFAULT_CREDENTIALS_PATH, help="Path to local GCP service-account JSON."),

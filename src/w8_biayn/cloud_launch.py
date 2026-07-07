@@ -23,6 +23,7 @@ import textwrap
 import time
 from typing import IO, Any
 
+from . import net_health
 from .constants import DEFAULT_CREDENTIALS_PATH, SKYPILOT_PIN, SLIME_PIN
 from .gcp_auth import service_account_env
 from .secrets import default_bucket_for_project, get_project_id
@@ -255,6 +256,28 @@ def launch_glm47_full(options: LaunchOptions) -> int:
 
     _LAUNCH_EVENTS.clear()
     _launch_event("launch_started", f"run_id={options.run_id} lane={options.lane} spot={options.use_spot}")
+
+    # Reachability preflight: fail fast BEFORE a paid box exists when the GCP
+    # control plane is unreachable, and record every degraded endpoint. A
+    # launch once stalled in silent googleapiclient retries on local DNS.
+    statuses = net_health.preflight()
+    for status in statuses:
+        print(f"net_check: {status.describe()}", flush=True)
+        if not status.ok:
+            _launch_event("net_preflight_degraded", status.describe())
+    hard_down = [s for s in statuses if not s.ok and s.host.endswith("googleapis.com")]
+    if hard_down:
+        raise LaunchError(
+            "GCP endpoints unreachable after retries: "
+            + ", ".join(s.describe() for s in hard_down)
+            + " -- fix local network/DNS before launching."
+        )
+
+    # Live watchdog for the whole launch: connectivity changes surface as
+    # net_degraded/net_recovered launch events (console + W&B table) instead
+    # of silent client-library retry loops.
+    watchdog = net_health.NetWatchdog(on_event=_launch_event)
+    watchdog.start()
     cluster_acquired = False
     training_status = 1
     with log_path.open("a", encoding="utf-8") as log_file:
@@ -301,6 +324,7 @@ def launch_glm47_full(options: LaunchOptions) -> int:
                     _launch_event("teardown_done", f"cluster={options.cluster_name}")
                 else:
                     print("No cluster was acquired; nothing to tear down.", flush=True)
+                watchdog.stop()
                 _report_pipeline_outcome(options, wandb_api_key=wandb_api_key, status=training_status)
 
             print(f"orchestrator_log={log_path}")
@@ -372,6 +396,15 @@ def _report_pipeline_outcome(options: LaunchOptions, *, wandb_api_key: str, stat
         outcome = {0: "succeeded", 130: "interrupted"}.get(status, "failed")
         run.summary["pipeline/outcome"] = outcome
         run.summary["pipeline/exit_status"] = status
+        net_events = [e for e in _LAUNCH_EVENTS if str(e.get("event", "")).startswith("net_")]
+        run.summary["pipeline/net_degraded_events"] = len(net_events)
+        if net_events:
+            wandb_report.alert(
+                run,
+                title=f"network degradation during launch {options.run_id}",
+                text="; ".join(f"{e['event']} {e.get('detail', '')}" for e in net_events[:8]),
+                level="WARN",
+            )
         try:
             run.config.update(
                 {
