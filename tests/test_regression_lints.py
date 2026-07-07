@@ -182,6 +182,17 @@ def test_lint_network_failures_must_bubble_up() -> None:
     assert "net_degraded" in net and "net_recovered" in net and "net_still_degraded" in net
 
 
+def test_lint_vanished_cluster_is_terminal_not_retryable() -> None:
+    """Incident: a spot preemption left the job-status poll retrying
+    ClusterDoesNotExist for ~2 hours. A gone cluster (or persistent tracking
+    failure) must return CLUSTER_LOST so the provisioning retry loop resumes."""
+
+    assert 'return "CLUSTER_LOST"' in LAUNCHER
+    assert "ClusterDoesNotExist" in LAUNCHER
+    assert "max_status_failures" in LAUNCHER
+    assert '_launch_event("cluster_lost"' in LAUNCHER
+
+
 def test_lint_teardown_is_tag_keyed_and_reaper_exists() -> None:
     """Incident-class: paid boxes must always be findable and killable by run
     id, independent of any launcher state."""

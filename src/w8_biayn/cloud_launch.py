@@ -573,9 +573,19 @@ def _acquire_and_run(
     return False
 
 
-def _wait_for_job_completion(sky: Any, cluster_name: str, job_id: int, *, poll_seconds: int = 30) -> str:
-    """Stream job logs and poll status until the job reaches a terminal state."""
+def _wait_for_job_completion(
+    sky: Any, cluster_name: str, job_id: int, *, poll_seconds: int = 30, max_status_failures: int = 6
+) -> str:
+    """Stream job logs and poll status until the job reaches a terminal state.
 
+    A vanished cluster is TERMINAL, not transient: a spot preemption once left
+    this loop polling a nonexistent cluster for two hours ("ClusterDoesNotExist"
+    swallowed as a retryable error). Cluster-gone -- or persistent status
+    failures -- returns ``CLUSTER_LOST`` so the caller's provisioning retry
+    loop can re-acquire capacity and resume.
+    """
+
+    status_failures = 0
     while True:
         try:
             request_id = sky.tail_logs(cluster_name=cluster_name, job_id=job_id, follow=True)
@@ -590,10 +600,22 @@ def _wait_for_job_completion(sky: Any, cluster_name: str, job_id: int, *, poll_s
             statuses = sky.stream_and_get(request_id)
             status = statuses.get(job_id)
             status_name = getattr(status, "name", "") or (str(status) if status is not None else "")
+            status_failures = 0
         except KeyboardInterrupt:
             raise
         except Exception as exc:  # noqa: BLE001 - transient API-server errors should not abort tracking.
-            print(f"Job status check failed ({exc!r}); retrying in {poll_seconds}s.", flush=True)
+            if "ClusterDoesNotExist" in type(exc).__name__ or "does not exist" in str(exc).lower():
+                _launch_event("cluster_lost", f"cluster={cluster_name} job={job_id} (spot preemption?)")
+                print(f"Cluster {cluster_name} is gone ({exc!r}); treating job as lost.", flush=True)
+                return "CLUSTER_LOST"
+            status_failures += 1
+            print(
+                f"Job status check failed ({exc!r}); retry {status_failures}/{max_status_failures} in {poll_seconds}s.",
+                flush=True,
+            )
+            if status_failures >= max_status_failures:
+                _launch_event("job_tracking_lost", f"cluster={cluster_name} job={job_id} after {status_failures} failures")
+                return "CLUSTER_LOST"
         if status_name and any(status_name.endswith(suffix) for suffix in TERMINAL_JOB_STATUS_SUFFIXES):
             return status_name
         time.sleep(poll_seconds)
