@@ -3,23 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "browser-is-all-you-need"
+name = "glm47-h100-posttraining"
 version = "0.1.0"
-description = "Command and control CLI for SLIME-based C++ performance-RL pipelines."
+description = "GLM-4.7-Flash SFT and GRPO on 8x NVIDIA H100 with Miles."
 requires-python = ">=3.10"
 dependencies = [
-    "datasets>=2.19",
-    "gdown>=5.2",
-    "google-auth[requests]>=2.29",
-    "huggingface-hub>=0.24",
+    "huggingface-hub>=0.34",
     "pydantic>=2.7",
-    "pyarrow>=14.0",
-    "PyYAML>=6.0",
-    "rich>=13.7",
-    "tomli>=2.0 ; python_version < '3.11'",
-    "typer>=0.12",
-    "sentencepiece",
-    "tiktoken",
+    "wandb>=0.17",
 ]
 
 [project.optional-dependencies]
@@ -27,15 +18,15 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
 ]
-cpp-perf = [
-    "pyarrow>=14.0",
+
+[tool.hatch.build]
+exclude = [
+    "/.*",
+    "/wandb",
 ]
 
-[project.scripts]
-w8-biayn = "w8_biayn.cli:app"
-
 [tool.hatch.build.targets.wheel]
-packages = ["src/w8_biayn"]
+packages = ["src/glm47_posttraining"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
