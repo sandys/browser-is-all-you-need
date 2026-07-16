@@ -1,478 +1,279 @@
-# w8-biayn
+# GLM-4.7-Flash Post-Training on 8x H100
 
-`w8-biayn` is the command-and-control repository for C++ performance RL. The
-current active work is SLIME-based training for Moonlight and GLM models on PIE
-C++ optimization tasks.
+A focused Miles pipeline for supervised fine-tuning and GRPO on the PIE C++
+performance task.
 
-The training target is narrow:
+The repository provides one configuration:
+
+| Component | Configuration |
+| --- | --- |
+| Model | GLM-4.7-Flash |
+| Hardware | 8x NVIDIA H100 80 GB with NVLink |
+| Training | Miles, Megatron-Core, LoRA rank 16 |
+| Parallelism | TP4 / PP1 / EP8 / ETP1 |
+| Sequence length | 4,096 |
+| Packed tokens per GPU | 16,384 |
+| MoE dispatch | DeepEP flex |
+| Rollout serving | SGLang DP8 with FlashInfer |
+| Tracking | W&B scalars, samples, evaluation tables, and checkpoint manifests |
+
+## Results
+
+Measurements were collected on a dedicated 8x H100 80 GB node with the
+configuration in this repository. Base and SFT use the same 1,259 held-out
+tasks, greedy decoding, a 1,536-token response cap, and the same C++ sandbox
+scorer.
+
+| Stage | Model or adapter | Evaluation data | Pass rate | Valid format | Correct and faster | Mean successful speedup |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Base | [`zai-org/GLM-4.7-Flash`](https://huggingface.co/zai-org/GLM-4.7-Flash/tree/7dd20894a642a0aa287e9827cb1a1f7f91386b67) | [`TokenBender/glm47-pie-cpp-posttraining-data`](https://huggingface.co/datasets/TokenBender/glm47-pie-cpp-posttraining-data/tree/09bc0276a0ff8ab84a8db81880ca7f739057e654) | 20.89% | 40.03% | 10.56% | 1.31x |
+| SFT | [`TokenBender/glm47-flash-pie-cpp-lora-r16-sft-h100`](https://huggingface.co/TokenBender/glm47-flash-pie-cpp-lora-r16-sft-h100/tree/f1ac8df367080cc040f7cf769db219ee58f20f63) | [`TokenBender/glm47-pie-cpp-posttraining-data`](https://huggingface.co/datasets/TokenBender/glm47-pie-cpp-posttraining-data/tree/09bc0276a0ff8ab84a8db81880ca7f739057e654) | **90.79%** | **97.70%** | **28.36%** | **1.43x** |
+
+The selected SFT profile completed four measured optimizer steps with finite
+loss, a 14.88-second steady actor time, and 72,397 MiB peak memory per GPU.
+The verified GRPO runtime completed rollout, reward scoring, policy update,
+adapter synchronization, checkpointing, and evaluation at 6,735.5 actor
+tokens/second across eight GPUs. Estimated active-MoE MFU was 2.0691%.
+
+The W&B integration records training curves, rollout samples, evaluation
+samples, reward outcomes, metric catalogs, per-rank adapter synchronization
+fingerprints, and checkpoint manifests.
+
+## Requirements
+
+- One 8x H100 80 GB NVLink node
+- Docker with NVIDIA Container Toolkit
+- Access to the GLM-4.7-Flash base model
+- A W&B API key for online experiment tracking
+
+The Miles base image supplies Miles, Megatron-Core, SGLang, Ray, and the
+GLM-4.7 model definition.
+
+## Replication BOM
+
+The published training and evaluation results were produced on one node with
+eight H100 80 GB GPUs, full NVLink connectivity, 1 TiB of host memory, and
+10 TB of local storage.
+
+| Component | Exact experiment configuration | Measured size |
+| --- | --- | ---: |
+| Base model | [`zai-org/GLM-4.7-Flash`](https://huggingface.co/zai-org/GLM-4.7-Flash/tree/7dd20894a642a0aa287e9827cb1a1f7f91386b67), revision `7dd20894a642a0aa287e9827cb1a1f7f91386b67` | 62.5 GB |
+| GPUs | 8x NVIDIA H100 80 GB with NVLink | 75,957 MiB peak per GPU |
+| Host memory | 1 TiB installed on the experiment node | About 130 GiB run delta |
+| Local storage | 10 TB installed on the experiment node | 250 GB practical clean-run footprint |
+| Training image | `radixark/miles:latest-cu12@sha256:efc8027fc47aaa9687dc4f1046093ed4e2f9789e52a932fcefb7031402aeff37` plus this repository's `Dockerfile`; Modal builds it directly through `examples/modal/modal_app.py` | 53.3 GB base image |
+| Training and evaluation data | [`TokenBender/glm47-pie-cpp-posttraining-data`](https://huggingface.co/datasets/TokenBender/glm47-pie-cpp-posttraining-data/tree/09bc0276a0ff8ab84a8db81880ca7f739057e654) | 60 MB download; about 107 MB extracted |
+| SFT adapter | [`TokenBender/glm47-flash-pie-cpp-lora-r16-sft-h100`](https://huggingface.co/TokenBender/glm47-flash-pie-cpp-lora-r16-sft-h100/tree/f1ac8df367080cc040f7cf769db219ee58f20f63) | 772 MB |
+| Converted TP4/PP1/EP8 base checkpoint | Created by `scripts/convert_checkpoint.sh` | Reserve 65 GB |
+| LoRA checkpoint and run evidence | Adapter, native shards, logs, samples, and metrics | Reserve 2 GB per saved run |
+
+Provision at least 250 GB of free local storage for a clean installation. This
+covers the base model, converted checkpoint, unpacked training image, adapter,
+run artifacts, and temporary image-download/build space. Use 500 GB or more
+when retaining multiple checkpoints or evaluation generations.
+
+## Assets
+
+Download the exact base model, prepared dataset, and validated SFT adapter:
+
+```bash
+python3 scripts/download_assets.py model --output-root /root/models
+python3 scripts/download_assets.py data
+python3 scripts/download_assets.py sft
+```
+
+The base model is frozen to its Hugging Face commit. Dataset and adapter files
+are additionally verified against the SHA-256 manifests published with their
+repositories. The commands write:
 
 ```text
-correct but slower C++20 program -> correct and faster C++20 program
+/root/models/GLM-4.7-Flash
+.glm47-posttraining/assets/data
+.glm47-posttraining/assets/adapters/sft
 ```
 
-Correctness is mandatory. Runtime improvement only matters after the generated
-program preserves behavior on visible and hidden tests.
+These revisions are pinned in `scripts/download_assets.py`; environment
+variables can override them when intentionally testing a newer release.
 
-## Active Goal
+## Modal 8x H100
 
-- Data: official PIE C++ slower-to-faster pairs plus official, merged, and
-  generated tests.
-- Task: prompt with slower PIE `v0`; generate a complete optimized C++20
-  program.
-- Reward: strict response format, compile and sanitizer success, visible and
-  hidden tests, then bounded child-process CPU-time efficiency.
-- Training: SLIME with Megatron training and SGLang rollouts. Active model
-  lanes are Moonlight and GLM.
-- Proof: compare base, SFT, and GRPO outputs on the same held-out PIE tasks
-  with pass rate, correct-and-faster rate, mean reward, speedup, and
-  missing-runtime rate.
+The canonical Modal launcher is `examples/modal/modal_app.py`. It reproduces
+the recorded machine and image configuration without requiring a separately
+published project image:
 
-SkyRL/rLLM, SkyPilot renderers, MLflow run-status parsing, and older GCP
-training commands remain in the tree only as legacy reference/compatibility
-surface. Do not use them for new active training work unless a task explicitly
-asks for legacy maintenance.
+| Modal setting | Value |
+| --- | --- |
+| GPU | `H100!:8` |
+| CPU | 48 cores |
+| Host memory | 256 GiB requested, 1 TiB limit |
+| Timeout | 24 hours per stage |
+| Base image | `radixark/miles:latest-cu12@sha256:efc8027fc47aaa9687dc4f1046093ed4e2f9789e52a932fcefb7031402aeff37` |
+| Runtime additions | Repository `Dockerfile`, GCC/G++ 13, `rsync`, `gawk`, `util-linux`, and `git` |
+| Persistent storage | `glm47-models`, `glm47-assets`, and `glm47-runs` Modal Volumes |
+| Tracking secret | Modal secret `wandb-glm47` containing `WANDB_API_KEY` |
 
-Out of scope unless a later phase explicitly asks for it: BrowserGym, DOMDiff,
-Harbor, WebArena, MiniWoB, AndroidWorld, Go, custom GPU kernel labs, and
-unrelated performance experiments.
-
-## Boundaries And Artifact Hygiene
-
-Do not write a custom trainer. Use SLIME, Megatron, and SGLang for active
-training work. Do not reintroduce SkyRL/rLLM as the active training stack unless
-the user explicitly asks for legacy maintenance or rollback.
-
-Do not delete local evidence files just because they are no longer tracked. If a
-generated artifact is in git, use `git rm --cached` so the working-tree file
-remains available, then ignore future generated copies. Generated `RUN_REPORT*`
-files and report asset directories should not be committed.
-
-## Current SLIME Lanes
-
-Use repo-owned wrappers rather than editing `.cache/upstreams/slime` directly.
-
-- Moonlight C++ performance lane: `examples/slime/moonlight_cpp_perf/`
-- Moonlight rank-16 LoRA C++ performance lane: `examples/slime/moonlight_lora_cpp_perf/`
-- GLM C++ performance lane: `examples/slime/glm47_cpp_perf/`
-- Moonlight ReTool lane: `examples/slime/retool/`
-- Moonlight MoE smoke: `examples/slime/moonlight_moe_smoke/`
-- Generic text-only SLIME smoke: `examples/slime/multi_agent/`
-
-The Moonlight and GLM C++ lanes reuse the project PIE task schema, prompt
-builder, Docker C++ sandbox, reward function, and eval aggregation through
-`src/w8_biayn/integrations/slime_cpp_perf.py`.
-
-## Fresh Machine Setup
-
-Run from a clean clone:
+Install the Modal client, authenticate to a workspace, and create the W&B
+secret once:
 
 ```bash
-./scripts/bootstrap.sh
-uv run w8-biayn data doctor
-uv run w8-biayn upstreams clone slime
-uv run w8-biayn slime doctor
-uv run w8-biayn slime setup
-uv run w8-biayn cpp harness preflight --dry-run
+python3 -m pip install "modal==1.2.6"
+modal secret create wandb-glm47 WANDB_API_KEY="$WANDB_API_KEY"
 ```
 
-Generated data, upstream clones, rendered launchers, secrets, logs,
-checkpoints, model exports, run reports, and evaluation artifacts are local
-state and must stay out of git.
-
-If cloud/GCS helpers are used for a specific run, keep credentials local at
-`.gcp-service-account.json`; never print credential contents or mutate global
-`gcloud` configuration.
-
-## PIE Data Workflow
-
-Dataset conversion is a deliverable. Do not use one-off notebooks, shell
-history, or untracked munging for PIE data.
-
-Build admitted PIE task JSON:
+Prepare the pinned model and assets, convert the checkpoint, and run either
+training stage:
 
 ```bash
-RUN_ID="r$(date -u +%Y%m%d%H%M%S)"
-
-uv run w8-biayn data pie download --out .w8-biayn/data/pie
-uv run w8-biayn data pie prepare-full \
-  --source-root .w8-biayn/data/pie \
-  --out .w8-biayn/data/pie-full \
-  --force
-
-uv run w8-biayn data pie measure-coverage \
-  --prepared-root .w8-biayn/data/pie-full \
-  --out .w8-biayn/data/pie-full/coverage.json \
-  --report-out .w8-biayn/data/pie-full/coverage-report.json
-
-uv run w8-biayn data pie build-full-tasks \
-  --prepared-root .w8-biayn/data/pie-full \
-  --coverage-json .w8-biayn/data/pie-full/coverage.json \
-  --out .w8-biayn/data/tasks-full \
-  --min-train 1000 \
-  --min-validation 100 \
-  --min-test 100 \
-  --force
+modal run examples/modal/modal_app.py::prepare
+modal run examples/modal/modal_app.py::convert
+modal run examples/modal/modal_app.py::sft
+modal run examples/modal/modal_app.py::grpo
 ```
 
-Admission gates:
-
-- train tasks >= 1000;
-- validation/test tasks >= 100;
-- coverage >= 95 percent line and 85 percent branch;
-- visible and hidden tests exist;
-- reference performance exists;
-- train/validation/test split stays by problem.
-
-Build SLIME-ready JSONL from the admitted task JSON with the lane wrapper:
+GRPO defaults to the published SFT adapter. To use a newly produced SFT
+checkpoint, pass its path on the `glm47-runs` volume:
 
 ```bash
-bash examples/slime/moonlight_cpp_perf/prepare_data.sh
+modal run examples/modal/modal_app.py::grpo \
+  --adapter-path /workspace/runs/<sft-run>/checkpoints/sft_lora_r16/<adapter>
 ```
 
-For the GLM lane, use the matching wrapper under
-`examples/slime/glm47_cpp_perf/` when that lane is present in the workspace.
+## Runtime
 
-## Task And Reward Contract
-
-A valid task contains:
-
-- `prompt_code`: slower correct PIE C++ `v0`;
-- `oracle_solution`: faster PIE C++ `v1`, used for SFT, coverage, reference
-  timing, and oracle material only;
-- visible `unit_tests` and grading-only `hidden_tests`;
-- `test_coverage` at or above 95 percent line and 85 percent branch;
-- positive reference performance metadata;
-- split `train`, `validation`, or `test`.
-
-During GRPO, the prompt may include visible tests and `v0`. It must not include
-hidden tests or `v1`.
-
-Model outputs must contain exactly:
-
-````text
-<reasoning>...</reasoning>
-```cpp
-// complete optimized C++20 program
-```
-````
-
-Reward order:
-
-- unrecoverable invalid format: negative;
-- recoverable C++ with missing wrapper/fence format: shaped below the
-  correctness-only fallback;
-- compile or sanitizer failure: negative;
-- timeout: negative;
-- partial tests: below any fully correct answer;
-- fully correct with missing non-timeout runtime measurement: correctness-only
-  fallback below any measured fully correct answer;
-- fully correct: base reward plus bounded runtime-efficiency bonus.
-
-The sandbox compiles the candidate and PIE `v1` oracle, runs all visible and
-hidden tests, then benchmarks both binaries in the same Docker sandbox with the
-same CPU pinning, compiler flags, and tests. Runtime reward uses
-child-process CPU time in nanoseconds. Wall-clock nanoseconds are diagnostics.
-
-Do not add PMU, Linux perf, PERFMON, or `perf_event_paranoid` dependencies to
-the active reward path.
-
-## SLIME Setup
-
-Clone or refresh the pinned SLIME checkout:
+Build the aligned H100 image:
 
 ```bash
-uv run w8-biayn upstreams clone slime
-uv run w8-biayn slime doctor
+docker build -t glm47-h100-posttraining .
 ```
 
-Generate the Docker-first launcher and in-container bootstrap helper:
+Start the container with the repository and model directory mounted:
 
 ```bash
-uv run w8-biayn slime setup
-.w8-biayn/slime/run-container.sh
+docker run --rm -it \
+  --gpus all \
+  --ipc host \
+  --network host \
+  -v "$PWD:/workspace/glm47-h100-posttraining" \
+  -v /root/models:/root/models \
+  -v "$PWD/.glm47-posttraining/assets:/workspace/assets:ro" \
+  glm47-h100-posttraining \
+  bash
 ```
 
-The generated launcher starts the SLIME container with this repository mounted,
-mounts `/var/run/docker.sock` for the Docker reward backend, and bootstraps
-SLIME with `/root/Megatron-LM` on `PYTHONPATH`.
-
-The generated Docker launcher keeps `--ulimit stack=67108864` enabled by
-default. It leaves `--ulimit memlock=-1` off because some managed GPU hosts
-reject that rlimit before the container starts. On hosts that allow locked
-memory, opt in with:
+Inside the container:
 
 ```bash
-SLIME_DOCKER_MEMLOCK_ULIMIT=1 .w8-biayn/slime/run-container.sh
+cd /workspace/glm47-h100-posttraining
+python3 -m pip install -e .
+export MILES_CPP_DATA_DIR=/workspace/assets/data
+export WANDB_API_KEY=...
 ```
 
-It also raises the in-container open-file soft limit to
-`SLIME_NOFILE_SOFT_LIMIT=65536` before bootstrapping SLIME.
+## Convert
 
-## Moonlight C++ Performance
-
-Run inside the SLIME container:
+Create the TP4/PP1/EP8 Megatron checkpoint:
 
 ```bash
-cd /workspace/<repo-name>
-
-export SLIME_RUN_ID="moonlight_cpp_perf_$(date -u +%Y%m%d%H%M%S)"
-export SLIME_HF_CHECKPOINT=/root/models/Moonlight-16B-A3B-Instruct
-export SLIME_REF_LOAD_DIR=/root/models/Moonlight-16B-A3B-Instruct_torch_dist
-
-bash examples/slime/moonlight_cpp_perf/prepare_data.sh
-bash examples/slime/moonlight_cpp_perf/eval_base.sh
-bash examples/slime/moonlight_cpp_perf/sft.sh
-bash examples/slime/moonlight_cpp_perf/eval_sft.sh
-bash examples/slime/moonlight_cpp_perf/grpo.sh
-bash examples/slime/moonlight_cpp_perf/eval_grpo.sh
-bash examples/slime/moonlight_cpp_perf/compare.sh
+bash scripts/convert_checkpoint.sh
 ```
 
-The lane writes local state under
-`.w8-biayn/slime/moonlight-cpp-perf/runs/${SLIME_RUN_ID}/`.
+The default output is:
 
-For the lighter Moonlight MoE smoke, use:
-
-```bash
-bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
+```text
+/root/models/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8
 ```
 
-## Moonlight Rank-16 LoRA C++ Performance
-
-The rank-16 LoRA variant wraps the active Moonlight C++ lane and applies LoRA
-arguments only to SFT, GRPO, and their eval stages. It checks the active
-SLIME/Megatron `--help` surface before training so unsupported LoRA flags are
-not silently ignored.
-
-Run inside the SLIME container:
+## SFT
 
 ```bash
-export SLIME_RUN_ID="moonlight_lora16_cpp_perf_$(date -u +%Y%m%d%H%M%S)"
-export SLIME_CPP_TASKS_DIR=/workspace/browser-is-all-you-need/.w8-biayn/data/tasks-full
-export SLIME_HF_CHECKPOINT=/root/models/Moonlight-16B-A3B-Instruct
-export SLIME_REF_LOAD_DIR=/root/models/Moonlight-16B-A3B-Instruct_torch_dist
-export SLIME_LORA_RANK=16
-export SLIME_WANDB_PROJECT=slime-moonlight-lora-cpp-perf
-export SLIME_WANDB_GROUP="${SLIME_RUN_ID}"
-
-bash examples/slime/moonlight_lora_cpp_perf/prepare_data.sh
-bash examples/slime/moonlight_lora_cpp_perf/eval_base.sh
-bash examples/slime/moonlight_lora_cpp_perf/sft.sh
-bash examples/slime/moonlight_lora_cpp_perf/eval_sft.sh
-bash examples/slime/moonlight_lora_cpp_perf/grpo.sh
-bash examples/slime/moonlight_lora_cpp_perf/eval_grpo.sh
-bash examples/slime/moonlight_lora_cpp_perf/compare.sh
+bash examples/sft.sh
 ```
 
-The LoRA lane writes under
-`.w8-biayn/slime/moonlight-lora-cpp-perf/runs/${SLIME_RUN_ID}/` and uses W&B
-when `WANDB_API_KEY` or an existing W&B login is present.
+Runs are written under:
 
-### SLIME PIE C++ Path
-
-For the SLIME version of the PIE C++ experiment, keep the normal PIE task build
-and convert those tasks to SLIME JSONL:
-
-```bash
-uv run w8-biayn data slime build \
-  --tasks-dir .w8-biayn/data/tasks-full \
-  --out .w8-biayn/data/slime-pie \
-  --profile full-official \
-  --run-id "$RUN_ID" \
-  --min-train-tasks 1000 \
-  --min-validation-tasks 100
+```text
+.glm47-posttraining/miles/glm47-h100-cpp-perf/runs/
 ```
 
-Then launch `examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh` with the AIME
-4-GPU resource profile and the C++ reward hook:
+Each run contains the prepared dataset, training log, VRAM trace, receipt,
+LoRA checkpoints, and W&B artifact manifest.
+
+## GRPO
+
+Start GRPO from an SFT adapter:
 
 ```bash
-SLIME_PROMPT_DATA=.w8-biayn/data/slime-pie/train.jsonl \
-W8_BIAYN_SLIME_TASK_ROOT=.w8-biayn/data/slime-pie \
-SLIME_CUSTOM_GENERATE_FUNCTION_PATH= \
-SLIME_CUSTOM_RM_PATH=generate_with_cpp_perf.reward_func \
-SLIME_REWARD_KEY=score \
-SLIME_NUM_GPUS=4 \
-SLIME_ROLLOUT_BATCH_SIZE=4 \
-SLIME_N_SAMPLES_PER_PROMPT=1 \
-SLIME_GLOBAL_BATCH_SIZE=4 \
-SLIME_MAX_RESPONSE_LEN=256 \
-SLIME_MAX_TOKENS_PER_GPU=4096 \
-bash examples/slime/cpp_perf/run_moonlight_cpp_perf_rl.sh
+export MILES_LORA_ADAPTER_PATH=/workspace/assets/adapters/sft
+bash examples/grpo.sh
 ```
 
-`generate_with_cpp_perf.reward_func` lives under `examples/slime/cpp_perf/` and
-calls the repo C++ reward harness, so the SLIME path still compiles, tests, and
-benchmarks candidates against the PIE `v1` oracle. `SLIME_CUSTOM_GENERATE_FUNCTION_PATH=`
-disables the Python-tool ReTool trajectory for C++; SLIME's stock one-turn
-generation is used instead.
+The launcher prepares a serving-compatible adapter, starts SGLang across all
+eight H100s, performs C++ reward scoring, updates the LoRA policy, synchronizes
+the adapter, evaluates the checkpoint, and publishes the run results.
 
-### SLIME Moonlight MoE Smoke
+The default GRPO schedule uses 32 prompts, 8 samples per prompt, 100 rollouts,
+evaluation every 20 rollouts, and checkpointing every 10 rollouts.
 
-When the GLM lane is present, run inside the SLIME container:
+## Evaluate
 
-```bash
-cd /workspace/<repo-name>
-
-export SLIME_RUN_ID="glm47_cpp_perf_$(date -u +%Y%m%d%H%M%S)"
-export SLIME_HF_CHECKPOINT=/root/models/GLM-4.7-Flash
-export SLIME_REF_LOAD_DIR=/root/models/GLM-4.7-Flash_torch_dist
-
-bash examples/slime/glm47_cpp_perf/prepare_data.sh
-bash examples/slime/glm47_cpp_perf/eval_base.sh
-bash examples/slime/glm47_cpp_perf/sft.sh
-bash examples/slime/glm47_cpp_perf/eval_sft.sh
-bash examples/slime/glm47_cpp_perf/grpo.sh
-bash examples/slime/glm47_cpp_perf/eval_grpo.sh
-bash examples/slime/glm47_cpp_perf/compare.sh
-```
-
-Keep GLM defaults conservative until SGLang startup, Megatron training, and C++
-reward throughput are stable on the target GPU host. For the paid one-command
-GCP `H100:8` full run, use
-`examples/slime/glm47_cpp_perf/launch_gcp_h100_full.py`; it loops for capacity
-in `asia-southeast1` by default, runs base eval, SFT, SFT eval, GRPO, GRPO eval,
-and compare, copies W&B/local artifacts under `.w8-biayn/slime/glm47-cpp-perf/`,
-and tears the SkyPilot cluster down.
-
-## Moonlight ReTool
-
-### SLIME Moonlight MoE Smoke
-
-For the lightest MoE smoke, start with the repo-owned Moonlight wrapper under `examples/slime/moonlight_moe_smoke/`. It uses a Moonlight-16B-A3B Instruct checkpoint, a four-row local math JSONL, one rollout, one sample per prompt, short responses, and the real colocated Megatron + SGLang training path. It does not require E2B, browser sandboxes, DAPO-Math downloads, or W&B by default.
-
-Prerequisites are intentionally narrow: a 4x A100 80 GB node, the pinned SLIME sidecar, `/root/Megatron-LM`, a local Moonlight HF checkpoint, and its converted Megatron torch_dist checkpoint. The launcher defaults are `/root/Moonlight-16B-A3B-Instruct` and `/root/Moonlight-16B-A3B-Instruct_torch_dist`; override with `SLIME_HF_CHECKPOINT` and `SLIME_REF_LOAD_DIR`. The current Moonlight smoke also depends on the generated `.w8-biayn/slime/run-container.sh` including `-v "${HOST_MODELS_DIR:-$HOME/models}":/root/models \`; add that mount before starting the GPU container so the model files are visible inside the SLIME runtime.
-
-Start the SLIME container:
+Run the base-model evaluation on the complete held-out set:
 
 ```bash
-.w8-biayn/slime/run-container.sh
-```
-
-Then launch the smoke inside the container:
-
-```bash
-cd /workspace/<repo-name>
-
-SLIME_NUM_GPUS=4 \
-SLIME_NUM_ROLLOUT=1 \
-SLIME_ROLLOUT_BATCH_SIZE=4 \
-SLIME_N_SAMPLES_PER_PROMPT=1 \
-SLIME_MAX_RESPONSE_LEN=128 \
-SLIME_MAX_TOKENS_PER_GPU=1024 \
-bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
-```
-
-If the torch_dist checkpoint is not already present, the same script can do the conversion explicitly:
-
-```bash
-SLIME_CONVERT_IF_MISSING=1 \
-SLIME_CONVERT_NPROC=4 \
-bash examples/slime/moonlight_moe_smoke/run_moonlight_16b_a3b_int4_smoke.sh
-```
-
-Keep `SLIME_ENABLE_DEEPEP=0` for the first pass. Set `SLIME_ENABLE_DEEPEP=1` only after the default all-to-all smoke is healthy on that host/container stack.
-
-The launcher samples `nvidia-smi` during the run and writes `vram_usage.csv` plus `vram_peak.txt` under `.w8-biayn/slime/moonlight-16b-a3b-int4-smoke/runs/<timestamp>/`; use `vram_peak.txt` as the peak-VRAM receipt.
-
-### SLIME Multi-Agent Text Example
-
-Runbook and launcher:
-
-- `examples/slime/retool/README.md`
-- `examples/slime/retool/retool_moonlight_rl.sh`
-
-This lane has no E2B dependency, no external browser sandbox, and no hosted tool
-service.
-
-## Evaluation
-
-For SLIME C++ lanes, aggregate debug rollout dumps and compare summaries through
-the project SLIME bridge:
-
-```bash
-python -m w8_biayn.integrations.slime_cpp_perf aggregate-debug \
+PYTHONPATH=src python3 scripts/evaluate.py \
+  --data-dir .glm47-posttraining/assets/data \
+  --model /root/models/GLM-4.7-Flash \
+  --output-dir .glm47-posttraining/eval/base \
   --label base \
-  --debug-rollout <path-to-debug-rollout.pt-or-jsonl> \
-  --out .w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/base
-
-python -m w8_biayn.integrations.slime_cpp_perf compare \
-  --summary base=.w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/base.summary.json \
-  --summary sft=.w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/sft.summary.json \
-  --summary grpo=.w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/grpo.summary.json \
-  --out .w8-biayn/slime/<lane>/runs/${SLIME_RUN_ID}/eval/comparison.json
+  --tp-size 4 \
+  --batch-size 32 \
+  --temperature 0 \
+  --top-p 1 \
+  --max-tokens 1536 \
+  --attention-backend flashinfer \
+  --apply-chat-template \
+  --chat-template-kwargs '{"enable_thinking": false}' \
+  --score-workers 32
 ```
 
-Formal uplift requires GRPO to beat base and SFT on
-`correct_and_faster_rate` and mean best reward, with no missing runtime rows.
+Run the same evaluation with the SFT adapter:
 
-## Repository Map
+```bash
+PYTHONPATH=src python3 scripts/evaluate.py \
+  --data-dir .glm47-posttraining/assets/data \
+  --model /root/models/GLM-4.7-Flash \
+  --adapter .glm47-posttraining/assets/adapters/sft \
+  --output-dir .glm47-posttraining/eval/sft \
+  --label sft \
+  --tp-size 4 \
+  --batch-size 32 \
+  --temperature 0 \
+  --top-p 1 \
+  --max-tokens 1536 \
+  --attention-backend flashinfer \
+  --apply-chat-template \
+  --chat-template-kwargs '{"enable_thinking": false}' \
+  --lora-target-modules q_a_proj,kv_a_proj_with_mqa,o_proj,gate_proj,up_proj,down_proj \
+  --experts-shared-outer-loras \
+  --lora-use-virtual-experts \
+  --score-workers 32
+```
+
+Evaluation writes generated samples, scored records, an aggregate summary,
+quality metrics, and a run receipt under the selected output directory. Add
+`--wandb-project glm47-pie-cpp-posttraining --wandb-timing-status verified`
+to either command to publish the same metrics and sample tables to W&B.
+
+## Repository
 
 ```text
-scripts/bootstrap.sh                         fresh-machine bootstrap
-scripts/prepare_dapo_math_dataset.py         optional SLIME text-smoke data prep
-examples/slime/moonlight_cpp_perf/           active Moonlight C++ lane
-examples/slime/glm47_cpp_perf/               active GLM C++ lane when present
-examples/slime/retool/                       Moonlight ReTool lane
-examples/slime/moonlight_moe_smoke/          light Moonlight MoE smoke
-examples/slime/multi_agent/                  generic text-only SLIME smoke
-src/local.py                                 Moonlight Megatron local-layer shim
-src/w8_biayn/cli.py                          CLI surface
-src/w8_biayn/cpp_perf/data.py                downloads, full PIE prep, manifests, cache
-src/w8_biayn/cpp_perf/coverage.py            gcov coverage measurement
-src/w8_biayn/cpp_perf/pie.py                 PIE parsing and task construction
-src/w8_biayn/cpp_perf/skyrl_dataset.py       SkyRL GRPO/SFT dataset builder
-src/w8_biayn/cpp_perf/slime_dataset.py       SLIME prompt/metadata JSONL builder
-src/w8_biayn/cpp_perf/eval.py                eval aggregation
-src/w8_biayn/cpp_perf/judge.py               contest-style stdout comparison
-src/w8_biayn/cpp_perf/sandbox.py             Docker compile/test/runtime harness
-src/w8_biayn/cpp_perf/reward.py              correctness-gated efficiency reward
-src/w8_biayn/integrations/cpp_perf_env.py    SkyRL environment adapter
-src/w8_biayn/integrations/skyrl_cpp_perf_main.py
-                                               SkyRL GRPO entrypoint glue
-src/w8_biayn/integrations/skyrl_sft_export_checkpoint_main.py
-                                               SkyRL policy checkpoint HF export recovery
-src/w8_biayn/integrations/skyrl_io_patch.py    SkyRL checkpoint download compatibility patch
-src/w8_biayn/integrations/skyrl_vllm_logprob_patch.py
-                                               SkyRL vLLM token/logprob alignment patch
-src/w8_biayn/integrations/skyrl_grpo_health_patch.py
-                                               SkyRL GRPO health metric logging patch
-src/w8_biayn/integrations/skyrl_startup_patch.py
-                                               SkyRL startup stage logging patch
-src/w8_biayn/integrations/cpp_eval_main.py   vLLM eval generation and scoring
-src/w8_biayn/grpo_readiness.py               GRPO readiness and live-status guardrails
-src/w8_biayn/mlflow_metrics.py               MLflow Tracking Server API/SQLite metric reader
-src/w8_biayn/reporting.py                    raw Markdown/CSV/SVG run evidence reports
-src/w8_biayn/run_status.py                   ops run-status JSON snapshots
-src/w8_biayn/shell.py                        dry-run-aware subprocess wrapper
-src/w8_biayn/sky_config.py                   SkyPilot YAML renderer
-src/w8_biayn/gcp_auth.py                     scoped GCP auth
-src/w8_biayn/secrets.py                      credential metadata only
-src/w8_biayn/constants.py                    upstream pins and defaults
-src/w8_biayn/upstreams.py                    upstream clone management
-src/w8_biayn/benchmarks.py                   benchmark ladder
-.agents/REPO_GUIDE.md                        shared AGENTS.md and CLAUDE.md target
-.agents/skills/w8-biayn-framework/SKILL.md   AI coding-agent workflow skill
+Dockerfile                         H100 runtime
+examples/sft.sh                    canonical SFT configuration
+examples/grpo.sh                   canonical GRPO configuration
+examples/modal/modal_app.py        Modal 8x H100 reproduction
+scripts/convert_checkpoint.sh      TP4/PP1/EP8 conversion
+scripts/download_assets.py         verified Hugging Face asset download
+scripts/evaluate.py                held-out generation and scoring
+scripts/prepare_grpo_adapter.py    serving adapter preparation
+scripts/publish_results.py         W&B results publishing
+src/glm47_posttraining/            GLM-4.7 Miles integration and PIE reward
 ```
-
-## Validation
-
-Before handing off normal code/docs work:
-
-```bash
-uv run --extra dev pytest
-uv run --extra dev ruff check src tests scripts
-uv run python -m compileall src tests
-python3 .agents/skills/agent-skills-framework/scripts/validate_skill.py .agents/skills/w8-biayn-framework
-```
-
-For SLIME setup changes, also run:
-
-```bash
-uv run w8-biayn slime doctor
-uv run w8-biayn slime setup --force
-uv run w8-biayn cpp harness preflight --dry-run
-```
-
-For documentation-only changes, run the skill validator and the docs guardrail
-tests when practical.

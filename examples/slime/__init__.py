@@ -1,1 +1,0 @@
-"""SLIME example package."""
