@@ -42,7 +42,7 @@ cloud = [
 w8-biayn = "w8_biayn.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/w8_biayn"]
+packages = ["src/w8_biayn", "src/glm47_posttraining"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
