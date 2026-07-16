@@ -2,6 +2,7 @@
 .gcp-service-account.json
 
 .cache/
+.glm47-posttraining/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

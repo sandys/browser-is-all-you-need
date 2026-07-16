@@ -61,6 +61,23 @@ Use repo-owned wrappers rather than editing `.cache/upstreams/slime` directly.
 - Moonlight MoE smoke: `examples/slime/moonlight_moe_smoke/`
 - Generic text-only SLIME smoke: `examples/slime/multi_agent/`
 
+## GLM-4.7 Miles Lane On 8x H100
+
+The repository also includes the measured Miles configuration for
+GLM-4.7-Flash LoRA SFT and GRPO on one 8x H100 80 GB NVLink node:
+
+- canonical SFT launcher: `examples/sft.sh`;
+- canonical GRPO launcher: `examples/grpo.sh`;
+- TP4 / PP1 / EP8 checkpoint conversion: `scripts/convert_checkpoint.sh`;
+- pinned Hugging Face dataset and SFT adapter download:
+  `scripts/download_assets.py`;
+- W&B scalars, samples, evaluation tables, synchronization fingerprints, and
+  checkpoint manifests.
+
+The complete configuration, replication BOM, published artifacts, measured
+base-to-SFT evaluation, and evaluation commands are documented in
+[`docs/GLM47_H100_MILES.md`](docs/GLM47_H100_MILES.md).
+
 The Moonlight and GLM C++ lanes reuse the project PIE task schema, prompt
 builder, Docker C++ sandbox, reward function, and eval aggregation through
 `src/w8_biayn/integrations/slime_cpp_perf.py`.
