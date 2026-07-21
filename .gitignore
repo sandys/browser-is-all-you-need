@@ -14,6 +14,13 @@
 # Local research runs, downloaded evaluations, and generated corpora.
 /.w8-biayn/
 
+# Local research proposal artifacts are outside this release.
+/docs/H100_VERIFIED_PIE_GRPO_PROPOSAL_assets/
+/docs/PIE_GRPO_H100_RESEARCH_PROPOSAL.md
+/docs/final-rl-proposal.docx
+/docs/final-rl-proposal.md
+/scripts/render_h100_verified_proposal.py
+
 __pycache__/
 *.py[cod]
 *.egg-info/
