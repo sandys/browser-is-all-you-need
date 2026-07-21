@@ -11,15 +11,21 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from glm47_posttraining.cpp_perf.eval import aggregate_eval_records, write_json
-from glm47_posttraining.cpp_perf.schema import CppTask
-from glm47_posttraining.integrations.scoring import score_generation
+from glm47_posttraining.cpp_perf.eval import aggregate_aider_eval_records, aggregate_eval_records, write_json
+from glm47_posttraining.cpp_perf.schema import AiderPolyglotTask, CppTask
+from glm47_posttraining.integrations.scoring import score_aider_generation, score_generation
 from glm47_posttraining.integrations.wandb_posttraining import log_eval_run, resolve_experiment_id
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate PIE C++ prompts with SGLang and an optional LoRA adapter.")
     parser.add_argument("--data-dir", required=True, help="Prepared PIE dataset directory.")
+    parser.add_argument(
+        "--task-kind",
+        choices=("auto", "pie", "polyglot"),
+        default="auto",
+        help="Task schema; auto reads manifest.kind",
+    )
     parser.add_argument("--model", default="", help="Base HF model path; required unless --generated is used.")
     parser.add_argument(
         "--generated",
@@ -88,9 +94,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_task_kind(data_dir: Path, configured: str) -> str:
+    if configured != "auto":
+        return configured
+    manifest_path = data_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if "polyglot" in str(manifest.get("kind", "")).lower():
+            return "polyglot"
+    return "pie"
+
+
 def main() -> None:
     args = parse_args()
     data_dir = Path(args.data_dir)
+    args.task_kind = resolve_task_kind(data_dir, args.task_kind)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -154,10 +172,14 @@ def main() -> None:
     )
     records = score_rows(args, data_dir, generations)
     write_jsonl(records_path, records)
-    summary = aggregate_eval_records(records, label=args.label)
+    summary = (
+        aggregate_aider_eval_records(records, label=args.label)
+        if args.task_kind == "polyglot"
+        else aggregate_eval_records(records, label=args.label)
+    )
     summary.pop("best_records", None)
     summary.update(generation_summary)
-    summary["valid_format_rate"] = 1.0 - float(summary.get("invalid_format_rate", 0.0))
+    summary.setdefault("valid_format_rate", 1.0 - float(summary.get("invalid_format_rate", 0.0)))
     experiment_id = resolve_experiment_id(
         explicit=args.wandb_experiment_id,
         run_id=args.wandb_run_id,
@@ -696,15 +718,27 @@ def score_rows(args: argparse.Namespace, data_dir: Path, generations: list[dict[
         task_path = Path(str(metadata["task_path"]))
         if not task_path.is_absolute():
             task_path = data_dir / task_path
-        task = CppTask.read_json(task_path)
-        record = score_generation(
-            task,
-            str(item.get("response", "")),
-            label=args.label,
-            sample_index=int(item.get("sample_index", 0)),
-            image=args.sandbox_image,
-            cpu=args.sandbox_cpu,
-        )
+        if args.task_kind == "polyglot":
+            task = AiderPolyglotTask.read_json(task_path)
+            record = score_aider_generation(
+                task,
+                str(item.get("response", "")),
+                label=args.label,
+                sample_index=int(item.get("sample_index", 0)),
+                image=args.sandbox_image,
+                context_exhausted=bool(item.get("truncated")) or str(item.get("finish_reason") or "").lower()
+                in {"length", "max_tokens", "abort_length", "context_exhausted"},
+            )
+        else:
+            task = CppTask.read_json(task_path)
+            record = score_generation(
+                task,
+                str(item.get("response", "")),
+                label=args.label,
+                sample_index=int(item.get("sample_index", 0)),
+                image=args.sandbox_image,
+                cpu=args.sandbox_cpu,
+            )
         record["task_id"] = item.get("task_id") or record.get("task_id")
         record["problem_id"] = item.get("problem_id") or record.get("problem_id")
         record["split"] = item.get("split") or record.get("split")

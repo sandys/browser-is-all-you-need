@@ -3,6 +3,113 @@
 A focused Miles pipeline for supervised fine-tuning and GRPO on the PIE C++
 performance task.
 
+## Aider Polyglot C++ mode
+
+The repository also supports the 26 C++ exercises from
+`Aider-AI/polyglot-benchmark`. This is a functional-correctness, multi-file
+editing mode; it does not replace or reinterpret the PIE speedup experiment.
+Headers and sources are both editable, tests remain hidden from model prompts,
+and reward workers compile every test guarded by `EXERCISM_RUN_ALL_TESTS` using
+the benchmark's vendored Catch2 harness.
+
+Prepare and validate the local benchmark clone:
+
+```bash
+PYTHONPATH=src python3 scripts/ingest_exercism_aider.py \
+  polyglot-benchmark/cpp/exercises/practice \
+  .glm47-posttraining/data/aider_tasks
+
+PYTHONPATH=src python3 scripts/build_task_taxonomy.py \
+  .glm47-posttraining/data/aider_tasks \
+  data/task_taxonomy.json \
+  --tokenizer /root/models/GLM-4.7-Flash
+
+PYTHONPATH=src python3 scripts/check_aider_runtime.py \
+  --tasks-dir .glm47-posttraining/data/aider_tasks \
+  --backend local \
+  --skip-thread-sanitizer
+```
+
+Omit `--tokenizer` for the documented lexical fallback. It is useful for
+preflight checks but is not presented as a GLM token count. The default
+curriculum split is 20 train, 3 validation, and 3 test exercises. Use
+`--split-mode all-test` to construct an evaluation-only copy of all 26 tasks;
+training on these exercises contaminates comparisons with Aider's public
+leaderboard.
+
+The local command above is a functional/ASan smoke check only. Before training,
+run the same preflight with `--backend docker` and without
+`--skip-thread-sanitizer`; when state tasks are present, it executes a real
+state-task oracle and fails closed unless TSan actually runs cleanly.
+
+Build the Miles JSONL data and start the Polyglot GRPO profile:
+
+```bash
+PYTHONPATH=src python3 -m glm47_posttraining.integrations.miles_polyglot_cpp build-data \
+  --tasks-dir .glm47-posttraining/data/aider_tasks \
+  --taxonomy-file data/task_taxonomy.json \
+  --out .glm47-posttraining/assets/aider_data \
+  --sampling-strategy wire \
+  --wire-batch-size 32 \
+  --force
+
+bash examples/polyglot_grpo.sh
+```
+
+For one-command data preparation plus launch, use
+`scripts/run_full_aider_pipeline.sh`. Docker reward workers are the security
+boundary for untrusted model code. The `local` backend is intended only inside
+an already isolated training container; leak detection is disabled there when
+the host disallows LeakSanitizer's ptrace operations.
+
+The cross-group calibrated-advantage formula is implemented and unit-tested in
+`miles_polyglot_cpp.py`, but is deliberately not monkey-patched into an unknown
+Miles release. Wire it to the exact installed Miles advantage-estimator API and
+validate the loss numerics before enabling that experimental objective. The
+default launch continues to use Miles' standard GRPO estimator.
+
+Polyglot reward uses three static templates. Standard tasks activate
+correctness, reasoning, memory-safety, and C++-quality rubrics. State tasks add
+thread safety; performance-intensive tasks add runtime instead. `allergies`,
+`bank-account`, and `knapsack` are assigned to those three templates,
+respectively. The benchmark remains C++17 because that is its actual build
+contract.
+
+Each task carries a non-negative risk value for its active rubrics. The scorer
+normalizes those risks to weights and computes only
+`reward = sum(weight[r] * score[r])`. Empty risk metadata produces uniform
+weights; omitted active risks receive zero weight when at least one risk is
+specified. Invalid multi-file structure remains a hard -1 gate. Runtime is
+neutral unless the harness provides measured candidate and reference CPU time;
+the scorer never fabricates performance credit from wall time.
+
+After an evaluation epoch, update risks with the documented EMA (`alpha=0.8`):
+
+```bash
+PYTHONPATH=src python3 scripts/update_rubric_risks.py \
+  data/task_taxonomy.json path/to/eval.records.jsonl data/task_taxonomy.json \
+  --alpha 0.8
+```
+
+The Miles reward adapter watches `MILES_CPP_RUBRIC_RISK_FILE`, falling back to
+`MILES_CPP_TAXONOMY_FILE`, and reloads the sidecar after its modification time
+changes. This makes weights adaptive between evaluation epochs without adding
+an optimizer or modifying GRPO.
+
+The rollout adapter forwards truncation/finish reasons to the scorer and emits
+each rubric component, active template, normalized weights, the reasoning-token
+estimate, sanitizer status, and diagnostic observations in reward records and
+W&B tables. If the rollout API
+does not supply a tokenizer-derived reasoning count, the scorer uses a stable
+lexical approximation; production integrations should pass the exact count
+when Miles exposes it.
+
+Detailed references:
+
+- [Adaptive rubric reward](docs/ADAPTIVE_CPP_RUBRIC_REWARD.md)
+- [C++ RL environment](docs/CPP_RL_ENVIRONMENT.md)
+- [Public release checklist](docs/PUBLIC_RELEASE_CHECKLIST.md)
+
 The repository provides one configuration:
 
 | Component | Configuration |

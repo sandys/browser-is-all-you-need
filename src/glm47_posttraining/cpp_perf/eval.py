@@ -31,6 +31,132 @@ def write_json(path: str | Path, payload: object) -> Path:
     return output
 
 
+def aggregate_aider_eval_records(records: Iterable[dict[str, Any]], *, label: str) -> dict[str, Any]:
+    """Aggregate Aider-style pass@1/pass@2 and stratified correctness metrics."""
+
+    rows = list(records)
+    by_task: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_task[str(row["task_id"])].append(row)
+    for task_rows in by_task.values():
+        task_rows.sort(key=lambda row: int(row.get("sample_index") or 0))
+
+    def passes_within(task_rows: list[dict[str, Any]], tries: int) -> bool:
+        return any(row.get("all_tests_pass") is True for row in task_rows[:tries])
+
+    task_count = len(by_task)
+    pass_at_1 = sum(passes_within(task_rows, 1) for task_rows in by_task.values())
+    pass_at_2 = sum(passes_within(task_rows, 2) for task_rows in by_task.values())
+    passed_assertions = sum(int(row.get("passed_assertions") or 0) for row in rows)
+    total_assertions = sum(int(row.get("total_assertions") or 0) for row in rows)
+
+    strata: dict[str, dict[str, list[bool]]] = {
+        "difficulty": defaultdict(list),
+        "topic_category": defaultdict(list),
+    }
+    for task_rows in by_task.values():
+        representative = task_rows[0]
+        passed = passes_within(task_rows, 2)
+        for field in strata:
+            strata[field][str(representative.get(field) or "unknown")].append(passed)
+
+    stratified = {
+        field: {
+            name: sum(outcomes) / len(outcomes) if outcomes else 0.0
+            for name, outcomes in sorted(groups.items())
+        }
+        for field, groups in strata.items()
+    }
+    difficulty_metrics = {
+        f"pass_rate_{name.lower()}": rate
+        for name, rate in stratified["difficulty"].items()
+    }
+    topic_names = {
+        "State & concurrency": "state_concurrency",
+        "Time & date": "time_date",
+        "Numerical reasoning": "numerical",
+        "Text & parsing": "text_parsing",
+        "Logic, grids & games": "logic_grids_games",
+        "Algorithms & data structures": "algorithms_data_structures",
+    }
+    topic_metrics = {
+        f"pass_rate_{topic_names.get(name, name.lower().replace(' ', '_'))}": rate
+        for name, rate in stratified["topic_category"].items()
+    }
+    sample_count = len(rows)
+    rubric_names = (
+        "correctness",
+        "reasoning",
+        "memory_safety",
+        "thread_safety",
+        "runtime",
+        "cpp_quality",
+    )
+    rubric_means = {
+        f"mean_rubric_{name}": (
+            sum(float(row.get(f"rubric_{name}") or 0.0) for row in rows) / sample_count
+            if sample_count
+            else 0.0
+        )
+        for name in rubric_names
+    }
+    return {
+        "label": label,
+        "task_count": task_count,
+        "sample_count": sample_count,
+        "pass_at_1": pass_at_1 / task_count if task_count else 0.0,
+        "pass_at_2": pass_at_2 / task_count if task_count else 0.0,
+        "assertion_pass_ratio": passed_assertions / total_assertions if total_assertions else 0.0,
+        "context_exhausted_rate": sum(
+            row.get("reason") in {"context_exhausted", "rubric1_context_exhausted"}
+            or row.get("outcome") == "context_exhausted"
+            for row in rows
+        )
+        / sample_count
+        if sample_count
+        else 0.0,
+        "valid_format_rate": sum(bool(row.get("format_valid")) for row in rows) / sample_count
+        if sample_count
+        else 0.0,
+        "compile_success_rate": sum(
+            bool(row.get("sandbox_ran", row.get("format_valid")))
+            and not bool(row.get("compile_error"))
+            for row in rows
+        )
+        / sample_count
+        if sample_count
+        else 0.0,
+        "sanitizer_pass_rate": sum(
+            bool(row.get("sandbox_ran", row.get("format_valid")))
+            and not bool(row.get("compile_error"))
+            and not bool(row.get("sanitizer_error"))
+            for row in rows
+        )
+        / sample_count
+        if sample_count
+        else 0.0,
+        "timeout_rate": sum(bool(row.get("timeout")) for row in rows) / sample_count
+        if sample_count
+        else 0.0,
+        "thread_sanitizer_error_rate": sum(
+            bool(row.get("thread_sanitizer_error")) for row in rows
+        )
+        / sample_count
+        if sample_count
+        else 0.0,
+        "thread_sanitizer_timeout_rate": sum(
+            bool(row.get("thread_sanitizer_timeout")) for row in rows
+        )
+        / sample_count
+        if sample_count
+        else 0.0,
+        "stratified_pass_at_2": stratified,
+        **rubric_means,
+        **difficulty_metrics,
+        **topic_metrics,
+    }
+
+
 def aggregate_eval_records(records: Iterable[dict[str, Any]], *, label: str) -> dict[str, Any]:
     """Aggregate per-sample reward records into task-level uplift metrics."""
 

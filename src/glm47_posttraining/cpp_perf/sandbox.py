@@ -7,6 +7,7 @@ import os
 import shlex
 import subprocess
 import threading
+import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,7 @@ from typing import Any
 
 from glm47_posttraining.constants import DEFAULT_CPP_SANDBOX_IMAGE
 
-from .schema import CppTask, HarnessResult, TestCase
+from .schema import AiderPolyglotTask, Catch2HarnessResult, CppTask, HarnessResult, TestCase
 
 
 BASE_DOCKER_IMAGE = "gcc:13"
@@ -184,7 +185,8 @@ def sandbox_image_dockerfile() -> str:
 
     return f"""FROM {BASE_DOCKER_IMAGE}
 RUN apt-get update \\
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 \\
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \\
+       python3 gawk util-linux libboost-date-time-dev libtbb-dev \\
     && rm -rf /var/lib/apt/lists/*
 """
 
@@ -815,6 +817,357 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
     proc = subprocess.run(args, check=False, capture_output=True, text=True)
     _raise_for_docker_infrastructure(args, proc)
     return proc
+
+
+AIDER_COMPILE_TIMEOUT_S = 180
+AIDER_RUN_TIMEOUT_S = 10
+SANITIZER_ERROR_MARKERS = (
+    "addresssanitizer",
+    "undefinedbehaviorsanitizer",
+    "runtime error:",
+    "leaksanitizer",
+)
+THREAD_SANITIZER_ERROR_MARKERS = (
+    "threadsanitizer: data race",
+    "threadsanitizer: reported",
+    "threadsanitizer: lock-order-inversion",
+    "threadsanitizer: heap-use-after-free",
+    "threadsanitizer: signal-unsafe call",
+    "fatal: threadsanitizer",
+)
+
+
+def parse_catch2_xml(xml_path: str | Path) -> tuple[int, int, int, int]:
+    """Return passed/total cases and assertions from Catch2 v2/v3 XML.
+
+    The vendored C++ exercises use Catch2 v2, whose aggregate nodes expose
+    ``successes`` rather than the often-assumed ``passes`` attribute.
+    """
+
+    path = Path(xml_path)
+    if not path.exists() or path.stat().st_size == 0:
+        return 0, 0, 0, 0
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
+        return 0, 0, 0, 0
+
+    assertion_nodes = list(root.iter("OverallResults"))
+    case_nodes = list(root.iter("OverallResultsCases"))
+    if assertion_nodes and case_nodes:
+        assertions = assertion_nodes[-1]
+        cases = case_nodes[-1]
+        passed_assertions = _catch_count(assertions, "successes") + _catch_count(
+            assertions, "expectedFailures"
+        )
+        failed_assertions = _catch_count(assertions, "failures")
+        passed_cases = _catch_count(cases, "successes") + _catch_count(cases, "expectedFailures")
+        failed_cases = _catch_count(cases, "failures")
+        return (
+            passed_cases,
+            passed_cases + failed_cases,
+            passed_assertions,
+            passed_assertions + failed_assertions,
+        )
+
+    # Small synthetic reports and some Catch2 v3 reporters only carry
+    # per-test-case OverallResult nodes. Assertion totals may be unavailable.
+    outcomes = [node for node in root.iter("TestCase")]
+    passed_cases = 0
+    passed_assertions = 0
+    total_assertions = 0
+    for test_case in outcomes:
+        overall = test_case.find("OverallResult")
+        if overall is None:
+            continue
+        if overall.attrib.get("success", "false").lower() == "true":
+            passed_cases += 1
+        passed = _catch_count(overall, "passes") + _catch_count(overall, "successes")
+        failed = _catch_count(overall, "failures")
+        passed_assertions += passed
+        total_assertions += passed + failed
+    return passed_cases, len(outcomes), passed_assertions, total_assertions
+
+
+def _catch_count(node: ET.Element, name: str) -> int:
+    try:
+        return int(node.attrib.get(name, "0"))
+    except ValueError:
+        return 0
+
+
+def run_aider_in_sandbox(
+    task: AiderPolyglotTask,
+    candidate_files: dict[str, str],
+    *,
+    image: str = DEFAULT_DOCKER_IMAGE,
+    memory: str = DEFAULT_MEMORY,
+    compile_timeout_s: int = AIDER_COMPILE_TIMEOUT_S,
+    run_timeout_s: int = AIDER_RUN_TIMEOUT_S,
+) -> Catch2HarnessResult:
+    """Compile and execute a complete Polyglot edit with vendored Catch2.
+
+    This intentionally uses the exercise's own ``test/catch.hpp`` and
+    ``test/tests-main.cpp``. It therefore has no Catch2 v2/v3 host dependency
+    and enables the same full test set as Aider's benchmark harness.
+    """
+
+    expected = set(task.solution_files)
+    if set(candidate_files) != expected:
+        missing = sorted(expected - set(candidate_files))
+        extra = sorted(set(candidate_files) - expected)
+        return Catch2HarnessResult(
+            compile_error=True,
+            logs={"compile": f"candidate file mismatch; missing={missing}, extra={extra}"},
+        )
+
+    with TemporaryDirectory(prefix="aider-polyglot-cpp-") as temp:
+        scratch = Path(temp)
+        _prepare_scratch(scratch)
+        _write_polyglot_files(scratch, task.support_files)
+        _write_polyglot_files(scratch, task.test_files)
+        _write_polyglot_files(scratch, candidate_files)
+
+        normal_compile = _aider_compile_command(
+            task,
+            scratch,
+            output="test_runner",
+            sanitizer=False,
+            image=image,
+            memory=memory,
+            timeout_s=compile_timeout_s,
+        )
+        compiled = _run(normal_compile)
+        compile_logs = _combined_logs(compiled)
+        if compiled.returncode != 0:
+            return Catch2HarnessResult(
+                compile_error=True,
+                timeout=compiled.returncode == 124,
+                logs={"compile": compile_logs[-8000:]},
+            )
+
+        normal_run = _run(
+            _aider_test_command(
+                scratch,
+                binary="test_runner",
+                report="results.xml",
+                image=image,
+                memory=memory,
+                timeout_s=run_timeout_s,
+            )
+        )
+        run_logs = _combined_logs(normal_run)
+        if normal_run.returncode == 124:
+            return Catch2HarnessResult(
+                timeout=True,
+                logs={"compile": compile_logs[-4000:], "run": run_logs[-8000:]},
+            )
+
+        passed_cases, total_cases, passed_assertions, total_assertions = parse_catch2_xml(
+            scratch / "results.xml"
+        )
+
+        sanitizer_compile = _run(
+            _aider_compile_command(
+                task,
+                scratch,
+                output="test_runner_san",
+                sanitizer=True,
+                image=image,
+                memory=memory,
+                timeout_s=compile_timeout_s,
+            )
+        )
+        sanitizer_compile_logs = _combined_logs(sanitizer_compile)
+        if sanitizer_compile.returncode != 0:
+            return Catch2HarnessResult(
+                sanitizer_error=sanitizer_compile.returncode != 124,
+                timeout=sanitizer_compile.returncode == 124,
+                passed_test_cases=passed_cases,
+                total_test_cases=total_cases,
+                passed_assertions=passed_assertions,
+                total_assertions=total_assertions,
+                logs={
+                    "compile": compile_logs[-4000:],
+                    "run": run_logs[-4000:],
+                    "sanitizer_compile": sanitizer_compile_logs[-8000:],
+                },
+            )
+
+        sanitizer_run = _run(
+            _aider_test_command(
+                scratch,
+                binary="test_runner_san",
+                report="sanitizer-results.xml",
+                image=image,
+                memory=memory,
+                timeout_s=run_timeout_s,
+                sanitizer=True,
+            )
+        )
+        sanitizer_logs = _combined_logs(sanitizer_run)
+        sanitizer_error = any(
+            marker in sanitizer_logs.lower() for marker in SANITIZER_ERROR_MARKERS
+        )
+        result = Catch2HarnessResult(
+            sanitizer_error=sanitizer_error,
+            timeout=sanitizer_run.returncode == 124,
+            passed_test_cases=passed_cases,
+            total_test_cases=total_cases,
+            passed_assertions=passed_assertions,
+            total_assertions=total_assertions,
+            logs={
+                "compile": compile_logs[-4000:],
+                "run": run_logs[-8000:],
+                "sanitizer": sanitizer_logs[-8000:],
+            },
+        )
+        if (
+            task.effective_rubric_category != "state_concurrency"
+            or sanitizer_error
+            or result.timeout
+            or not result.all_tests_pass
+        ):
+            return result
+
+        thread_compile = _run(
+            _aider_compile_command(
+                task,
+                scratch,
+                output="test_runner_tsan",
+                sanitizer=False,
+                thread_sanitizer=True,
+                image=image,
+                memory=memory,
+                timeout_s=compile_timeout_s,
+            )
+        )
+        thread_compile_logs = _combined_logs(thread_compile)
+        if thread_compile.returncode != 0:
+            return result.model_copy(
+                update={
+                    "logs": {
+                        **result.logs,
+                        "thread_sanitizer_compile": thread_compile_logs[-8000:],
+                    },
+                }
+            )
+
+        thread_run = _run(
+            _aider_test_command(
+                scratch,
+                binary="test_runner_tsan",
+                report="thread-sanitizer-results.xml",
+                image=image,
+                memory=memory,
+                timeout_s=run_timeout_s,
+                thread_sanitizer=True,
+            )
+        )
+        thread_logs = _combined_logs(thread_run)
+        tsan_passed, tsan_total, tsan_assertions, tsan_assertion_total = parse_catch2_xml(
+            scratch / "thread-sanitizer-results.xml"
+        )
+        thread_error = any(
+            marker in thread_logs.lower() for marker in THREAD_SANITIZER_ERROR_MARKERS
+        )
+        if thread_run.returncode not in {0, 124}:
+            thread_error = True
+        if tsan_total and (
+            tsan_passed != tsan_total or tsan_assertions != tsan_assertion_total
+        ):
+            thread_error = True
+        return result.model_copy(
+            update={
+                "thread_sanitizer_ran": True,
+                "thread_sanitizer_error": thread_error,
+                "thread_sanitizer_timeout": thread_run.returncode == 124,
+                "logs": {**result.logs, "thread_sanitizer": thread_logs[-8000:]},
+            }
+        )
+
+
+def _write_polyglot_files(scratch: Path, files: dict[str, str]) -> None:
+    for relative, content in files.items():
+        destination = scratch / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(content, encoding="utf-8")
+
+
+def _aider_compile_command(
+    task: AiderPolyglotTask,
+    scratch: Path,
+    *,
+    output: str,
+    sanitizer: bool,
+    thread_sanitizer: bool = False,
+    image: str,
+    memory: str,
+    timeout_s: int,
+) -> list[str]:
+    solution_sources = [
+        name for name in task.solution_files if Path(name).suffix in {".cc", ".cpp", ".cxx"}
+    ]
+    test_sources = [
+        name for name in task.test_files if Path(name).suffix in {".cc", ".cpp", ".cxx"}
+    ]
+    main_source = "test/tests-main.cpp"
+    if main_source not in task.support_files:
+        raise ValueError(f"{task.task_id} is missing {main_source}")
+    instrumented = sanitizer or thread_sanitizer
+    flags = [
+        "g++",
+        "-O1" if instrumented else "-O2",
+        "-g" if instrumented else "-DNDEBUG",
+        "-std=c++17",
+        "-DEXERCISM_RUN_ALL_TESTS",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ]
+    if sanitizer:
+        # The normal build already enforces -Werror. GCC 13 emits
+        # maybe-uninitialized false positives inside vendored Catch2 v2 when
+        # optimization and sanitizer instrumentation are combined.
+        flags.extend(["-fsanitize=address,undefined", "-fno-omit-frame-pointer"])
+    elif thread_sanitizer:
+        flags.extend(["-fsanitize=thread", "-fno-omit-frame-pointer"])
+    else:
+        flags.append("-Werror")
+    flags.extend(solution_sources + test_sources + [main_source, "-I.", "-pthread"])
+    flags.extend(task.link_flags)
+    flags.extend(["-o", output])
+    script = f"timeout {int(timeout_s)}s {shlex.join(flags)}"
+    return sandbox_command(scratch, script, image=image, memory=memory)
+
+
+def _aider_test_command(
+    scratch: Path,
+    *,
+    binary: str,
+    report: str,
+    image: str,
+    memory: str,
+    timeout_s: int,
+    sanitizer: bool = False,
+    thread_sanitizer: bool = False,
+) -> list[str]:
+    env = ""
+    if sanitizer:
+        # LeakSanitizer cannot attach in ptrace-restricted local containers;
+        # Docker reward workers retain leak detection.
+        detect_leaks = "0" if sandbox_backend() == "local" else "1"
+        env = (
+            f"ASAN_OPTIONS=detect_leaks={detect_leaks}:halt_on_error=1 "
+            "UBSAN_OPTIONS=halt_on_error=1 "
+        )
+    elif thread_sanitizer:
+        env = "TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 "
+    script = (
+        f"{env}timeout {int(timeout_s)}s ./{shlex.quote(binary)} "
+        f"--reporter xml --out {shlex.quote(report)}"
+    )
+    return sandbox_command(scratch, script, image=image, memory=memory)
 
 
 def _raise_for_docker_infrastructure(

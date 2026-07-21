@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from glm47_posttraining.cpp_perf.eval import aggregate_eval_records, compare_eval_summaries, read_jsonl, write_json
-from glm47_posttraining.cpp_perf.reward import RewardBreakdown, compute_reward
+from glm47_posttraining.cpp_perf.reward import RewardBreakdown, compute_reward, extract_reward_code
 from glm47_posttraining.cpp_perf.sandbox import DEFAULT_CPU, DEFAULT_DOCKER_IMAGE, run_in_sandbox
 from glm47_posttraining.cpp_perf.schema import CppTask, HarnessResult
 from glm47_posttraining.cpp_perf.dataset import DATA_SOURCE, build_prompt, load_tasks, sft_output
@@ -354,6 +354,12 @@ async def reward_func(args: Any, sample: Any, **_kwargs: Any) -> dict[str, Any] 
 
     if isinstance(sample, list):
         return await _score_sample_batch(sample)
+    # Avoid creating a worker thread for definitely ungradeable responses.
+    # This path cannot execute candidate code and is common early in GRPO.
+    try:
+        extract_reward_code(_sample_response(sample))
+    except ValueError:
+        return _score_sample(sample)
     return await asyncio.to_thread(_score_sample, sample)
 
 

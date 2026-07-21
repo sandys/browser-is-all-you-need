@@ -1,6 +1,17 @@
 ARG MILES_BASE_IMAGE=radixark/miles:latest-cu12@sha256:efc8027fc47aaa9687dc4f1046093ed4e2f9789e52a932fcefb7031402aeff37
 FROM ${MILES_BASE_IMAGE}
 
+# C++ reward workers use the benchmark's vendored Catch2 v2 harness. Boost is
+# required by gigasecond/meetup; TBB is available for the parallel exercise.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      g++ \
+      gawk \
+      libboost-date-time-dev \
+      libtbb-dev \
+      util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
 # Keep the Python package, precompiled cubins, and CUDA 12.9 JIT cache on the
 # version required by the SGLang source bundled in the Miles base image.
 ARG FLASHINFER_VERSION=0.6.12

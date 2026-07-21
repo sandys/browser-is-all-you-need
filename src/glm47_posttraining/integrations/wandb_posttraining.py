@@ -56,7 +56,20 @@ EVAL_TABLE_COLUMNS = (
     "tests_total",
     "compile_error",
     "sanitizer_error",
+    "thread_sanitizer_ran",
+    "thread_sanitizer_error",
+    "thread_sanitizer_timeout",
     "timeout",
+    "reasoning_tokens",
+    "rubric_category",
+    "active_rubrics",
+    "rubric_weights",
+    "rubric_correctness",
+    "rubric_reasoning",
+    "rubric_memory_safety",
+    "rubric_thread_safety",
+    "rubric_runtime",
+    "rubric_cpp_quality",
     "runtime_cpu_ns",
     "reference_runtime_cpu_ns",
     "runtime_speedup",
@@ -127,7 +140,20 @@ MILES_SAMPLE_TABLE_COLUMNS = (
     "format_valid",
     "compile_error",
     "sanitizer_error",
+    "thread_sanitizer_ran",
+    "thread_sanitizer_error",
+    "thread_sanitizer_timeout",
     "timeout",
+    "reasoning_tokens",
+    "rubric_category",
+    "active_rubrics",
+    "rubric_weights",
+    "rubric_correctness",
+    "rubric_reasoning",
+    "rubric_memory_safety",
+    "rubric_thread_safety",
+    "rubric_runtime",
+    "rubric_cpp_quality",
     "tests_passed",
     "tests_total",
     "runtime_cpu_ns",
@@ -204,6 +230,37 @@ CURATED_STAGE_METRIC_TERMS = (
     "throughput",
     "tokens_per",
 )
+
+AIDER_METRIC_CATALOG = {
+    "eval/pass_at_1": {"summary": "max", "goal": "maximize"},
+    "eval/pass_at_2": {"summary": "max", "goal": "maximize"},
+    "eval/assertion_pass_ratio": {"summary": "max", "goal": "maximize"},
+    "eval/context_exhausted_rate": {"summary": "min", "goal": "minimize"},
+    "eval/valid_format_rate": {"summary": "max", "goal": "maximize"},
+    "eval/compile_success_rate": {"summary": "max", "goal": "maximize"},
+    "eval/sanitizer_pass_rate": {"summary": "max", "goal": "maximize"},
+    "eval/thread_sanitizer_error_rate": {"summary": "min", "goal": "minimize"},
+    "eval/thread_sanitizer_timeout_rate": {"summary": "min", "goal": "minimize"},
+    "eval/mean_rubric_correctness": {"summary": "max", "goal": "maximize"},
+    "eval/mean_rubric_reasoning": {"summary": "max", "goal": "maximize"},
+    "eval/mean_rubric_memory_safety": {"summary": "max", "goal": "maximize"},
+    "eval/mean_rubric_thread_safety": {"summary": "max", "goal": "maximize"},
+    "eval/mean_rubric_runtime": {"summary": "max", "goal": "maximize"},
+    "eval/mean_rubric_cpp_quality": {"summary": "max", "goal": "maximize"},
+    "eval/pass_rate_easy": {"summary": "max", "goal": "maximize"},
+    "eval/pass_rate_medium": {"summary": "max", "goal": "maximize"},
+    "eval/pass_rate_hard": {"summary": "max", "goal": "maximize"},
+    "eval/pass_rate_state_concurrency": {"summary": "max", "goal": "maximize"},
+    "eval/pass_rate_time_date": {"summary": "max", "goal": "maximize"},
+    "eval/pass_rate_numerical": {"summary": "max", "goal": "maximize"},
+}
+
+
+def register_aider_wandb_metrics(run: Any) -> None:
+    """Register summary direction for the Polyglot evaluation catalog."""
+
+    for metric_name, config in AIDER_METRIC_CATALOG.items():
+        _define_metric(run, metric_name, **config)
 
 
 def safe_identifier(value: str, *, fallback: str = "run") -> str:
@@ -296,7 +353,20 @@ def build_eval_table_rows(
                 _int_or_none(record.get("tests_total")),
                 bool(record.get("compile_error", False)),
                 bool(record.get("sanitizer_error", False)),
+                bool(record.get("thread_sanitizer_ran", False)),
+                bool(record.get("thread_sanitizer_error", False)),
+                bool(record.get("thread_sanitizer_timeout", False)),
                 bool(record.get("timeout", False)),
+                _int_or_none(record.get("reasoning_tokens")),
+                record.get("rubric_category"),
+                json.dumps(record.get("active_rubrics", []), sort_keys=True),
+                json.dumps(record.get("rubric_weights", {}), sort_keys=True),
+                _number_or_none(record.get("rubric_correctness")),
+                _number_or_none(record.get("rubric_reasoning")),
+                _number_or_none(record.get("rubric_memory_safety")),
+                _number_or_none(record.get("rubric_thread_safety")),
+                _number_or_none(record.get("rubric_runtime")),
+                _number_or_none(record.get("rubric_cpp_quality")),
                 _int_or_none(record.get("runtime_cpu_ns")),
                 _int_or_none(record.get("reference_runtime_cpu_ns")),
                 _number_or_none(record.get("runtime_speedup")),
@@ -502,7 +572,20 @@ def build_miles_sample_table_rows(
                 reward.get("format_valid"),
                 bool(reward.get("compile_error", False)),
                 bool(reward.get("sanitizer_error", False)),
+                bool(reward.get("thread_sanitizer_ran", False)),
+                bool(reward.get("thread_sanitizer_error", False)),
+                bool(reward.get("thread_sanitizer_timeout", False)),
                 bool(reward.get("timeout", False)),
+                _int_or_none(reward.get("reasoning_tokens")),
+                reward.get("rubric_category"),
+                json.dumps(reward.get("active_rubrics", []), sort_keys=True),
+                json.dumps(reward.get("rubric_weights", {}), sort_keys=True),
+                _number_or_none(reward.get("rubric_correctness")),
+                _number_or_none(reward.get("rubric_reasoning")),
+                _number_or_none(reward.get("rubric_memory_safety")),
+                _number_or_none(reward.get("rubric_thread_safety")),
+                _number_or_none(reward.get("rubric_runtime")),
+                _number_or_none(reward.get("rubric_cpp_quality")),
                 _int_or_none(reward.get("tests_passed")),
                 _int_or_none(reward.get("tests_total")),
                 _int_or_none(reward.get("runtime_cpu_ns")),
@@ -727,7 +810,17 @@ def log_eval_run(
         job_type=job_type or "eval",
         mode=mode,
         resume="allow",
-        tags=sorted(set(["canonical", "pie-cpp", label, timing_status, *tags])),
+        tags=sorted(
+            set(
+                [
+                    "canonical",
+                    "aider-polyglot-cpp" if "pass_at_1" in summary else "pie-cpp",
+                    label,
+                    timing_status,
+                    *tags,
+                ]
+            )
+        ),
         config=redact_sensitive(
             {
                 **config,
@@ -739,6 +832,8 @@ def log_eval_run(
     )
     _define_metric(run, "eval/index")
     _define_metric(run, "eval/*", step_metric="eval/index")
+    if "pass_at_1" in summary:
+        register_aider_wandb_metrics(run)
 
     scalar_metrics = {
         key: value

@@ -20,6 +20,8 @@ EVAL_SPLITS="${MILES_CPP_EVAL_SPLITS:-validation,test}"
 SORT_BY_SIZE="${MILES_CPP_SORT_BY_SIZE:-1}"
 FILTER_TRAIN_ORACLE_FULL_MARKS="${MILES_CPP_FILTER_TRAIN_ORACLE_FULL_MARKS:-0}"
 ORACLE_FILTER_WORKERS="${MILES_CPP_ORACLE_FILTER_WORKERS:-8}"
+CPP_DATA_BUILDER_MODULE="${MILES_CPP_DATA_BUILDER_MODULE:-glm47_posttraining.integrations.miles_cpp_perf}"
+CPP_REWARD_FUNC_PATH="${MILES_CPP_REWARD_FUNC_PATH:-glm47_posttraining.integrations.miles_cpp_perf.reward_func}"
 
 HF_CHECKPOINT="${MILES_HF_CHECKPOINT:-/root/models/GLM-4.7-Flash}"
 REF_LOAD_DIR="${MILES_REF_LOAD_DIR:-${HF_CHECKPOINT}_torch_dist_tp4_pp1_ep8}"
@@ -140,26 +142,45 @@ if [ "${GLM47_CPP_SANDBOX_BACKEND:-docker}" = "local" ] && ! command -v g++ >/de
   exit 2
 fi
 
-BUILD_DATA_ARGS=(
-  -m glm47_posttraining.integrations.miles_cpp_perf build-data
-  --tasks-dir "${TASKS_DIR}"
-  --out "${DATA_DIR}"
-  --eval-splits "${EVAL_SPLITS}"
-  --profile "glm47-h100-grpo"
-  --run-id "${RUN_ID}"
-  --force
-)
-if [ -n "${TRAIN_LIMIT}" ]; then
-  BUILD_DATA_ARGS+=(--train-limit "${TRAIN_LIMIT}")
-fi
-if [ -n "${EVAL_LIMIT}" ]; then
-  BUILD_DATA_ARGS+=(--eval-limit "${EVAL_LIMIT}")
-fi
-if [ "${SORT_BY_SIZE}" = "1" ]; then
-  BUILD_DATA_ARGS+=(--sort-by-size)
-fi
-if [ "${FILTER_TRAIN_ORACLE_FULL_MARKS}" = "1" ]; then
-  BUILD_DATA_ARGS+=(--filter-train-oracle-full-marks --oracle-filter-workers "${ORACLE_FILTER_WORKERS}")
+if [ "${CPP_DATA_BUILDER_MODULE}" = "glm47_posttraining.integrations.miles_polyglot_cpp" ]; then
+  BUILD_DATA_ARGS=(
+    -m "${CPP_DATA_BUILDER_MODULE}" build-data
+    --tasks-dir "${TASKS_DIR}"
+    --out "${DATA_DIR}"
+    --sampling-strategy "${MILES_CPP_SAMPLING_STRATEGY:-wire}"
+    --wire-batch-size "${MILES_CPP_WIRE_BATCH_SIZE:-${ROLLOUT_BATCH_SIZE}}"
+    --gamma "${MILES_CPP_PRIORITY_GAMMA:-1.5}"
+    --seed "${MILES_CPP_SAMPLING_SEED:-0}"
+    --force
+  )
+  if [ -n "${MILES_CPP_TAXONOMY_FILE:-}" ]; then
+    BUILD_DATA_ARGS+=(--taxonomy-file "${MILES_CPP_TAXONOMY_FILE}")
+  fi
+  if [ -n "${MILES_CPP_SAMPLE_COUNT:-}" ]; then
+    BUILD_DATA_ARGS+=(--sample-count "${MILES_CPP_SAMPLE_COUNT}")
+  fi
+else
+  BUILD_DATA_ARGS=(
+    -m "${CPP_DATA_BUILDER_MODULE}" build-data
+    --tasks-dir "${TASKS_DIR}"
+    --out "${DATA_DIR}"
+    --eval-splits "${EVAL_SPLITS}"
+    --profile "glm47-h100-grpo"
+    --run-id "${RUN_ID}"
+    --force
+  )
+  if [ -n "${TRAIN_LIMIT}" ]; then
+    BUILD_DATA_ARGS+=(--train-limit "${TRAIN_LIMIT}")
+  fi
+  if [ -n "${EVAL_LIMIT}" ]; then
+    BUILD_DATA_ARGS+=(--eval-limit "${EVAL_LIMIT}")
+  fi
+  if [ "${SORT_BY_SIZE}" = "1" ]; then
+    BUILD_DATA_ARGS+=(--sort-by-size)
+  fi
+  if [ "${FILTER_TRAIN_ORACLE_FULL_MARKS}" = "1" ]; then
+    BUILD_DATA_ARGS+=(--filter-train-oracle-full-marks --oracle-filter-workers "${ORACLE_FILTER_WORKERS}")
+  fi
 fi
 
 # Reuse a prepared dataset when available.
@@ -368,7 +389,7 @@ ROLLOUT_ARGS=(
   --label-key label
   --metadata-key metadata
   --apply-chat-template
-  --custom-rm-path glm47_posttraining.integrations.miles_cpp_perf.reward_func
+  --custom-rm-path "${CPP_REWARD_FUNC_PATH}"
   --reward-key score
   --num-rollout "${NUM_ROLLOUT}"
   --rollout-batch-size "${ROLLOUT_BATCH_SIZE}"

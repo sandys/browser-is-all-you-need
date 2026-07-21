@@ -7,6 +7,13 @@
 .glm47-posttraining/
 .local/
 
+# External benchmark sources are inputs, not redistributable project assets.
+/polyglot-benchmark/
+/format verification/
+
+# Local research runs, downloaded evaluations, and generated corpora.
+/.w8-biayn/
+
 __pycache__/
 *.py[cod]
 *.egg-info/
