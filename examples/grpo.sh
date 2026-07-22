@@ -95,10 +95,22 @@ fi
 if [ -n "${MILES_LORA_ADAPTER_PATH:-}" ] && [ "${MILES_AUTO_PREPARE_GRPO_ADAPTER:-1}" = "1" ]; then
   TRAINER_ADAPTER_PATH="${MILES_LORA_ADAPTER_PATH}"
   HYBRID_ADAPTER_PATH="${MILES_GRPO_ADAPTER_DIR:-${MILES_RUN_ROOT}/adapter_hybrid}"
+  export MILES_LORA_SOURCE_ADAPTER_PATH="${TRAINER_ADAPTER_PATH}"
+  PREPARE_ARGS=(
+    --include-native
+    --expected-native-shards "${MILES_EXPECTED_NATIVE_SHARDS:-${MILES_TENSOR_MODEL_PARALLEL_SIZE}}"
+  )
+  if [ -n "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256:-}" ]; then
+    PREPARE_ARGS+=(--expected-source-sha256 "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}")
+  fi
+  if [ -n "${MILES_EXPECTED_SOURCE_TENSORS:-}" ]; then
+    PREPARE_ARGS+=(--expected-source-tensors "${MILES_EXPECTED_SOURCE_TENSORS}")
+  fi
+  if [ -n "${MILES_EXPECTED_STRIPPED_TENSORS:-}" ]; then
+    PREPARE_ARGS+=(--expected-stripped-tensors "${MILES_EXPECTED_STRIPPED_TENSORS}")
+  fi
   "${MILES_PYTHON:-python3}" "${REPO_ROOT}/scripts/prepare_grpo_adapter.py" \
-    --include-native \
-    "${TRAINER_ADAPTER_PATH}" \
-    "${HYBRID_ADAPTER_PATH}"
+    "${PREPARE_ARGS[@]}" "${TRAINER_ADAPTER_PATH}" "${HYBRID_ADAPTER_PATH}"
   export MILES_LORA_ADAPTER_PATH="${HYBRID_ADAPTER_PATH}"
 fi
 

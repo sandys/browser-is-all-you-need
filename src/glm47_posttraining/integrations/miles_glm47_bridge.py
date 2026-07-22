@@ -860,6 +860,7 @@ def _patch_router_circuit_breaker() -> None:
 
 
 def _apply_router_cb_patch(module) -> None:
+    _apply_router_ready_timeout_patch(module)
     router_args_cls = getattr(module, "RouterArgs", None)
     if router_args_cls is None or getattr(router_args_cls, "_glm47_cb_patched", False):
         return
@@ -880,6 +881,35 @@ def _apply_router_cb_patch(module) -> None:
 
     router_args_cls.from_cli_args = staticmethod(from_cli_args)
     router_args_cls._glm47_cb_patched = True
+
+
+def _apply_router_ready_timeout_patch(module) -> None:
+    """Enforce a floor on the router/session-server readiness timeout.
+
+    Miles hardcodes ``timeout=30`` when waiting for the spawned router and
+    session-server children, but those children are fresh interpreters that
+    re-import the sglang/transformers chain; on Modal's cold image filesystem
+    that alone can exceed 30s (observed: healthy router killed mid-import).
+    The child-liveness check inside ``wait_for_server_ready`` still fails
+    fast when the child actually dies.
+    """
+
+    original_wait = getattr(module, "wait_for_server_ready", None)
+    if original_wait is None or getattr(module, "_glm47_ready_timeout_patched", False):
+        return
+
+    def wait_for_server_ready(host, port, process=None, timeout=30):
+        floor = float(os.environ.get("GLM47_ROUTER_READY_TIMEOUT_S") or 300)
+        effective = max(float(timeout), floor)
+        if effective != float(timeout):
+            print(
+                f"GLM-4.7 router patch: extending server-ready timeout {timeout}s -> {effective:g}s",
+                flush=True,
+            )
+        return original_wait(host, port, process, timeout=effective)
+
+    module.wait_for_server_ready = wait_for_server_ready
+    module._glm47_ready_timeout_patched = True
 
 
 def _patch_sglang_lora_mem_pool_ordering() -> None:

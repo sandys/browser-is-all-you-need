@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-07-22T09:52:23.113260+00:00",
+  "model": {
+    "repo": "zai-org/GLM-4.7-Flash",
+    "revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67"
+  },
+  "shadow_rl_corpus": {
+    "package": "v1",
+    "access": "gated-manual-approval",
+    "repo": "TokenBender/glm47-aider-polyglot-cpp-shadow",
+    "revision": "d8f86f752685d5ddc6cece2a08ea8851b395ee83",
+    "url": "https://huggingface.co/datasets/TokenBender/glm47-aider-polyglot-cpp-shadow/tree/d8f86f752685d5ddc6cece2a08ea8851b395ee83",
+    "tasks": 253,
+    "files": 1519,
+    "archive_sha256": "e89d0f6b5ee78796a5519f1ab6130cc119837bedca456c1fa4b835a19e026714",
+    "source_manifest_sha256": "002993b94ddf85e23863e22484459df4b724d91204e5e48c37904a1f34748f00",
+    "source_tree_sha256": "a8bb8030f7ec287eee4f5c19146374d6722ec5af310cad632ed5938e7280f686"
+  },
+  "evaluation": {
+    "benchmark": "Aider Polyglot C++",
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "task_count": 26,
+    "tries": 2,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "edit_format": "whole"
+  },
+  "stages": [
+    {
+      "id": "base",
+      "label": "Base",
+      "training_rows_packaged": 0,
+      "training_rows_consumed": 0,
+      "pass_at_1": 0,
+      "pass_at_2": 4,
+      "well_formed_tasks": 26,
+      "prompt_tokens": 1628446,
+      "completion_tokens": 583973,
+      "artifact": "https://huggingface.co/zai-org/GLM-4.7-Flash/tree/7dd20894a642a0aa287e9827cb1a1f7f91386b67"
+    },
+    {
+      "id": "sft-v1",
+      "label": "SFT v1 - 401 source / 321 train",
+      "dataset": {
+        "source_rows": 401,
+        "training_rows": 321,
+        "consumed_rows": 320,
+        "source_archive_sha256": "2efe714c454de7ba1c5fd523f5849b3c6c9af65e8e5ca5bf4cf438017fb1e03a"
+      },
+      "pass_at_1": 1,
+      "pass_at_2": 5,
+      "well_formed_tasks": 26,
+      "prompt_tokens": 1184779,
+      "completion_tokens": 547508,
+      "wandb": "https://wandb.ai/ahm-rimer/glm47-aider-v1-sft/runs/glm47-aider-v1-sft-20260717T130336Z",
+      "checkpoint": "glm47-runs:/glm47-aider-v1-sft-20260717T130336Z/checkpoints/sft_lora_r16/iter_0000009/adapter"
+    },
+    {
+      "id": "sft-v2",
+      "label": "SFT v2 - 1,211 rows",
+      "dataset": {
+        "training_rows": 1211,
+        "consumed_rows": 1184,
+        "train_jsonl_sha256": "13219cae85551714d4280b60600bb7ef5336dffda54698340ba40f3405ccd51b"
+      },
+      "pass_at_1": 1,
+      "pass_at_2": 6,
+      "well_formed_tasks": 25,
+      "malformed_responses": 2,
+      "prompt_tokens": 986263,
+      "completion_tokens": 596518,
+      "wandb": "https://wandb.ai/ahm-rimer/glm47-aider-v1-sft/runs/glm47-aider-1211-sft-20260718T192250Z",
+      "checkpoint": "glm47-runs:/glm47-aider-1211-sft-20260718T192250Z/checkpoints/sft_lora_r16/iter_0000036/adapter"
+    },
+    {
+      "id": "sft-v3",
+      "label": "SFT v3 - 530 rows",
+      "dataset": {
+        "training_rows": 530,
+        "consumed_rows": 520,
+        "composition": "401 original + 129 complementary",
+        "train_jsonl_sha256": "805aa59bbc936ee20687a293ef47d2fb9bcaee12419c6539ecd6180dfab02089"
+      },
+      "pass_at_1": 0,
+      "pass_at_2": 7,
+      "well_formed_tasks": 26,
+      "prompt_tokens": 983419,
+      "completion_tokens": 627885,
+      "wandb": "https://wandb.ai/ahm-rimer/glm47-aider-v1-sft/runs/glm47-aider-complement-530-sft-20260721",
+      "checkpoint": "glm47-runs:/glm47-aider-complement-530-sft-20260721/checkpoints/sft_lora_r16/iter_0000025/adapter",
+      "adapter_sha256": "f1ea45bc327dc6e28d0287aea75c6b691e99d2ec2f7fdb7f07bbbf5ccd6cf36a"
+    },
+    {
+      "id": "rl-v2",
+      "label": "RL v2 - parser fixed, two epochs",
+      "training": {
+        "source_commit": "c5cb63f15166ee3fdcf52dc2a882504758a594cd",
+        "train_rows": 169,
+        "monitor_rows": 22,
+        "updates": 11,
+        "approximate_epochs": 2.08,
+        "dataset_manifest_sha256": "a7e54c0245b97ae78f9b2fa57ff5278844585cf03004254137b6cfc8e91ef157",
+        "train_jsonl_sha256": "b72394ab603b4b6faf22370ea70605446f112ab50c883eb61e308e2dd9ab4dd2",
+        "source_adapter_sha256": "dbea7d3e2d6603f278b94c6be134bca83bb5f0ebdc4840eb53898ec5b3affb91",
+        "wandb_mode": "offline",
+        "wandb_project": "https://wandb.ai/ahm-rimer/glm47-aider-polyglot-cpp-grpo"
+      },
+      "checkpoint": "/workspace/runs/glm47-aider-grpo169-merge1211-530-r32-2ep-fixed-20260722-lium-r3/checkpoints/grpo_lora_r16/iter_0000010/adapter",
+      "adapter_sha256": "046a1018b605aa29f8b8c4f2677f47ce55489105f6766155f4c009798f48abe2",
+      "pass_at_1": 1,
+      "pass_at_2": 6,
+      "well_formed_tasks": 26,
+      "prompt_tokens": 981534,
+      "completion_tokens": 668886,
+      "receipt": "docs/receipts/glm47-aider-rl-v2-fixed26-run-receipt.json"
+    }
+  ]
+}

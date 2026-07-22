@@ -16,7 +16,10 @@ SFT_RUNNER = Path("scripts/train_sft.sh")
 GRPO_RUNNER = Path("scripts/train_grpo.sh")
 GLM47_H100_SFT_RUNNER = Path("examples/sft.sh")
 GLM47_H100_GRPO_RUNNER = Path("examples/grpo.sh")
+GLM47_AIDER_LIUM_GRPO_RUNNER = Path("examples/lium/aider_grpo_2ep.sh")
+GLM47_AIDER_LIUM_EVAL_RUNNER = Path("examples/lium/aider_fixed26_eval.py")
 GLM47_H100_MODAL_RUNNER = Path("examples/modal/modal_app.py")
+GLM47_AIDER_EVAL_MODAL_RUNNER = Path("examples/modal/aider_eval_app.py")
 GLM47_H100_CONVERTER = Path("scripts/convert_checkpoint.sh")
 GLM47_H100_RUNTIME = Path("Dockerfile")
 MILES_SCRIPTS = (
@@ -24,6 +27,7 @@ MILES_SCRIPTS = (
     GRPO_RUNNER,
     GLM47_H100_SFT_RUNNER,
     GLM47_H100_GRPO_RUNNER,
+    GLM47_AIDER_LIUM_GRPO_RUNNER,
     GLM47_H100_CONVERTER,
 )
 
@@ -37,6 +41,14 @@ def test_glm47_h100_lora_r16_scripts_are_present_and_executable() -> None:
 def test_glm47_h100_lora_r16_scripts_are_bash_syntax_valid() -> None:
     for script in MILES_SCRIPTS:
         subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+def test_grpo_runner_forwards_response_boundary_controls() -> None:
+    text = GRPO_RUNNER.read_text(encoding="utf-8")
+    assert 'ROLLOUT_SKIP_SPECIAL_TOKENS="${MILES_ROLLOUT_SKIP_SPECIAL_TOKENS:-0}"' in text
+    assert 'ROLLOUT_STOP_TOKEN_IDS="${MILES_ROLLOUT_STOP_TOKEN_IDS:-}"' in text
+    assert 'ROLLOUT_ARGS+=(--rollout-skip-special-tokens)' in text
+    assert 'ROLLOUT_ARGS+=(--rollout-stop-token-ids "${ROLLOUT_STOP_TOKEN_ID_ARGS[@]}")' in text
 
 
 def test_glm47_h100_wrappers_select_fast_8x_h100_defaults() -> None:
@@ -437,13 +449,17 @@ def test_h100_grpo_prepares_hybrid_adapter() -> None:
 
 def test_h100_runtime_aligns_all_flashinfer_packages() -> None:
     text = GLM47_H100_RUNTIME.read_text(encoding="utf-8")
-    assert "FLASHINFER_VERSION=0.6.12" in text
-    assert "FLASHINFER_CUDA_INDEX=129" in text
-    assert "ENV FLASHINFER_VERSION=${FLASHINFER_VERSION}" in text
+    assert "GLM47_FLASHINFER_VERSION=0.6.12" in text
+    assert "GLM47_FLASHINFER_CUDA_INDEX=129" in text
+    assert "ENV FLASHINFER_VERSION=${GLM47_FLASHINFER_VERSION}" in text
+    assert "ENV FLASHINFER_CUDA_INDEX=${GLM47_FLASHINFER_CUDA_INDEX}" in text
     for package in ("flashinfer-python", "flashinfer-cubin", "flashinfer-jit-cache"):
         assert package in text
-    assert "SGLANG_KERNEL_VERSION=0.4.4" in text
-    assert "TORCH_MEMORY_SAVER_VERSION=0.0.9.post1" in text
+    assert text.count("--force-reinstall") >= 3
+    assert "GLM47_SGLANG_KERNEL_VERSION=0.4.4" in text
+    assert "GLM47_TORCH_MEMORY_SAVER_VERSION=0.0.9.post1" in text
+    assert "ENV SGLANG_KERNEL_VERSION=${GLM47_SGLANG_KERNEL_VERSION}" in text
+    assert "ENV TORCH_MEMORY_SAVER_VERSION=${GLM47_TORCH_MEMORY_SAVER_VERSION}" in text
     assert "https://docs.sglang.ai/whl/cu${FLASHINFER_CUDA_INDEX}/" in text
 
 
@@ -457,7 +473,93 @@ def test_modal_reproduction_pins_model_image_and_machine_shape() -> None:
     assert '"memory": (262_144, 1_048_576)' in text
     assert '"timeout": 86_400' in text
     assert '"GLM47_CPP_SANDBOX_BACKEND": "local"' in text
+    assert '"GLM47_CPP_SANDBOX_UNSHARE_NET": "0"' in text
     assert 'modal.Secret.from_name("wandb-glm47")' in text
+    assert 'modal.Secret.from_name("huggingface-token")' in text
+
+
+def test_modal_aider_profile_binds_objective_adapter_and_safe_reward() -> None:
+    text = GLM47_H100_MODAL_RUNNER.read_text(encoding="utf-8")
+    assert '"bubblewrap"' in text
+    assert 'AIDER_DATASET_KIND = "aider-polyglot-cpp-shadow-grpo"' in text
+    assert 'AIDER_TASKS_DIR = f"{ASSETS_DIR}/aider-shadow/tasks/aider_polyglot_cpp_shadow"' in text
+    assert '"rubrics"' in text
+    assert 'scripts/download_assets.py aider-shadow' in text
+    assert 'secrets=[hf_secret]' in text
+    assert "def prepare_aider_shadow_asset(" in text
+    assert 'volumes={ASSETS_DIR: assets, RUNS_DIR: runs}' in text
+    assert "glm47-aider-complement-530-sft-20260721" in text
+    assert "glm47-aider-1211-sft-20260718T192250Z" in text
+    assert "glm47-aider-1211-530-equal-delta-merge-r32" in text
+    assert "f1ea45bc327dc6e28d0287aea75c6b691e99d2ec2f7fdb7f07bbbf5ccd6cf36a" in text
+    assert '"MILES_DATA_BUILD_MODULE"' in text
+    assert '"glm47_posttraining.integrations.miles_aider_polyglot.reward_func"' in text
+    assert '"MILES_ROLLOUT_MAX_RESPONSE_LEN": "4096"' in text
+    assert '"MILES_ROLLOUT_STOP_TOKEN_IDS": "154820 154827 154829"' in text
+    assert '"MILES_ROLLOUT_SKIP_SPECIAL_TOKENS": "1"' in text
+    assert '"MILES_KL_LOSS_COEF": "0.02"' in text
+    assert '"MILES_NO_REF": "0"' in text
+    assert '"MILES_NUM_ROLLOUT": num_rollout or (' in text
+    assert "def aider_preflight(" in text
+    assert "def merge_aider(" in text
+    assert "def aider_profile(" in text
+    assert "def aider_grpo(" in text
+    assert 'env["MILES_LORA_RANK"] = lora_rank' in text
+    assert 'env["MILES_LORA_ALPHA"] = lora_alpha' in text
+    assert "num_rollout=num_rollout" in text
+
+
+def test_aider_fixed_26_eval_requires_grpo_gate() -> None:
+    text = GLM47_AIDER_EVAL_MODAL_RUNNER.read_text(encoding="utf-8")
+    assert '"glm47-aider-grpo-training-gate"' in text
+    assert '"grpo_lora_r16", "grpo_training_gate.json"' in text
+    assert '"training_task_count": EXPECTED_TRAINING_TASK_COUNT' in text
+    assert 'os.environ.get("GLM47_EXPECTED_TRAINING_TASK_COUNT", "253")' in text
+    assert 'os.environ.get("GLM47_EVAL_LORA_RANK", "16")' in text
+    assert '"official_26_role": "external fixed evaluation only"' in text
+    assert 'EXPECTED_SOURCE_TENSORS = 9_741' in text
+    assert 'EXPECTED_LAYER_47_TENSORS = 207' in text
+    assert 'AIDER_COMMIT = "5dc9490bb35f9729ef2c95d00a19ccd30c26339c"' in text
+    assert 'POLYGLOT_COMMIT = "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f"' in text
+    assert "def evaluate_shard(" in text
+    assert "def merge_shards(" in text
+    assert "elif parallel:" in text
+
+
+def test_lium_aider_reproduction_pins_inputs_and_fixed_schedule() -> None:
+    text = GLM47_AIDER_LIUM_GRPO_RUNNER.read_text(encoding="utf-8")
+    for value in (
+        "a7e54c0245b97ae78f9b2fa57ff5278844585cf03004254137b6cfc8e91ef157",
+        "b72394ab603b4b6faf22370ea70605446f112ab50c883eb61e308e2dd9ab4dd2",
+        "dbea7d3e2d6603f278b94c6be134bca83bb5f0ebdc4840eb53898ec5b3affb91",
+        "MILES_NUM_ROLLOUT=11",
+        "MILES_LORA_RANK=32",
+        "MILES_LR=5e-7",
+        "MILES_KL_LOSS_COEF=0.02",
+        "MILES_ROLLOUT_SKIP_SPECIAL_TOKENS=1",
+        "MILES_ROLLOUT_STOP_TOKEN_IDS='154820 154827 154829'",
+        "WANDB_MODE=offline",
+        "002993b94ddf85e23863e22484459df4b724d91204e5e48c37904a1f34748f00",
+        "aider-shadow/tasks/aider_polyglot_cpp_shadow",
+    ):
+        assert value in text
+    assert "verify_sha256" in text
+    assert 'source_commit="$(git -C "${repo_root}" rev-parse HEAD)"' in text
+
+
+def test_lium_fixed_26_eval_pins_benchmark_and_adapter() -> None:
+    text = GLM47_AIDER_LIUM_EVAL_RUNNER.read_text(encoding="utf-8")
+    for value in (
+        "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+        "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+        "046a1018b605aa29f8b8c4f2677f47ce55489105f6766155f4c009798f48abe2",
+        "a7e54c0245b97ae78f9b2fa57ff5278844585cf03004254137b6cfc8e91ef157",
+        '"--tries", "2"',
+        '"--edit-format", "whole"',
+        '"temperature": 0.7',
+        '"unique_testcases": 26',
+    ):
+        assert value in text
 
 
 def test_asset_downloader_pins_the_base_model_revision() -> None:
@@ -467,6 +569,15 @@ def test_asset_downloader_pins_the_base_model_revision() -> None:
     assert model["default_revision"] == "7dd20894a642a0aa287e9827cb1a1f7f91386b67"
     assert model["destination"] == "GLM-4.7-Flash"
     assert model["verify_checksums"] is False
+
+
+def test_asset_downloader_pins_the_aider_shadow_revision() -> None:
+    module = runpy.run_path("scripts/download_assets.py")
+    shadow = module["ASSETS"]["aider-shadow"]
+    assert shadow["repo_id"] == "TokenBender/glm47-aider-polyglot-cpp-shadow"
+    assert shadow["default_revision"] == "d8f86f752685d5ddc6cece2a08ea8851b395ee83"
+    assert shadow["destination"] == "aider-shadow"
+    assert shadow["verify_checksums"] is True
 
 
 def test_h100_runtime_preflight_accepts_aligned_versions() -> None:
@@ -530,6 +641,44 @@ def test_data_asset_extracts_verified_task_bundle(tmp_path) -> None:
 
     assert (destination / "train" / "one.json").is_file()
     assert (destination / "validation" / "two.json").is_file()
+
+
+def test_aider_shadow_asset_extracts_verified_archive(tmp_path) -> None:
+    import hashlib
+    import json
+
+    module = runpy.run_path("scripts/download_assets.py")
+    extract = module["_extract_aider_shadow_archive"]
+    root = tmp_path / "aider-shadow"
+    source = tmp_path / "aider_polyglot_cpp_shadow"
+    practice = source / "cpp" / "exercises" / "practice"
+    practice.mkdir(parents=True)
+    for index in range(253):
+        task = practice / f"task-{index:03d}"
+        task.mkdir()
+        (task / ".rubric.json").write_text("{}")
+    source_manifest = {
+        "kind": "aider-polyglot-cpp-shadow-rubrics",
+        "counts": {"tasks": 253},
+    }
+    manifest_bytes = (json.dumps(source_manifest) + "\n").encode()
+    (source / "manifest.json").write_bytes(manifest_bytes)
+    root.mkdir()
+    with tarfile.open(root / "aider-shadow-rubrics.tar.gz", "w:gz") as handle:
+        handle.add(source, arcname="aider_polyglot_cpp_shadow")
+    artifact_manifest = {
+        "kind": "glm47-aider-shadow-rubrics-archive",
+        "archive": "aider-shadow-rubrics.tar.gz",
+        "archive_root": "aider_polyglot_cpp_shadow",
+        "source_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "counts": {"tasks": 253, "files": 254},
+    }
+    (root / "artifact_manifest.json").write_text(json.dumps(artifact_manifest))
+
+    destination = extract(root)
+
+    assert destination.name == "aider_polyglot_cpp_shadow"
+    assert sum(1 for path in destination.rglob(".rubric.json")) == 253
 
 
 def test_strip_mtp_adapter_filters_served_layers_and_copies_native_state(tmp_path) -> None:
@@ -641,6 +790,32 @@ def test_router_circuit_breaker_patch_disables_breaker_and_widens_queue() -> Non
     assert FakeRouterArgs.from_cli_args(object()).queue_size == 4096
 
 
+def test_router_ready_timeout_patch_enforces_floor(monkeypatch) -> None:
+    from glm47_posttraining.integrations import miles_glm47_bridge
+
+    calls = {}
+
+    def fake_wait(host, port, process=None, timeout=30):
+        calls["timeout"] = timeout
+
+    fake_module = types.SimpleNamespace(RouterArgs=None, wait_for_server_ready=fake_wait)
+    miles_glm47_bridge._apply_router_cb_patch(fake_module)
+
+    monkeypatch.delenv("GLM47_ROUTER_READY_TIMEOUT_S", raising=False)
+    fake_module.wait_for_server_ready("h", 1, None, timeout=30)
+    assert calls["timeout"] == 300.0
+
+    # An explicit longer caller timeout wins over a smaller floor.
+    monkeypatch.setenv("GLM47_ROUTER_READY_TIMEOUT_S", "45")
+    fake_module.wait_for_server_ready("h", 1, None, timeout=60)
+    assert calls["timeout"] == 60.0
+
+    # Empty env (Ray runtime-env passthrough default) falls back to 300.
+    monkeypatch.setenv("GLM47_ROUTER_READY_TIMEOUT_S", "")
+    fake_module.wait_for_server_ready("h", 1, None, timeout=30)
+    assert calls["timeout"] == 300.0
+
+
 def test_grpo_runner_exposes_server_concurrency() -> None:
     text = GRPO_RUNNER.read_text(encoding="utf-8")
     assert 'SGLANG_SERVER_CONCURRENCY="${MILES_SGLANG_SERVER_CONCURRENCY:-512}"' in text
@@ -650,7 +825,8 @@ def test_grpo_runner_exposes_server_concurrency() -> None:
 def test_grpo_runner_eval_prompt_data_is_configurable() -> None:
     text = GRPO_RUNNER.read_text(encoding="utf-8")
     assert 'EVAL_PROMPT_DATA="${MILES_EVAL_PROMPT_DATA:-}"' in text
-    assert '--eval-prompt-data pie_cpp "${EVAL_PROMPT_DATA:-${DATA_DIR}/eval/validation.jsonl}"' in text
+    assert 'EVAL_NAME="${MILES_EVAL_NAME:-pie_cpp}"' in text
+    assert '--eval-prompt-data "${EVAL_NAME}" "${EVAL_PROMPT_DATA:-${DATA_DIR}/eval/validation.jsonl}"' in text
 
 
 def test_grpo_runner_supports_raw_extra_args() -> None:
@@ -726,7 +902,7 @@ def test_grpo_runner_prefers_mini_eval_when_present() -> None:
     assert '[ -f "${DATA_DIR}/eval/validation_mini126.jsonl" ]' in text
     assert 'EVAL_PROMPT_DATA="${DATA_DIR}/eval/validation_mini126.jsonl"' in text
     fallback = text.index("validation_mini126.jsonl")
-    eval_args = text.index("--eval-prompt-data pie_cpp")
+    eval_args = text.index('--eval-prompt-data "${EVAL_NAME}"')
     assert fallback < eval_args
 
 

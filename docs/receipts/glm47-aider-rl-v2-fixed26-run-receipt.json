@@ -1,0 +1,579 @@
+{
+  "status": "complete",
+  "run_id": "glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3",
+  "benchmark": "aider-polyglot-cpp-grpo-eval",
+  "parallel_topology": "2x TP4 on one Lium 8xH100 pod",
+  "pod": "cosmic-lion-07",
+  "adapter_path": "/workspace/runs/glm47-aider-grpo169-merge1211-530-r32-2ep-fixed-20260722-lium-r3/checkpoints/grpo_lora_r16/iter_0000010/adapter",
+  "adapter_sha256": "046a1018b605aa29f8b8c4f2677f47ce55489105f6766155f4c009798f48abe2",
+  "adapter_config_sha256": "9f943df5129fadeb37ef9057c9e50cdbd12b0172e992b7ca7325b002c0a00f0d",
+  "training_data_manifest_sha256": "a7e54c0245b97ae78f9b2fa57ff5278844585cf03004254137b6cfc8e91ef157",
+  "serving_conversion_receipt": {
+    "kind": "glm47-serving-adapter-conversion",
+    "removed_layer_47_tensor_count": 207,
+    "schema_version": 2,
+    "serving_adapter_config_sha256": "9f943df5129fadeb37ef9057c9e50cdbd12b0172e992b7ca7325b002c0a00f0d",
+    "serving_adapter_sha256": "e2e0c3951c9ccd601636da4a21fcbbec42602616d95265ae0e493ec2ca7acca8",
+    "serving_tensor_count": 9534,
+    "source_adapter_config_sha256": "9f943df5129fadeb37ef9057c9e50cdbd12b0172e992b7ca7325b002c0a00f0d",
+    "source_adapter_path": "/workspace/runs/glm47-aider-grpo169-merge1211-530-r32-2ep-fixed-20260722-lium-r3/checkpoints/grpo_lora_r16/iter_0000010/adapter",
+    "source_adapter_sha256": "046a1018b605aa29f8b8c4f2677f47ce55489105f6766155f4c009798f48abe2",
+    "source_tensor_count": 9741,
+    "training_data_manifest_sha256": "a7e54c0245b97ae78f9b2fa57ff5278844585cf03004254137b6cfc8e91ef157",
+    "training_gate_run_id": "glm47-aider-grpo169-merge1211-530-r32-2ep-fixed-20260722-lium-r3"
+  },
+  "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+  "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+  "temperature": 0.7,
+  "top_p": 1.0,
+  "max_tokens": 32768,
+  "tries": 2,
+  "started_at_utc": "2026-07-22T09:25:38.083196+00:00",
+  "completed_at_utc": "2026-07-22T09:52:23.113260+00:00",
+  "validation": {
+    "terminal_tasks": 26,
+    "terminal_attempts": 51,
+    "maximum_attempts": 52,
+    "short_circuited_after_first_pass": 1,
+    "pass_at_1": 1,
+    "pass_at_k": 6,
+    "well_formed_tasks": 26,
+    "malformed_responses": 0,
+    "error_outputs": 5,
+    "context_exhaustions": 5,
+    "test_timeouts": 0,
+    "prompt_tokens": 981534,
+    "completion_tokens": 668886,
+    "unique_testcases": 26,
+    "testcases": [
+      "all-your-base",
+      "allergies",
+      "bank-account",
+      "binary-search-tree",
+      "circular-buffer",
+      "clock",
+      "complex-numbers",
+      "crypto-square",
+      "diamond",
+      "dnd-character",
+      "gigasecond",
+      "grade-school",
+      "kindergarten-garden",
+      "knapsack",
+      "linked-list",
+      "meetup",
+      "parallel-letter-frequency",
+      "perfect-numbers",
+      "phone-number",
+      "queen-attack",
+      "robot-name",
+      "space-age",
+      "spiral-matrix",
+      "sublist",
+      "yacht",
+      "zebra-puzzle"
+    ],
+    "outcomes": {
+      "all-your-base": [
+        false,
+        false
+      ],
+      "allergies": [
+        false,
+        true
+      ],
+      "bank-account": [
+        false,
+        false
+      ],
+      "binary-search-tree": [
+        false,
+        false
+      ],
+      "circular-buffer": [
+        false,
+        false
+      ],
+      "clock": [
+        false,
+        false
+      ],
+      "complex-numbers": [
+        false,
+        false
+      ],
+      "crypto-square": [
+        false,
+        true
+      ],
+      "diamond": [
+        false,
+        false
+      ],
+      "dnd-character": [
+        false,
+        false
+      ],
+      "gigasecond": [
+        false,
+        false
+      ],
+      "grade-school": [
+        true
+      ],
+      "kindergarten-garden": [
+        false,
+        false
+      ],
+      "knapsack": [
+        false,
+        true
+      ],
+      "linked-list": [
+        false,
+        true
+      ],
+      "meetup": [
+        false,
+        false
+      ],
+      "parallel-letter-frequency": [
+        false,
+        false
+      ],
+      "perfect-numbers": [
+        false,
+        false
+      ],
+      "phone-number": [
+        false,
+        false
+      ],
+      "queen-attack": [
+        false,
+        true
+      ],
+      "robot-name": [
+        false,
+        false
+      ],
+      "space-age": [
+        false,
+        false
+      ],
+      "spiral-matrix": [
+        false,
+        false
+      ],
+      "sublist": [
+        false,
+        false
+      ],
+      "yacht": [
+        false,
+        false
+      ],
+      "zebra-puzzle": [
+        false,
+        false
+      ]
+    }
+  },
+  "shards": [
+    {
+      "status": "complete",
+      "run_id": "glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3",
+      "shard_index": 0,
+      "selected_tasks": [
+        "all-your-base",
+        "allergies",
+        "bank-account",
+        "binary-search-tree",
+        "circular-buffer",
+        "clock",
+        "complex-numbers",
+        "crypto-square",
+        "diamond",
+        "dnd-character",
+        "gigasecond",
+        "grade-school",
+        "kindergarten-garden"
+      ],
+      "output_dir": "/workspace/eval-final-iter10/aider/tmp.benchmarks/2026-07-22-09-27-55--glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3-shard-0",
+      "gpu_ids": "0-3",
+      "gpu_requested": "4x NVIDIA H100 80GB HBM3",
+      "server_command": [
+        "docker",
+        "run",
+        "--rm",
+        "--name",
+        "glm47-final-eval-shard0",
+        "--gpus",
+        "all",
+        "--network",
+        "host",
+        "--ipc",
+        "host",
+        "-e",
+        "CUDA_VISIBLE_DEVICES=0,1,2,3",
+        "-v",
+        "/workspace:/workspace",
+        "glm47-fixed:c5cb63f",
+        "python3",
+        "-m",
+        "sglang.launch_server",
+        "--model-path",
+        "/workspace/models/GLM-4.7-Flash",
+        "--tp-size",
+        "4",
+        "--tool-call-parser",
+        "glm47",
+        "--reasoning-parser",
+        "glm45",
+        "--mem-fraction-static",
+        "0.8",
+        "--max-running-requests",
+        "16",
+        "--served-model-name",
+        "glm-4.7-flash-grpo",
+        "--api-key",
+        "local-eval",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "18000",
+        "--enable-lora",
+        "--max-lora-rank",
+        "32",
+        "--lora-backend",
+        "triton",
+        "--lora-target-modules",
+        "q_a_proj",
+        "kv_a_proj_with_mqa",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--experts-shared-outer-loras",
+        "--lora-use-virtual-experts"
+      ],
+      "benchmark_command": [
+        "/workspace/eval-final-iter10/aider-venv/bin/python",
+        "/workspace/eval-final-iter10/aider/benchmark/benchmark.py",
+        "glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3-shard-0",
+        "--model",
+        "openai/glm-4.7-flash-grpo",
+        "--edit-format",
+        "whole",
+        "--languages",
+        "cpp",
+        "--tries",
+        "2",
+        "--threads",
+        "8",
+        "--exercises-dir",
+        "/workspace/eval-final-iter10/shards-glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3/shard-0",
+        "--read-model-settings",
+        "/workspace/eval-final-iter10/model-settings.yml"
+      ],
+      "adapter_load": "{\"rid\":null,\"http_worker_ipc\":null,\"success\":true,\"error_message\":\"\",\"loaded_adapters\":{\"glm-4.7-flash-grpo\":\"/workspace/runs/glm47-aider-grpo169-merge1211-530-r32-2ep-fixed-20260722-lium-r3/checkpoints/grpo_lora_r16/iter_0000010/adapter-serving\"}}",
+      "validation": {
+        "terminal_tasks": 13,
+        "terminal_attempts": 25,
+        "maximum_attempts": 26,
+        "short_circuited_after_first_pass": 1,
+        "unique_testcases": 13,
+        "testcases": [
+          "all-your-base",
+          "allergies",
+          "bank-account",
+          "binary-search-tree",
+          "circular-buffer",
+          "clock",
+          "complex-numbers",
+          "crypto-square",
+          "diamond",
+          "dnd-character",
+          "gigasecond",
+          "grade-school",
+          "kindergarten-garden"
+        ],
+        "pass_at_1": 1,
+        "pass_at_k": 3,
+        "well_formed_tasks": 13,
+        "malformed_responses": 0,
+        "error_outputs": 4,
+        "context_exhaustions": 4,
+        "test_timeouts": 0,
+        "prompt_tokens": 448020,
+        "completion_tokens": 306576,
+        "result_sha256": {
+          "cpp/exercises/practice/all-your-base/.aider.results.json": "64e63d94d939fae63d0d42fba91c62f74e4dcad94d26601d9e9bef819839e338",
+          "cpp/exercises/practice/allergies/.aider.results.json": "4b023a1c38bf61a664cdeb545beed68b5fcd80260d36660ef9781677d21c15ce",
+          "cpp/exercises/practice/bank-account/.aider.results.json": "1bea94b6313bc53f80577c74e4418118b004ff41fdbf3fd92fabe2dd6c0b6a05",
+          "cpp/exercises/practice/binary-search-tree/.aider.results.json": "ef42930645d686033cfa553032f5dd4e81851008814aa754e79e2f0ed808588c",
+          "cpp/exercises/practice/circular-buffer/.aider.results.json": "199518e8400cca4cacec65a8960c265201dec66741342c07f88bafb8076170f1",
+          "cpp/exercises/practice/clock/.aider.results.json": "ff385ba1ebab20e5d09e7dbfbb8a489bc16a6722bcb7de3b28ff26503e9a9b01",
+          "cpp/exercises/practice/complex-numbers/.aider.results.json": "d2fa3b5efb5bc55a62a1a1ee05b6f3e8e444fb61a47c0795cb2aef14df9b9df1",
+          "cpp/exercises/practice/crypto-square/.aider.results.json": "9bb73060d94f8dd145b528b084790f7fea8faa46e9b277412041379aa452063c",
+          "cpp/exercises/practice/diamond/.aider.results.json": "6a109355e80b8a3aac76f7680b46d6533c501b1b1df7b50fe827c6de409e5ac7",
+          "cpp/exercises/practice/dnd-character/.aider.results.json": "e01e83f53ab1f45b50af7f4aee3a2ca755e5c05b6d3b86c3029e3737f885e2bd",
+          "cpp/exercises/practice/gigasecond/.aider.results.json": "da0d51db4e29f9ad7e54b44f523c0caacf72f6d62d5bdc77728741a796df79b6",
+          "cpp/exercises/practice/grade-school/.aider.results.json": "2f790fbd3fe52ebd5d9ce16794850063309218c60b619a12f20f8df5da65c1e1",
+          "cpp/exercises/practice/kindergarten-garden/.aider.results.json": "4b041ffa0e1e27307681344653c5441097fc1eea30e25f3f25246becc22f125e"
+        },
+        "outcomes": {
+          "all-your-base": [
+            false,
+            false
+          ],
+          "allergies": [
+            false,
+            true
+          ],
+          "bank-account": [
+            false,
+            false
+          ],
+          "binary-search-tree": [
+            false,
+            false
+          ],
+          "circular-buffer": [
+            false,
+            false
+          ],
+          "clock": [
+            false,
+            false
+          ],
+          "complex-numbers": [
+            false,
+            false
+          ],
+          "crypto-square": [
+            false,
+            true
+          ],
+          "diamond": [
+            false,
+            false
+          ],
+          "dnd-character": [
+            false,
+            false
+          ],
+          "gigasecond": [
+            false,
+            false
+          ],
+          "grade-school": [
+            true
+          ],
+          "kindergarten-garden": [
+            false,
+            false
+          ]
+        }
+      }
+    },
+    {
+      "status": "complete",
+      "run_id": "glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3",
+      "shard_index": 1,
+      "selected_tasks": [
+        "knapsack",
+        "linked-list",
+        "meetup",
+        "parallel-letter-frequency",
+        "perfect-numbers",
+        "phone-number",
+        "queen-attack",
+        "robot-name",
+        "space-age",
+        "spiral-matrix",
+        "sublist",
+        "yacht",
+        "zebra-puzzle"
+      ],
+      "output_dir": "/workspace/eval-final-iter10/aider/tmp.benchmarks/2026-07-22-09-27-55--glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3-shard-1",
+      "gpu_ids": "4-7",
+      "gpu_requested": "4x NVIDIA H100 80GB HBM3",
+      "server_command": [
+        "docker",
+        "run",
+        "--rm",
+        "--name",
+        "glm47-final-eval-shard1",
+        "--gpus",
+        "all",
+        "--network",
+        "host",
+        "--ipc",
+        "host",
+        "-e",
+        "CUDA_VISIBLE_DEVICES=4,5,6,7",
+        "-v",
+        "/workspace:/workspace",
+        "glm47-fixed:c5cb63f",
+        "python3",
+        "-m",
+        "sglang.launch_server",
+        "--model-path",
+        "/workspace/models/GLM-4.7-Flash",
+        "--tp-size",
+        "4",
+        "--tool-call-parser",
+        "glm47",
+        "--reasoning-parser",
+        "glm45",
+        "--mem-fraction-static",
+        "0.8",
+        "--max-running-requests",
+        "16",
+        "--served-model-name",
+        "glm-4.7-flash-grpo",
+        "--api-key",
+        "local-eval",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "18001",
+        "--enable-lora",
+        "--max-lora-rank",
+        "32",
+        "--lora-backend",
+        "triton",
+        "--lora-target-modules",
+        "q_a_proj",
+        "kv_a_proj_with_mqa",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--experts-shared-outer-loras",
+        "--lora-use-virtual-experts"
+      ],
+      "benchmark_command": [
+        "/workspace/eval-final-iter10/aider-venv/bin/python",
+        "/workspace/eval-final-iter10/aider/benchmark/benchmark.py",
+        "glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3-shard-1",
+        "--model",
+        "openai/glm-4.7-flash-grpo",
+        "--edit-format",
+        "whole",
+        "--languages",
+        "cpp",
+        "--tries",
+        "2",
+        "--threads",
+        "8",
+        "--exercises-dir",
+        "/workspace/eval-final-iter10/shards-glm47-aider-rl-final-iter10-fixed26-lium-20260722-r3/shard-1",
+        "--read-model-settings",
+        "/workspace/eval-final-iter10/model-settings.yml"
+      ],
+      "adapter_load": "{\"rid\":null,\"http_worker_ipc\":null,\"success\":true,\"error_message\":\"\",\"loaded_adapters\":{\"glm-4.7-flash-grpo\":\"/workspace/runs/glm47-aider-grpo169-merge1211-530-r32-2ep-fixed-20260722-lium-r3/checkpoints/grpo_lora_r16/iter_0000010/adapter-serving\"}}",
+      "validation": {
+        "terminal_tasks": 13,
+        "terminal_attempts": 26,
+        "maximum_attempts": 26,
+        "short_circuited_after_first_pass": 0,
+        "unique_testcases": 13,
+        "testcases": [
+          "knapsack",
+          "linked-list",
+          "meetup",
+          "parallel-letter-frequency",
+          "perfect-numbers",
+          "phone-number",
+          "queen-attack",
+          "robot-name",
+          "space-age",
+          "spiral-matrix",
+          "sublist",
+          "yacht",
+          "zebra-puzzle"
+        ],
+        "pass_at_1": 0,
+        "pass_at_k": 3,
+        "well_formed_tasks": 13,
+        "malformed_responses": 0,
+        "error_outputs": 1,
+        "context_exhaustions": 1,
+        "test_timeouts": 0,
+        "prompt_tokens": 533514,
+        "completion_tokens": 362310,
+        "result_sha256": {
+          "cpp/exercises/practice/knapsack/.aider.results.json": "b3937011bd56a4350571c94d771dca0b5151f45f1d4794e4db9ff123f295dcbb",
+          "cpp/exercises/practice/linked-list/.aider.results.json": "bdb9bb1bd0057f7636f2e5069e91c8706f9e42112cb1552b81966bb3dcbf16ba",
+          "cpp/exercises/practice/meetup/.aider.results.json": "e11fea5a638c6d1a7d7b7d867eb7288175155e184abe44c17ef0c749e33088aa",
+          "cpp/exercises/practice/parallel-letter-frequency/.aider.results.json": "b46f9e7ea4ef6ef713a7528d9193ffc02a119e2ed0233eeb330bc0ec9ed3b993",
+          "cpp/exercises/practice/perfect-numbers/.aider.results.json": "e4ea9f29804f7b8207a4d6e1b252ecece48f4c4b5d7a3c8453485c836c970107",
+          "cpp/exercises/practice/phone-number/.aider.results.json": "4014c3f8f5e35bd8ad9b81fe5f2c4b26510dbe36885e666982dcc1391172391b",
+          "cpp/exercises/practice/queen-attack/.aider.results.json": "b05b87cd93bd3a8014b06657683d10892ff6abfc4175bdede7fd153ad2b4b3d3",
+          "cpp/exercises/practice/robot-name/.aider.results.json": "a89fb569e6df69817780ad2cfebdf20c082309f36b7165039af0ea18ebc7970c",
+          "cpp/exercises/practice/space-age/.aider.results.json": "b75a0ad82d60041df802b245f54c682f3fbe44611b0d3f4234fde3058331ae89",
+          "cpp/exercises/practice/spiral-matrix/.aider.results.json": "b33da8a8706797a64819929c597db4dc1eede0046be0e4fb22d82b3d1ec8b2d3",
+          "cpp/exercises/practice/sublist/.aider.results.json": "76a336a72c61d8757ed8b35e16968b107b379734d07c1cc128a0657fc67cb3ba",
+          "cpp/exercises/practice/yacht/.aider.results.json": "f397574fd7bb78b8e878906155b4a9f8a43035e557d75b4c7f4ce5eb6163694c",
+          "cpp/exercises/practice/zebra-puzzle/.aider.results.json": "e801b630662d2cabcfbb4ec9037ed48622b538dcab19f1b74b274260a47a656a"
+        },
+        "outcomes": {
+          "knapsack": [
+            false,
+            true
+          ],
+          "linked-list": [
+            false,
+            true
+          ],
+          "meetup": [
+            false,
+            false
+          ],
+          "parallel-letter-frequency": [
+            false,
+            false
+          ],
+          "perfect-numbers": [
+            false,
+            false
+          ],
+          "phone-number": [
+            false,
+            false
+          ],
+          "queen-attack": [
+            false,
+            true
+          ],
+          "robot-name": [
+            false,
+            false
+          ],
+          "space-age": [
+            false,
+            false
+          ],
+          "spiral-matrix": [
+            false,
+            false
+          ],
+          "sublist": [
+            false,
+            false
+          ],
+          "yacht": [
+            false,
+            false
+          ],
+          "zebra-puzzle": [
+            false,
+            false
+          ]
+        }
+      }
+    }
+  ]
+}
