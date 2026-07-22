@@ -44,6 +44,8 @@ fingerprints, and checkpoint manifests.
 - One 8x H100 80 GB NVLink node
 - Docker with NVIDIA Container Toolkit
 - Access to the GLM-4.7-Flash base model
+- Approved access to the two gated `TokenBender` datasets listed below
+- A Hugging Face token authenticated with `hf auth login`
 - A W&B API key for online experiment tracking
 
 The Miles base image supplies Miles, Megatron-Core, SGLang, Ray, and the
@@ -62,8 +64,8 @@ eight H100 80 GB GPUs, full NVLink connectivity, 1 TiB of host memory, and
 | Host memory | 1 TiB installed on the experiment node | About 130 GiB run delta |
 | Local storage | 10 TB installed on the experiment node | 250 GB practical clean-run footprint |
 | Training image | `radixark/miles:latest-cu12@sha256:efc8027fc47aaa9687dc4f1046093ed4e2f9789e52a932fcefb7031402aeff37` plus this repository's `Dockerfile`; Modal builds it directly through `examples/modal/modal_app.py` | 53.3 GB base image |
-| Training and evaluation data | [`TokenBender/glm47-pie-cpp-posttraining-data`](https://huggingface.co/datasets/TokenBender/glm47-pie-cpp-posttraining-data/tree/09bc0276a0ff8ab84a8db81880ca7f739057e654) | 60 MB download; about 107 MB extracted |
-| Aider shadow RL corpus v1 | [`TokenBender/glm47-aider-polyglot-cpp-shadow`](https://huggingface.co/datasets/TokenBender/glm47-aider-polyglot-cpp-shadow/tree/d8f86f752685d5ddc6cece2a08ea8851b395ee83), revision `d8f86f752685d5ddc6cece2a08ea8851b395ee83` | 253 tasks; 1,519 files; 294 KiB archive |
+| Gated training and evaluation data | [`TokenBender/glm47-pie-cpp-posttraining-data`](https://huggingface.co/datasets/TokenBender/glm47-pie-cpp-posttraining-data/tree/09bc0276a0ff8ab84a8db81880ca7f739057e654) | 60 MB download; about 107 MB extracted |
+| Gated Aider shadow RL corpus v1 | [`TokenBender/glm47-aider-polyglot-cpp-shadow`](https://huggingface.co/datasets/TokenBender/glm47-aider-polyglot-cpp-shadow/tree/d8f86f752685d5ddc6cece2a08ea8851b395ee83), revision `d8f86f752685d5ddc6cece2a08ea8851b395ee83` | 253 tasks; 1,519 files; 294 KiB archive |
 | SFT adapter | [`TokenBender/glm47-flash-pie-cpp-lora-r16-sft-h100`](https://huggingface.co/TokenBender/glm47-flash-pie-cpp-lora-r16-sft-h100/tree/f1ac8df367080cc040f7cf769db219ee58f20f63) | 772 MB |
 | Converted TP4/PP1/EP8 base checkpoint | Created by `scripts/convert_checkpoint.sh` | Reserve 65 GB |
 | LoRA checkpoint and run evidence | Adapter, native shards, logs, samples, and metrics | Reserve 2 GB per saved run |
@@ -79,15 +81,17 @@ Download the exact base model, prepared PIE dataset, validated SFT adapter,
 and versioned Aider RL corpus:
 
 ```bash
+hf auth login
 python3 scripts/download_assets.py model --output-root /root/models
 python3 scripts/download_assets.py data
 python3 scripts/download_assets.py sft
 python3 scripts/download_assets.py aider-shadow
 ```
 
-The base model is frozen to its Hugging Face commit. Dataset and adapter files
-are additionally verified against the SHA-256 manifests published with their
-repositories. The commands write:
+The base model is frozen to its Hugging Face commit. The two datasets require
+approved gated access. Dataset and adapter files are additionally verified
+against the SHA-256 manifests published with their repositories. The commands
+write:
 
 ```text
 /root/models/GLM-4.7-Flash
@@ -115,13 +119,15 @@ published project image:
 | Runtime additions | Repository `Dockerfile`, GCC/G++ 13, `rsync`, `gawk`, `util-linux`, and `git` |
 | Persistent storage | `glm47-models`, `glm47-assets`, and `glm47-runs` Modal Volumes |
 | Tracking secret | Modal secret `wandb-glm47` containing `WANDB_API_KEY` |
+| Dataset secret | Modal secret `huggingface-token` containing an approved `HF_TOKEN` |
 
-Install the Modal client, authenticate to a workspace, and create the W&B
-secret once:
+Install the Modal client, authenticate to a workspace, and create the secrets
+once:
 
 ```bash
 python3 -m pip install "modal==1.2.6"
 modal secret create wandb-glm47 WANDB_API_KEY="$WANDB_API_KEY"
+modal secret create huggingface-token HF_TOKEN="$HF_TOKEN"
 ```
 
 Prepare the pinned model and assets, convert the checkpoint, and run either
@@ -425,14 +431,12 @@ merged receipt only after all 26 unique task identities are present.
 #### Reproducibility boundary
 
 The repository versions the code, exact configuration, hashes, progress
-ledger, and final RL receipt. The answer-free 253-task shadow corpus is public
-at the pinned Hugging Face revision above and is no longer stored in Git. The
-base model is public at its pinned revision. A same-organization rerun can use
+ledger, and final RL receipt. The answer-free 253-task shadow corpus is
+access-gated at the pinned Hugging Face revision above and is no longer stored
+in Git. The base model is public at its pinned revision. Approved users can use
 the recorded volume paths for all SFT datasets, the filtered 169-row RL data,
-and the adapters. A fully independent rerun still needs public releases of
-those three SFT datasets, the filtered RL data, and the LoRA checkpoints. The
-recorded RL v2 W&B directory was offline and must be synced separately if a web
-run is required.
+and the adapters. The recorded RL v2 W&B directory was offline and must be
+synced separately if a web run is required.
 
 #### Modal shadow-data alternative
 

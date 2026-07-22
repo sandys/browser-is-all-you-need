@@ -475,6 +475,7 @@ def test_modal_reproduction_pins_model_image_and_machine_shape() -> None:
     assert '"GLM47_CPP_SANDBOX_BACKEND": "local"' in text
     assert '"GLM47_CPP_SANDBOX_UNSHARE_NET": "0"' in text
     assert 'modal.Secret.from_name("wandb-glm47")' in text
+    assert 'modal.Secret.from_name("huggingface-token")' in text
 
 
 def test_modal_aider_profile_binds_objective_adapter_and_safe_reward() -> None:
@@ -484,6 +485,7 @@ def test_modal_aider_profile_binds_objective_adapter_and_safe_reward() -> None:
     assert 'AIDER_TASKS_DIR = f"{ASSETS_DIR}/aider-shadow/tasks/aider_polyglot_cpp_shadow"' in text
     assert '"rubrics"' in text
     assert 'scripts/download_assets.py aider-shadow' in text
+    assert 'secrets=[hf_secret]' in text
     assert "def prepare_aider_shadow_asset(" in text
     assert 'volumes={ASSETS_DIR: assets, RUNS_DIR: runs}' in text
     assert "glm47-aider-complement-530-sft-20260721" in text

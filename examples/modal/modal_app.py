@@ -44,6 +44,7 @@ app = modal.App(APP_NAME)
 models = modal.Volume.from_name("glm47-models", create_if_missing=True)
 assets = modal.Volume.from_name("glm47-assets", create_if_missing=True)
 runs = modal.Volume.from_name("glm47-runs", create_if_missing=True)
+hf_secret = modal.Secret.from_name("huggingface-token")
 
 source_ignore = [
     ".git",
@@ -117,6 +118,7 @@ def _run(command: str, *, env: dict[str, str] | None = None) -> None:
     memory=32_768,
     timeout=14_400,
     volumes={MODELS_DIR: models, ASSETS_DIR: assets},
+    secrets=[hf_secret],
 )
 def prepare_assets() -> None:
     """Download the exact base model, dataset, and validated SFT adapter."""
@@ -147,6 +149,7 @@ def prepare_assets() -> None:
     memory=8_192,
     timeout=3_600,
     volumes={ASSETS_DIR: assets},
+    secrets=[hf_secret],
 )
 def prepare_aider_shadow_asset() -> dict[str, object]:
     """Download and verify only the externally versioned Aider corpus."""

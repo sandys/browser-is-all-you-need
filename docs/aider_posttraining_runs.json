@@ -7,6 +7,7 @@
   },
   "shadow_rl_corpus": {
     "package": "v1",
+    "access": "gated-manual-approval",
     "repo": "TokenBender/glm47-aider-polyglot-cpp-shadow",
     "revision": "d8f86f752685d5ddc6cece2a08ea8851b395ee83",
     "url": "https://huggingface.co/datasets/TokenBender/glm47-aider-polyglot-cpp-shadow/tree/d8f86f752685d5ddc6cece2a08ea8851b395ee83",
