@@ -1,0 +1,11 @@
+.git
+.glm47-posttraining
+.pytest_cache
+.ruff_cache
+.venv
+.w8-biayn
+artifacts
+rubrics
+wandb
+**/__pycache__
+**/*.pyc

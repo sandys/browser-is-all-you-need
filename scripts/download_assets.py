@@ -11,7 +11,7 @@ import shutil
 import tarfile
 from pathlib import Path
 
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 
 
 ASSETS = {
@@ -45,6 +45,14 @@ ASSETS = {
         "revision_env": "GLM47_GRPO_REVISION",
         "default_revision": "1fbac6f6fd59829a64776937102351c6318a7fd4",
         "destination": "adapters/grpo",
+        "verify_checksums": True,
+    },
+    "aider-shadow": {
+        "repo_id": "TokenBender/glm47-aider-polyglot-cpp-shadow",
+        "repo_type": "dataset",
+        "revision_env": "GLM47_AIDER_SHADOW_REVISION",
+        "default_revision": "d8f86f752685d5ddc6cece2a08ea8851b395ee83",
+        "destination": "aider-shadow",
         "verify_checksums": True,
     },
 }
@@ -87,7 +95,7 @@ def _extract_task_archive(root: Path) -> Path:
             target = (destination / member.name).resolve()
             if target != destination_root and destination_root not in target.parents:
                 raise RuntimeError(f"Task archive escapes destination: {member.name}")
-        handle.extractall(destination)
+        handle.extractall(destination, filter="data")
 
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     expected = int(manifest["counts"]["copied_tasks"])
@@ -97,10 +105,72 @@ def _extract_task_archive(root: Path) -> Path:
     return destination
 
 
+def _extract_aider_shadow_archive(root: Path) -> Path:
+    artifact_manifest = json.loads(
+        (root / "artifact_manifest.json").read_text(encoding="utf-8")
+    )
+    if artifact_manifest.get("kind") != "glm47-aider-shadow-rubrics-archive":
+        raise RuntimeError("unexpected Aider shadow artifact kind")
+    if artifact_manifest.get("counts", {}).get("tasks") != 253:
+        raise RuntimeError("Aider shadow artifact does not bind exactly 253 tasks")
+    archive_name = str(artifact_manifest.get("archive") or "")
+    archive_root = str(artifact_manifest.get("archive_root") or "")
+    if archive_name != "aider-shadow-rubrics.tar.gz":
+        raise RuntimeError(f"unexpected Aider shadow archive name: {archive_name!r}")
+    if archive_root != "aider_polyglot_cpp_shadow":
+        raise RuntimeError(f"unexpected Aider shadow archive root: {archive_root!r}")
+
+    archive = root / archive_name
+    destination = root / "tasks"
+    if not archive.is_file():
+        raise FileNotFoundError(f"Missing Aider shadow archive: {archive}")
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True)
+    destination_root = destination.resolve()
+
+    with tarfile.open(archive, "r:gz") as handle:
+        for member in handle.getmembers():
+            if not (member.isdir() or member.isfile()):
+                raise RuntimeError(
+                    f"Aider shadow archive contains an unsupported entry: {member.name}"
+                )
+            target = (destination / member.name).resolve()
+            if target != destination_root and destination_root not in target.parents:
+                raise RuntimeError(f"Aider shadow archive escapes destination: {member.name}")
+        handle.extractall(destination, filter="data")
+
+    extracted = destination / archive_root
+    source_manifest = json.loads((extracted / "manifest.json").read_text(encoding="utf-8"))
+    if source_manifest.get("kind") != "aider-polyglot-cpp-shadow-rubrics":
+        raise RuntimeError("unexpected extracted Aider shadow manifest kind")
+    if source_manifest.get("counts", {}).get("tasks") != 253:
+        raise RuntimeError("extracted Aider shadow manifest does not bind 253 tasks")
+    actual = sum(1 for path in extracted.rglob(".rubric.json") if path.is_file())
+    if actual != 253:
+        raise RuntimeError(f"Extracted Aider shadow task count mismatch: {actual} != 253")
+    actual_files = sum(1 for path in extracted.rglob("*") if path.is_file())
+    expected_files = artifact_manifest.get("counts", {}).get("files")
+    if actual_files != expected_files:
+        raise RuntimeError(
+            f"Extracted Aider shadow file count mismatch: {actual_files} != {expected_files}"
+        )
+    extracted_manifest_sha256 = hashlib.sha256(
+        (extracted / "manifest.json").read_bytes()
+    ).hexdigest()
+    if extracted_manifest_sha256 != artifact_manifest.get("source_manifest_sha256"):
+        raise RuntimeError("extracted Aider shadow manifest checksum mismatch")
+    return extracted
+
+
 def _download(name: str, output_root: Path, verify: bool) -> Path:
     asset = ASSETS[name]
     destination = output_root / asset["destination"]
     revision = os.environ.get(asset["revision_env"], asset["default_revision"])
+    if name == "aider-shadow":
+        resolved = HfApi().dataset_info(asset["repo_id"], revision=revision).sha
+        if resolved != revision:
+            raise RuntimeError(f"Aider shadow revision mismatch: {resolved} != {revision}")
     snapshot_download(
         repo_id=asset["repo_id"],
         repo_type=asset["repo_type"],
@@ -111,6 +181,8 @@ def _download(name: str, output_root: Path, verify: bool) -> Path:
         _verify_checksums(destination)
     if name == "data":
         _extract_task_archive(destination)
+    elif name == "aider-shadow":
+        _extract_aider_shadow_archive(destination)
     print(f"{name}: {destination}")
     return destination
 

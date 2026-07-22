@@ -14,6 +14,11 @@ STAGE_STARTED_AT="${SECONDS}"
 RUN_ROOT="${MILES_RUN_ROOT:-${REPO_ROOT}/.glm47-posttraining/miles/glm47-h100-cpp-perf/runs/${RUN_ID}}"
 DATA_DIR="${MILES_CPP_DATA_DIR:-${RUN_ROOT}/data}"
 TASKS_DIR="${MILES_CPP_TASKS_DIR:-${REPO_ROOT}/.glm47-posttraining/data/tasks-small}"
+DATA_BUILD_MODULE="${MILES_DATA_BUILD_MODULE:-glm47_posttraining.integrations.miles_cpp_perf}"
+CUSTOM_RM_PATH="${MILES_CUSTOM_RM_PATH:-glm47_posttraining.integrations.miles_cpp_perf.reward_func}"
+REWARD_PREFLIGHT_MODULE="${MILES_REWARD_PREFLIGHT_MODULE:-}"
+EXPECTED_DATASET_KIND="${MILES_EXPECTED_DATASET_KIND:-}"
+EVAL_NAME="${MILES_EVAL_NAME:-pie_cpp}"
 TRAIN_LIMIT="${MILES_CPP_TRAIN_LIMIT:-}"
 EVAL_LIMIT="${MILES_CPP_EVAL_LIMIT:-}"
 EVAL_SPLITS="${MILES_CPP_EVAL_SPLITS:-validation,test}"
@@ -48,12 +53,16 @@ GLOBAL_BATCH_SIZE="${MILES_GLOBAL_BATCH_SIZE:-256}"
 GRPO_ROLLOUT_SHUFFLE="${MILES_GRPO_ROLLOUT_SHUFFLE:-1}"
 ROLLOUT_MAX_RESPONSE_LEN="${MILES_ROLLOUT_MAX_RESPONSE_LEN:-1024}"
 ROLLOUT_TEMPERATURE="${MILES_ROLLOUT_TEMPERATURE:-1.0}"
+ROLLOUT_SKIP_SPECIAL_TOKENS="${MILES_ROLLOUT_SKIP_SPECIAL_TOKENS:-0}"
+ROLLOUT_STOP_TOKEN_IDS="${MILES_ROLLOUT_STOP_TOKEN_IDS:-}"
+read -r -a ROLLOUT_STOP_TOKEN_ID_ARGS <<< "${ROLLOUT_STOP_TOKEN_IDS}"
 APPLY_CHAT_TEMPLATE_KWARGS="${MILES_APPLY_CHAT_TEMPLATE_KWARGS:-}"
 TRAIN_MODULE="${MILES_TRAIN_MODULE:-}"
 EVAL_INTERVAL="${MILES_EVAL_INTERVAL:-1}"
 EVAL_N_SAMPLES_PER_PROMPT="${MILES_EVAL_N_SAMPLES_PER_PROMPT:-1}"
 EVAL_MAX_RESPONSE_LEN="${MILES_EVAL_MAX_RESPONSE_LEN:-1536}"
 EVAL_PROMPT_DATA="${MILES_EVAL_PROMPT_DATA:-}"
+KL_LOSS_COEF="${MILES_KL_LOSS_COEF:-0.00}"
 
 LORA_RANK="${MILES_LORA_RANK:-16}"
 LORA_ALPHA="${MILES_LORA_ALPHA:-32}"
@@ -91,6 +100,7 @@ LOG_FILE="${STAGE_ROOT}/run.log"
 VRAM_LOG="${STAGE_ROOT}/vram_usage.csv"
 VRAM_PEAK_FILE="${STAGE_ROOT}/vram_peak.txt"
 RUN_RECEIPT="${STAGE_ROOT}/run_receipt.txt"
+TRAINING_GATE="${STAGE_ROOT}/grpo_training_gate.json"
 ROLLOUT_DUMP_TEMPLATE="${RUN_ROOT}/rollout_dumps/grpo_{rollout_id}.pt"
 
 mkdir -p "${STAGE_ROOT}" "${RUN_ROOT}/rollout_dumps" "${SAVE_DIR}"
@@ -99,6 +109,10 @@ exec > >(tee -a "${LOG_FILE}") 2>&1
 echo "run_id=${RUN_ID}"
 echo "run_root=${RUN_ROOT}"
 echo "tasks_dir=${TASKS_DIR}"
+echo "data_build_module=${DATA_BUILD_MODULE}"
+echo "custom_rm_path=${CUSTOM_RM_PATH}"
+echo "expected_dataset_kind=${EXPECTED_DATASET_KIND}"
+echo "eval_name=${EVAL_NAME}"
 echo "hf_checkpoint=${HF_CHECKPOINT}"
 echo "model_args_path=${MODEL_ARGS_PATH}"
 echo "ref_load=${REF_LOAD_DIR}"
@@ -141,7 +155,7 @@ if [ "${GLM47_CPP_SANDBOX_BACKEND:-docker}" = "local" ] && ! command -v g++ >/de
 fi
 
 BUILD_DATA_ARGS=(
-  -m glm47_posttraining.integrations.miles_cpp_perf build-data
+  -m "${DATA_BUILD_MODULE}" build-data
   --tasks-dir "${TASKS_DIR}"
   --out "${DATA_DIR}"
   --eval-splits "${EVAL_SPLITS}"
@@ -169,6 +183,27 @@ fi
 if [ ! -f "${DATA_DIR}/grpo/train.jsonl" ]; then
   echo "Missing GRPO train data: ${DATA_DIR}/grpo/train.jsonl" >&2
   exit 2
+fi
+if [ -n "${EXPECTED_DATASET_KIND}" ]; then
+  DATA_MANIFEST_PATH="${DATA_DIR}/manifest.json" EXPECTED_DATASET_KIND="${EXPECTED_DATASET_KIND}" \
+    "${PYTHON_BIN}" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["DATA_MANIFEST_PATH"])
+if not path.is_file():
+    raise SystemExit(f"missing dataset manifest: {path}")
+manifest = json.loads(path.read_text(encoding="utf-8"))
+expected = os.environ["EXPECTED_DATASET_KIND"]
+if manifest.get("kind") != expected:
+    raise SystemExit(f"dataset kind mismatch: {manifest.get('kind')!r} != {expected!r}")
+print(f"DATASET_KIND_VERIFIED={expected}")
+PY
+fi
+if [ -n "${REWARD_PREFLIGHT_MODULE}" ]; then
+  PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" \
+    -m "${REWARD_PREFLIGHT_MODULE}" preflight
 fi
 
 monitor_vram() {
@@ -217,10 +252,17 @@ vram_peak_file=${VRAM_PEAK_FILE}
 max_memory_used_mib=${max_memory_used_mib}
 data_dir=${DATA_DIR}
 tasks_dir=${TASKS_DIR}
+data_build_module=${DATA_BUILD_MODULE}
+custom_rm_path=${CUSTOM_RM_PATH}
+expected_dataset_kind=${EXPECTED_DATASET_KIND}
+data_manifest_sha256=$(sha256sum "${DATA_DIR}/manifest.json" | awk '{print $1}')
 hf_checkpoint=${HF_CHECKPOINT}
 model_args_path=${MODEL_ARGS_PATH}
 ref_load=${REF_LOAD_DIR}
 save_dir=${SAVE_DIR}
+lora_source_adapter_path=${MILES_LORA_SOURCE_ADAPTER_PATH:-}
+lora_adapter_path=${MILES_LORA_ADAPTER_PATH:-}
+expected_source_adapter_sha256=${MILES_EXPECTED_SOURCE_ADAPTER_SHA256:-}
 seq_length=${SEQ_LENGTH}
 gpus_per_node=${GPUS_PER_NODE}
 tensor_model_parallel_size=${TP_SIZE}
@@ -229,6 +271,8 @@ context_parallel_size=${CP_SIZE}
 expert_model_parallel_size=${EP_SIZE}
 expert_tensor_parallel_size=${ETP_SIZE}
 rollout_max_response_len=${ROLLOUT_MAX_RESPONSE_LEN}
+rollout_skip_special_tokens=${ROLLOUT_SKIP_SPECIAL_TOKENS}
+rollout_stop_token_ids=${ROLLOUT_STOP_TOKEN_IDS}
 eval_max_response_len=${EVAL_MAX_RESPONSE_LEN}
 max_tokens_per_gpu=${MAX_TOKENS_PER_GPU}
 micro_batch_size=${MICRO_BATCH_SIZE}
@@ -261,7 +305,11 @@ wandb_group=${WANDB_GROUP}
 wandb_run_id=${WANDB_RUN_ID}
 wandb_job_type=${WANDB_JOB_TYPE}
 experiment_id=${EXPERIMENT_ID}
+eval_name=${EVAL_NAME}
+kl_loss_coef=${KL_LOSS_COEF}
 timing_status=${GLM47_TIMING_STATUS:-unverified}
+training_gate=${TRAINING_GATE}
+training_gate_status=${TRAINING_GATE_STATUS:-not_requested}
 EOF
   cat "${RUN_RECEIPT}"
 }
@@ -291,6 +339,9 @@ finalize_wandb() {
   )
   if [ -n "${GLM47_SYNC_METRICS_DIR:-}" ] && [ -d "${GLM47_SYNC_METRICS_DIR}" ]; then
     finalize_args+=(--sync-metrics-dir "${GLM47_SYNC_METRICS_DIR}")
+  fi
+  if [ -f "${TRAINING_GATE}" ]; then
+    finalize_args+=(--artifact-path "${TRAINING_GATE}")
   fi
   PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" \
     "${REPO_ROOT}/scripts/publish_results.py" "${finalize_args[@]}"
@@ -368,7 +419,7 @@ ROLLOUT_ARGS=(
   --label-key label
   --metadata-key metadata
   --apply-chat-template
-  --custom-rm-path glm47_posttraining.integrations.miles_cpp_perf.reward_func
+  --custom-rm-path "${CUSTOM_RM_PATH}"
   --reward-key score
   --num-rollout "${NUM_ROLLOUT}"
   --rollout-batch-size "${ROLLOUT_BATCH_SIZE}"
@@ -377,6 +428,15 @@ ROLLOUT_ARGS=(
   --rollout-temperature "${ROLLOUT_TEMPERATURE}"
   --global-batch-size "${GLOBAL_BATCH_SIZE}"
 )
+if [ "${ROLLOUT_SKIP_SPECIAL_TOKENS}" = "1" ]; then
+  ROLLOUT_ARGS+=(--rollout-skip-special-tokens)
+elif [ "${ROLLOUT_SKIP_SPECIAL_TOKENS}" != "0" ]; then
+  echo "MILES_ROLLOUT_SKIP_SPECIAL_TOKENS must be 0 or 1, got: ${ROLLOUT_SKIP_SPECIAL_TOKENS}" >&2
+  exit 2
+fi
+if [ "${#ROLLOUT_STOP_TOKEN_ID_ARGS[@]}" -gt 0 ]; then
+  ROLLOUT_ARGS+=(--rollout-stop-token-ids "${ROLLOUT_STOP_TOKEN_ID_ARGS[@]}")
+fi
 if [ -n "${APPLY_CHAT_TEMPLATE_KWARGS}" ]; then
   ROLLOUT_ARGS+=(--apply-chat-template-kwargs "${APPLY_CHAT_TEMPLATE_KWARGS}")
 fi
@@ -393,7 +453,7 @@ fi
 
 EVAL_ARGS=(
   --eval-interval "${EVAL_INTERVAL}"
-  --eval-prompt-data pie_cpp "${EVAL_PROMPT_DATA:-${DATA_DIR}/eval/validation.jsonl}"
+  --eval-prompt-data "${EVAL_NAME}" "${EVAL_PROMPT_DATA:-${DATA_DIR}/eval/validation.jsonl}"
   --eval-input-key prompt
   --eval-label-key label
   --n-samples-per-eval-prompt "${EVAL_N_SAMPLES_PER_PROMPT}"
@@ -444,12 +504,22 @@ fi
 
 GRPO_ARGS=(
   --advantage-estimator grpo
-  --kl-loss-coef 0.00
+  --kl-loss-coef "${KL_LOSS_COEF}"
   --kl-loss-type low_var_kl
   --entropy-coef 0.00
   --eps-clip 0.2
   --eps-clip-high 0.28
 )
+# The KL penalty coefficient above is inert unless --use-kl-loss is also set; the
+# canonical PIE path leaves it off, so gate it behind an opt-in env var. Requires a
+# reference model (MILES_NO_REF must not be 1).
+if [ "${MILES_USE_KL_LOSS:-0}" = "1" ]; then
+  if [ "${MILES_NO_REF:-0}" = "1" ]; then
+    echo "MILES_USE_KL_LOSS=1 requires a reference model (MILES_NO_REF must not be 1)" >&2
+    exit 2
+  fi
+  GRPO_ARGS+=(--use-kl-loss)
+fi
 
 OPTIMIZER_ARGS=(
   --optimizer adam
@@ -533,6 +603,8 @@ RUNTIME_ENV_JSON="{
     \"GLM47_DATA_DIR\": \"${DATA_DIR}\",
     \"GLM47_CPP_SANDBOX_IMAGE\": \"${GLM47_CPP_SANDBOX_IMAGE}\",
     \"GLM47_CPP_SANDBOX_BACKEND\": \"${GLM47_CPP_SANDBOX_BACKEND:-docker}\",
+    \"GLM47_CPP_SANDBOX_UNSHARE_NET\": \"${GLM47_CPP_SANDBOX_UNSHARE_NET:-1}\",
+    \"GLM47_ROUTER_READY_TIMEOUT_S\": \"${GLM47_ROUTER_READY_TIMEOUT_S:-}\",
     \"GLM47_CPP_SANDBOX_CPU\": \"${GLM47_CPP_SANDBOX_CPU:-1}\",
     \"GLM47_CPP_REWARD_WORKERS\": \"${GLM47_CPP_REWARD_WORKERS:-8}\",
     \"NVSHMEM_DISABLE_NCCL\": \"${NVSHMEM_DISABLE_NCCL:-}\",
@@ -575,7 +647,34 @@ RAY_STATUS=$?
 set -e
 
 cleanup
-if [ "${RAY_STATUS}" -eq 0 ]; then
+TRAINING_GATE_STATUS="not_requested"
+GATE_STATUS=0
+if [ "${RAY_STATUS}" -eq 0 ] && [ "${EXPECTED_DATASET_KIND}" = "aider-polyglot-cpp-shadow-grpo" ]; then
+  TRAINING_GATE_STATUS="failed"
+  set +e
+  PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" \
+    "${REPO_ROOT}/scripts/create_grpo_training_gate.py" \
+    --run-id "${RUN_ID}" \
+    --run-root "${RUN_ROOT}" \
+    --save-dir "${SAVE_DIR}" \
+    --data-manifest "${DATA_DIR}/manifest.json" \
+    --source-adapter "${MILES_LORA_SOURCE_ADAPTER_PATH:-}" \
+    --expected-source-adapter-sha256 "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256:-}" \
+    --hybrid-manifest "${MILES_LORA_ADAPTER_PATH:-}/mtp_strip_manifest.json" \
+    --source-commit "${GLM47_SOURCE_COMMIT:-unbound}" \
+    --phase "${GLM47_TIMING_STATUS:-full}" \
+    --num-rollout "${NUM_ROLLOUT}" \
+    --gpus-per-node "${GPUS_PER_NODE}" \
+    --expected-native-shards "${MILES_EXPECTED_NATIVE_SHARDS:-${TP_SIZE}}" \
+    --expected-train-count "${MILES_EXPECTED_TRAIN_COUNT:-253}" \
+    --output "${TRAINING_GATE}"
+  GATE_STATUS=$?
+  set -e
+  if [ "${GATE_STATUS}" -eq 0 ]; then
+    TRAINING_GATE_STATUS="passed"
+  fi
+fi
+if [ "${RAY_STATUS}" -eq 0 ] && [ "${GATE_STATUS}" -eq 0 ]; then
   STAGE_STATUS="success"
 else
   STAGE_STATUS="failed"
@@ -587,5 +686,8 @@ FINALIZE_STATUS=$?
 set -e
 if [ "${RAY_STATUS}" -ne 0 ]; then
   exit "${RAY_STATUS}"
+fi
+if [ "${GATE_STATUS}" -ne 0 ]; then
+  exit "${GATE_STATUS}"
 fi
 exit "${FINALIZE_STATUS}"
