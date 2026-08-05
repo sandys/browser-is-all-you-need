@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "parallel_letter_frequency.cpp",
+      "sha256": "6d1e9c93415f5b2bb801f86976751914a3210a696a4c5b3975e365b36ff441fc",
+      "size": 1900
+    },
+    {
+      "path": "parallel_letter_frequency.h",
+      "sha256": "a7c00a59a6c42cd458be3968cd325151e6f205873582463a5b1fe19b78b46701",
+      "size": 261
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 9.851263046264648,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\nCMake Warning at CMakeLists.txt:47 (find_package):\n  By not providing \"FindTBB.cmake\" in CMAKE_MODULE_PATH this project has\n  asked CMake to find a package configuration file provided by \"TBB\", but\n  CMake did not find one.\n\n  Could not find a package configuration file provided by \"TBB\" with any of\n  the following names:\n\n    TBB.cps\n    tbb.cps\n    TBBConfig.cmake\n    tbb-config.cmake\n\n  Add the installation prefix of \"TBB\" to CMAKE_PREFIX_PATH or set \"TBB_DIR\"\n  to a directory containing one of the above files.  If \"TBB\" provides a\n  separate development package or SDK, be sure it has been installed.\n\n\n-- Configuring done (1.2s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privateparallel-letter-frequency/build\n[ 25%] Building CXX object CMakeFiles/parallel-letter-frequency.dir/parallel_letter_frequency_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/parallel-letter-frequency.dir/parallel_letter_frequency.cpp.o\n[ 75%] Building CXX object CMakeFiles/parallel-letter-frequency.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable parallel-letter-frequency\n[100%] Built target parallel-letter-frequency\n===============================================================================\nAll tests passed (64 assertions in 12 test cases)\n\n[100%] Built target test_parallel-letter-frequency\n",
+  "output_sha256": "4b504cf2dec5a13e255f3bb6f28bfee071e217acf92aeac180b0ed282aab0efb",
+  "request_id": "parallel-letter-frequency-1785913954626710000-e8500d08bcab",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "parallel-letter-frequency"
+}

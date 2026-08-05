@@ -1,0 +1,113 @@
+The build error occurs because the tests expect a namespace-level `dnd_character::modifier(int)` function, which is missing from the header and implementation. The CMake warning is unrelated to this failure.
+
+dnd_character.h
+```
+#pragma once
+
+#include <random>
+
+namespace dnd_character {
+
+int modifier(int ability);
+
+class Character {
+public:
+    Character();
+
+    int strength() const;
+    int dexterity() const;
+    int constitution() const;
+    int intelligence() const;
+    int wisdom() const;
+    int charisma() const;
+    int hitpoints() const;
+
+private:
+    int roll_ability();
+
+    std::mt19937 generator_;
+    int strength_;
+    int dexterity_;
+    int constitution_;
+    int intelligence_;
+    int wisdom_;
+    int charisma_;
+};
+
+}  // namespace dnd_character
+```
+
+dnd_character.cpp
+```
+#include "dnd_character.h"
+
+#include <algorithm>
+#include <array>
+#include <numeric>
+#include <random>
+
+namespace dnd_character {
+
+int modifier(int ability) {
+    const int difference = ability - 10;
+
+    if (difference >= 0) {
+        return difference / 2;
+    }
+
+    return -((-difference + 1) / 2);
+}
+
+Character::Character()
+    : generator_(std::random_device{}()),
+      strength_(roll_ability()),
+      dexterity_(roll_ability()),
+      constitution_(roll_ability()),
+      intelligence_(roll_ability()),
+      wisdom_(roll_ability()),
+      charisma_(roll_ability()) {}
+
+int Character::roll_ability() {
+    std::uniform_int_distribution<int> die_roll(1, 6);
+    std::array<int, 4> dice{};
+
+    for (int& die : dice) {
+        die = die_roll(generator_);
+    }
+
+    const int total = std::accumulate(dice.begin(), dice.end(), 0);
+    const int lowest = *std::min_element(dice.begin(), dice.end());
+
+    return total - lowest;
+}
+
+int Character::strength() const {
+    return strength_;
+}
+
+int Character::dexterity() const {
+    return dexterity_;
+}
+
+int Character::constitution() const {
+    return constitution_;
+}
+
+int Character::intelligence() const {
+    return intelligence_;
+}
+
+int Character::wisdom() const {
+    return wisdom_;
+}
+
+int Character::charisma() const {
+    return charisma_;
+}
+
+int Character::hitpoints() const {
+    return 10 + modifier(constitution_);
+}
+
+}  // namespace dnd_character
+```

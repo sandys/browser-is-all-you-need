@@ -1,0 +1,88 @@
+The compilation errors occur because the tests expect an `overwrite` method, while the class currently exposes the equivalent behavior as `force_write`. I added `overwrite` with the required semantics and retained `force_write` for compatibility.
+
+The CMake deprecation warning is unrelated to these test failures.
+
+circular_buffer.h
+```
+#if !defined(CIRCULAR_BUFFER_H)
+#define CIRCULAR_BUFFER_H
+
+#include <cstddef>
+#include <stdexcept>
+#include <vector>
+
+namespace circular_buffer {
+
+template <typename T>
+class circular_buffer {
+public:
+    class buffer_full : public std::runtime_error {
+    public:
+        buffer_full() : std::runtime_error("circular buffer is full") {}
+    };
+
+    class buffer_empty : public std::runtime_error {
+    public:
+        buffer_empty() : std::runtime_error("circular buffer is empty") {}
+    };
+
+    explicit circular_buffer(std::size_t capacity)
+        : data_(capacity), read_index_(0), write_index_(0), size_(0) {}
+
+    T read() {
+        if (size_ == 0) {
+            throw buffer_empty();
+        }
+
+        T value = data_[read_index_];
+        read_index_ = (read_index_ + 1) % data_.size();
+        --size_;
+        return value;
+    }
+
+    void write(const T& value) {
+        if (size_ == data_.size()) {
+            throw buffer_full();
+        }
+
+        data_[write_index_] = value;
+        write_index_ = (write_index_ + 1) % data_.size();
+        ++size_;
+    }
+
+    void overwrite(const T& value) {
+        if (data_.empty()) {
+            return;
+        }
+
+        data_[write_index_] = value;
+        write_index_ = (write_index_ + 1) % data_.size();
+
+        if (size_ == data_.size()) {
+            read_index_ = write_index_;
+        } else {
+            ++size_;
+        }
+    }
+
+    void force_write(const T& value) {
+        overwrite(value);
+    }
+
+    void clear() {
+        read_index_ = 0;
+        write_index_ = 0;
+        size_ = 0;
+    }
+
+private:
+    std::vector<T> data_;
+    std::size_t read_index_;
+    std::size_t write_index_;
+    std::size_t size_;
+};
+
+}  // namespace circular_buffer
+
+#endif  // CIRCULAR_BUFFER_H
+```

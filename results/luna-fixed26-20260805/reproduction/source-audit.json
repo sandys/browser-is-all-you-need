@@ -1,0 +1,15 @@
+{
+  "candidate_prompt_policy": "untouched public Exercism instructions plus official starter solution files; no locally authored interface or behavioral addendum",
+  "candidate_test_content_exposures": 0,
+  "candidate_test_file_exposures": 0,
+  "kind": "fixed26-pristine-original-prompt-audit",
+  "official_prompts_match_pinned_git": 26,
+  "overlay_marker_hits": 0,
+  "overlay_version": "pristine-original-v1",
+  "prompts_differing_from_assisted_v1_contract": 26,
+  "schema_version": 1,
+  "semantic_oracle_support_present": false,
+  "task_tree_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+  "tasks": 26,
+  "verdict": "pass"
+}

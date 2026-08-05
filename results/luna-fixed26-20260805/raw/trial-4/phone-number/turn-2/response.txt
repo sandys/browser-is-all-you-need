@@ -1,0 +1,76 @@
+The build errors occur because the tests expect a `phone_number` class with a constructor and `number()` method, while the current code only provides a `clean()` function. The CMake warning is unrelated to these compilation failures.
+
+phone_number.h
+```cpp
+#if !defined(PHONE_NUMBER_H)
+#define PHONE_NUMBER_H
+
+#include <string>
+
+namespace phone_number {
+
+std::string clean(const std::string& input);
+
+class phone_number {
+public:
+    explicit phone_number(const std::string& input);
+
+    const std::string& number() const;
+
+private:
+    std::string number_;
+};
+
+}  // namespace phone_number
+
+#endif  // PHONE_NUMBER_H
+```
+
+phone_number.cpp
+```cpp
+#include "phone_number.h"
+
+#include <cctype>
+#include <stdexcept>
+#include <string>
+
+namespace phone_number {
+
+std::string clean(const std::string& input) {
+    std::string digits;
+
+    for (unsigned char character : input) {
+        if (std::isdigit(character)) {
+            digits += static_cast<char>(character);
+        } else if (!std::ispunct(character) && !std::isspace(character)) {
+            throw std::domain_error("Phone number contains invalid characters");
+        }
+    }
+
+    if (digits.size() == 11) {
+        if (digits.front() != '1') {
+            throw std::domain_error("Invalid country code");
+        }
+        digits.erase(digits.begin());
+    } else if (digits.size() != 10) {
+        throw std::domain_error("Invalid phone number length");
+    }
+
+    if (digits[0] < '2' || digits[0] > '9' ||
+        digits[3] < '2' || digits[3] > '9') {
+        throw std::domain_error("Invalid area or exchange code");
+    }
+
+    return digits;
+}
+
+phone_number::phone_number(const std::string& input)
+    : number_(clean(input)) {
+}
+
+const std::string& phone_number::number() const {
+    return number_;
+}
+
+}  // namespace phone_number
+```

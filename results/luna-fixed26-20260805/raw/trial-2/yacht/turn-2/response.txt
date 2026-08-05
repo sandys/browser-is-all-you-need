@@ -1,0 +1,131 @@
+The tests call a namespace-level function:
+
+```cpp
+yacht::score(dice, category)
+```
+
+The current code only defines `Yacht::score()` as a member function, which causes the compilation errors. The implementation below adds the required namespace-level function while retaining the existing `Yacht` class interface. It also uses the lowercase category names shown by the tests.
+
+yacht.h
+```
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace yacht {
+
+int score(std::vector<int> dice, std::string category);
+
+class Yacht {
+ public:
+  Yacht(std::vector<int> dice, std::string category);
+
+  int score();
+
+ private:
+  std::vector<int> dice_;
+  std::string category_;
+};
+
+}  // namespace yacht
+```
+
+yacht.cpp
+```
+#include "yacht.h"
+
+#include <array>
+#include <numeric>
+#include <utility>
+
+namespace yacht {
+
+int score(std::vector<int> dice, std::string category) {
+  std::array<int, 7> counts{};
+
+  for (int die : dice) {
+    ++counts[die];
+  }
+
+  if (category == "ones") {
+    return counts[1];
+  }
+  if (category == "twos") {
+    return counts[2] * 2;
+  }
+  if (category == "threes") {
+    return counts[3] * 3;
+  }
+  if (category == "fours") {
+    return counts[4] * 4;
+  }
+  if (category == "fives") {
+    return counts[5] * 5;
+  }
+  if (category == "sixes") {
+    return counts[6] * 6;
+  }
+
+  const int total = std::accumulate(dice.begin(), dice.end(), 0);
+
+  if (category == "full house") {
+    bool has_two = false;
+    bool has_three = false;
+
+    for (int face = 1; face <= 6; ++face) {
+      has_two = has_two || counts[face] == 2;
+      has_three = has_three || counts[face] == 3;
+    }
+
+    return has_two && has_three ? total : 0;
+  }
+
+  if (category == "four of a kind") {
+    for (int face = 1; face <= 6; ++face) {
+      if (counts[face] >= 4) {
+        return face * 4;
+      }
+    }
+
+    return 0;
+  }
+
+  if (category == "little straight") {
+    return counts[1] == 1 && counts[2] == 1 && counts[3] == 1 &&
+                   counts[4] == 1 && counts[5] == 1
+               ? 30
+               : 0;
+  }
+
+  if (category == "big straight") {
+    return counts[2] == 1 && counts[3] == 1 && counts[4] == 1 &&
+                   counts[5] == 1 && counts[6] == 1
+               ? 30
+               : 0;
+  }
+
+  if (category == "choice") {
+    return total;
+  }
+
+  if (category == "yacht") {
+    for (int face = 1; face <= 6; ++face) {
+      if (counts[face] == 5) {
+        return 50;
+      }
+    }
+  }
+
+  return 0;
+}
+
+Yacht::Yacht(std::vector<int> dice, std::string category)
+    : dice_(std::move(dice)), category_(std::move(category)) {}
+
+int Yacht::score() {
+  return yacht::score(dice_, category_);
+}
+
+}  // namespace yacht
+```

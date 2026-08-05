@@ -1,0 +1,63 @@
+The build errors occur because the tests expect a templated `binary_search_tree::binary_tree<T>` with publicly accessible `data`, `left`, and `right` members. They also expect a `find` method and support for types such as `uint32_t` and `std::string`.
+
+The CMake deprecation warning is unrelated to these compilation errors and does not need to be changed in the requested files.
+
+binary_search_tree.h
+```
+#if !defined(BINARY_SEARCH_TREE_H)
+#define BINARY_SEARCH_TREE_H
+
+#include <memory>
+
+namespace binary_search_tree {
+
+template <typename T>
+struct binary_tree {
+    T data;
+    std::unique_ptr<binary_tree<T>> left;
+    std::unique_ptr<binary_tree<T>> right;
+
+    explicit binary_tree(const T& value) : data(value) {}
+
+    void insert(const T& value) {
+        if (value <= data) {
+            if (left) {
+                left->insert(value);
+            } else {
+                left.reset(new binary_tree<T>(value));
+            }
+        } else {
+            if (right) {
+                right->insert(value);
+            } else {
+                right.reset(new binary_tree<T>(value));
+            }
+        }
+    }
+
+    bool find(const T& value) const {
+        if (value == data) {
+            return true;
+        }
+
+        if (value < data) {
+            return left && left->find(value);
+        }
+
+        return right && right->find(value);
+    }
+
+    bool contains(const T& value) const {
+        return find(value);
+    }
+};
+
+}  // namespace binary_search_tree
+
+#endif  // BINARY_SEARCH_TREE_H
+```
+
+binary_search_tree.cpp
+```
+#include "binary_search_tree.h"
+```

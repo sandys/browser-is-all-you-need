@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "spiral_matrix.cpp",
+      "sha256": "62c54850285aeec114ef6b032c885026738474de7dca153d093793bc06128165",
+      "size": 1236
+    },
+    {
+      "path": "spiral_matrix.h",
+      "sha256": "737873a84883c567956f7d4712fe0e7de9f3b83e16b40f05f9949f6374c55597",
+      "size": 251
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 6.61580491065979,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.7s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatespiral-matrix/build\n[ 25%] Building CXX object CMakeFiles/spiral-matrix.dir/spiral_matrix_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/spiral-matrix.dir/spiral_matrix.cpp.o\n[ 75%] Building CXX object CMakeFiles/spiral-matrix.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable spiral-matrix\n[100%] Built target spiral-matrix\n===============================================================================\nAll tests passed (6 assertions in 6 test cases)\n\n[100%] Built target test_spiral-matrix\n",
+  "output_sha256": "53dbeb104ba81aa99c04a993c40ce640dc0527d4c7f33768bf5b4dda77565fde",
+  "request_id": "spiral-matrix-1785913943966211000-7c9a3ceea300",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "spiral-matrix"
+}

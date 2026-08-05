@@ -1,0 +1,67 @@
+The supplied files need changes to expose the expected classification API and calculate the aliquot sum. The implementation validates that the input is positive, then classifies it as deficient, perfect, or abundant.
+
+perfect_numbers.h
+```
+#if !defined(PERFECT_NUMBERS_H)
+#define PERFECT_NUMBERS_H
+
+namespace perfect_numbers {
+
+enum class classification {
+    deficient,
+    perfect,
+    abundant
+};
+
+classification classify(int number);
+
+}  // namespace perfect_numbers
+
+#endif  // PERFECT_NUMBERS_H
+```
+
+perfect_numbers.cpp
+```
+#include "perfect_numbers.h"
+
+#include <stdexcept>
+
+namespace perfect_numbers {
+
+classification classify(int number)
+{
+    if (number <= 0) {
+        throw std::domain_error("number must be positive");
+    }
+
+    long long aliquot_sum = 0;
+
+    if (number > 1) {
+        aliquot_sum = 1;
+    }
+
+    for (int divisor = 2; static_cast<long long>(divisor) * divisor <= number;
+         ++divisor) {
+        if (number % divisor == 0) {
+            aliquot_sum += divisor;
+
+            const int paired_divisor = number / divisor;
+            if (paired_divisor != divisor) {
+                aliquot_sum += paired_divisor;
+            }
+        }
+    }
+
+    if (aliquot_sum == number) {
+        return classification::perfect;
+    }
+
+    if (aliquot_sum > number) {
+        return classification::abundant;
+    }
+
+    return classification::deficient;
+}
+
+}  // namespace perfect_numbers
+```

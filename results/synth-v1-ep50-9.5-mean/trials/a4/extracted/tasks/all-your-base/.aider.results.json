@@ -1,0 +1,42 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-21-22-26--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a4-shard-0/cpp/exercises/practice/all-your-base",
+    "testcase": "all-your-base",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        true
+    ],
+    "cost": 0.0,
+    "duration": 186.13074660301208,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 3,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 8637,
+    "completion_tokens": 5280,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "fcd22a3b3377930a897bebecd88af15f9170501a"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "40d79027d098bbc3cdb093af3a1659abc32b0fe4"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "40d79027d098bbc3cdb093af3a1659abc32b0fe4"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "meetup.cpp",
+      "sha256": "0d436308689858599fb60d720b7f9525086cec7d7433eeb62fcfe1391e10146b",
+      "size": 7953
+    },
+    {
+      "path": "meetup.h",
+      "sha256": "4eef86c4597fc9f90a2540c618fcc5a0a5b26de45700e124de45e2e1e5bf4b65",
+      "size": 3083
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 2.316455841064453,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\nCMake Warning (policy) at CMakeLists.txt:13 (find_package):\n  Policy CMP0167 is not set: The FindBoost module is removed.  Run \"cmake\n  --help-policy CMP0167\" for policy details.  Use the cmake_policy command to\n  set the policy and suppress this warning.\nThis warning is for project developers.  Use -Wno-author or -Wno-policy to\nsuppress it.\n\n-- Found Boost: /opt/homebrew/opt/boost/lib/cmake/Boost-1.90.0/BoostConfig.cmake (found suitable version \"1.90.0\", minimum required is \"1.58\") found components: date_time\n-- Configuring done (0.4s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatemeetup/build\n[ 25%] Building CXX object CMakeFiles/meetup.dir/meetup_test.cpp.o\n/privatemeetup/meetup_test.cpp:181:32: error: no member named 'first_monday' in 'meetup::scheduler'\n  181 |     REQUIRE(expected == meetup.first_monday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:181:32: error: no member named 'first_monday' in 'meetup::scheduler'\n  181 |     REQUIRE(expected == meetup.first_monday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:181:32: error: no member named 'first_monday' in 'meetup::scheduler'\n  181 |     REQUIRE(expected == meetup.first_monday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:189:32: error: no member named 'first_monday' in 'meetup::scheduler'\n  189 |     REQUIRE(expected == meetup.first_monday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:189:32: error: no member named 'first_monday' in 'meetup::scheduler'\n  189 |     REQUIRE(expected == meetup.first_monday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:189:32: error: no member named 'first_monday' in 'meetup::scheduler'\n  189 |     REQUIRE(expected == meetup.first_monday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:197:32: error: no member named 'first_tuesday' in 'meetup::scheduler'\n  197 |     REQUIRE(expected == meetup.first_tuesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:197:32: error: no member named 'first_tuesday' in 'meetup::scheduler'\n  197 |     REQUIRE(expected == meetup.first_tuesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:197:32: error: no member named 'first_tuesday' in 'meetup::scheduler'\n  197 |     REQUIRE(expected == meetup.first_tuesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:205:32: error: no member named 'first_tuesday' in 'meetup::scheduler'\n  205 |     REQUIRE(expected == meetup.first_tuesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:205:32: error: no member named 'first_tuesday' in 'meetup::scheduler'\n  205 |     REQUIRE(expected == meetup.first_tuesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:205:32: error: no member named 'first_tuesday' in 'meetup::scheduler'\n  205 |     REQUIRE(expected == meetup.first_tuesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:213:32: error: no member named 'first_wednesday' in 'meetup::scheduler'\n  213 |     REQUIRE(expected == meetup.first_wednesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:213:32: error: no member named 'first_wednesday' in 'meetup::scheduler'\n  213 |     REQUIRE(expected == meetup.first_wednesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:213:32: error: no member named 'first_wednesday' in 'meetup::scheduler'\n  213 |     REQUIRE(expected == meetup.first_wednesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:221:32: error: no member named 'first_wednesday' in 'meetup::scheduler'\n  221 |     REQUIRE(expected == meetup.first_wednesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:221:32: error: no member named 'first_wednesday' in 'meetup::scheduler'\n  221 |     REQUIRE(expected == meetup.first_wednesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:221:32: error: no member named 'first_wednesday' in 'meetup::scheduler'\n  221 |     REQUIRE(expected == meetup.first_wednesday());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:229:32: error: no member named 'first_thursday' in 'meetup::scheduler'\n  229 |     REQUIRE(expected == meetup.first_thursday());\n      |                         ~~~~~~ ^\nfatal error: too many errors emitted, stopping now [-ferror-limit=]\n20 errors generated.\nmake[2]: *** [CMakeFiles/meetup.dir/meetup_test.cpp.o] Error 1\nmake[1]: *** [CMakeFiles/meetup.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "21c44c007990e71c9e768a2e29736f9a45a80e933846ece5e59393266a2c3e66",
+  "request_id": "meetup-1785913919081953000-0637e109c195",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "meetup"
+}

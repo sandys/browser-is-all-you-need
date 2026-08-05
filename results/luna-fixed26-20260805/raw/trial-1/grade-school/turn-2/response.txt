@@ -1,0 +1,69 @@
+The build error is caused by `roster()` returning `std::vector<std::string>` while the tests expect `std::map<int, std::vector<std::string>>`. The roster must preserve grade groupings, with grades ordered numerically and names sorted alphabetically.
+
+The implementation below also allows a student to be enrolled in multiple grades while preventing duplicate enrollment in the same grade.
+
+grade_school.h
+```
+#if !defined(GRADE_SCHOOL_H)
+#define GRADE_SCHOOL_H
+
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace grade_school {
+
+class school {
+public:
+    void add(const std::string& student, int grade);
+    std::vector<std::string> grade(int grade) const;
+    std::map<int, std::vector<std::string>> roster() const;
+
+private:
+    std::map<int, std::set<std::string>> students_by_grade;
+};
+
+}  // namespace grade_school
+
+#endif // GRADE_SCHOOL_H
+```
+
+grade_school.cpp
+```
+#include "grade_school.h"
+
+namespace grade_school {
+
+void school::add(const std::string& student, int grade)
+{
+    students_by_grade[grade].insert(student);
+}
+
+std::vector<std::string> school::grade(int grade) const
+{
+    const auto it = students_by_grade.find(grade);
+
+    if (it == students_by_grade.end()) {
+        return {};
+    }
+
+    return {it->second.begin(), it->second.end()};
+}
+
+std::map<int, std::vector<std::string>> school::roster() const
+{
+    std::map<int, std::vector<std::string>> result;
+
+    for (const auto& entry : students_by_grade) {
+        result[entry.first] = {
+            entry.second.begin(),
+            entry.second.end()
+        };
+    }
+
+    return result;
+}
+
+}  // namespace grade_school
+```

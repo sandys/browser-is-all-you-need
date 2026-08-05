@@ -1,0 +1,107 @@
+The tests expect `cipher` to return a `cipher_text` object with `normalized_cipher_text()`, `square_size()`, and `ciphertext()` methods. The current implementation returns `std::string`, causing the compilation errors.
+
+The following changes restore the expected API and retain the required normalization, square sizing, columnar encoding, and padding behavior.
+
+crypto_square.h
+```
+#if !defined(CRYPTO_SQUARE_H)
+#define CRYPTO_SQUARE_H
+
+#include <string>
+
+namespace crypto_square {
+
+class cipher_text {
+public:
+    explicit cipher_text(const std::string& plaintext);
+
+    std::string normalized_cipher_text() const;
+    int square_size() const;
+    std::string ciphertext() const;
+
+private:
+    std::string normalized_text_;
+};
+
+cipher_text cipher(const std::string& plaintext);
+
+}  // namespace crypto_square
+
+#endif  // CRYPTO_SQUARE_H
+```
+
+crypto_square.cpp
+```
+#include "crypto_square.h"
+
+#include <cctype>
+#include <string>
+
+namespace crypto_square {
+
+cipher_text::cipher_text(const std::string& plaintext) {
+    for (unsigned char character : plaintext) {
+        if (std::isalnum(character)) {
+            normalized_text_ +=
+                static_cast<char>(std::tolower(character));
+        }
+    }
+}
+
+std::string cipher_text::normalized_cipher_text() const {
+    return normalized_text_;
+}
+
+int cipher_text::square_size() const {
+    if (normalized_text_.empty()) {
+        return 0;
+    }
+
+    int size = 1;
+    const int length = static_cast<int>(normalized_text_.size());
+
+    while (size * size < length) {
+        ++size;
+    }
+
+    return size;
+}
+
+std::string cipher_text::ciphertext() const {
+    const int columns = square_size();
+
+    if (columns == 0) {
+        return {};
+    }
+
+    const int rows =
+        (static_cast<int>(normalized_text_.size()) + columns - 1) /
+        columns;
+
+    std::string encoded;
+
+    for (int column = 0; column < columns; ++column) {
+        if (column > 0) {
+            encoded += ' ';
+        }
+
+        for (int row = 0; row < rows; ++row) {
+            const int index = row * columns + column;
+
+            if (index < static_cast<int>(normalized_text_.size())) {
+                encoded += normalized_text_[index];
+            } else {
+                encoded += ' ';
+            }
+        }
+    }
+
+    return encoded;
+}
+
+cipher_text cipher(const std::string& plaintext) {
+    return cipher_text(plaintext);
+}
+
+}  // namespace crypto_square
+```

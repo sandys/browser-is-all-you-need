@@ -1,0 +1,70 @@
+The files need changes to declare and implement `spiral_matrix(int size)`. The implementation uses four boundaries to fill the matrix clockwise from the outside inward and returns an empty matrix for non-positive sizes.
+
+spiral_matrix.h
+```
+#if !defined(SPIRAL_MATRIX_H)
+#define SPIRAL_MATRIX_H
+
+#include <cstdint>
+#include <vector>
+
+namespace spiral_matrix {
+
+std::vector<std::vector<uint32_t>> spiral_matrix(int size);
+
+}  // namespace spiral_matrix
+
+#endif  // SPIRAL_MATRIX_H
+```
+
+spiral_matrix.cpp
+```
+#include "spiral_matrix.h"
+
+namespace spiral_matrix {
+
+std::vector<std::vector<uint32_t>> spiral_matrix(int size) {
+    if (size <= 0) {
+        return {};
+    }
+
+    std::vector<std::vector<uint32_t>> matrix(
+        size, std::vector<uint32_t>(size));
+
+    int top = 0;
+    int bottom = size - 1;
+    int left = 0;
+    int right = size - 1;
+    uint32_t value = 1;
+
+    while (top <= bottom && left <= right) {
+        for (int column = left; column <= right; ++column) {
+            matrix[top][column] = value++;
+        }
+        ++top;
+
+        for (int row = top; row <= bottom; ++row) {
+            matrix[row][right] = value++;
+        }
+        --right;
+
+        if (top <= bottom) {
+            for (int column = right; column >= left; --column) {
+                matrix[bottom][column] = value++;
+            }
+            --bottom;
+        }
+
+        if (left <= right) {
+            for (int row = bottom; row >= top; --row) {
+                matrix[row][left] = value++;
+            }
+            ++left;
+        }
+    }
+
+    return matrix;
+}
+
+}  // namespace spiral_matrix
+```

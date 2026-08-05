@@ -1,0 +1,115 @@
+The compilation errors occur because the tests expect `crypto_square::cipher` to be a class with a `normalized_cipher_text()` method, but the current header declares it as a function returning `std::string`.
+
+The code below restores the expected class interface and implements:
+
+- `normalized_cipher_text()`
+- `square_code()`
+- `encoded()`
+
+crypto_square.h
+```
+#if !defined(CRYPTO_SQUARE_H)
+#define CRYPTO_SQUARE_H
+
+#include <string>
+
+namespace crypto_square {
+
+class cipher {
+public:
+    explicit cipher(const std::string& input);
+
+    std::string normalized_cipher_text() const;
+    std::string square_code() const;
+    std::string encoded() const;
+
+private:
+    std::string normalized_text_;
+};
+
+}  // namespace crypto_square
+
+#endif  // CRYPTO_SQUARE_H
+```
+
+crypto_square.cpp
+```
+#include "crypto_square.h"
+
+#include <cctype>
+#include <cmath>
+#include <string>
+
+namespace crypto_square {
+
+cipher::cipher(const std::string& input) {
+    for (unsigned char character : input) {
+        if (std::isalnum(character)) {
+            normalized_text_ +=
+                static_cast<char>(std::tolower(character));
+        }
+    }
+}
+
+std::string cipher::normalized_cipher_text() const {
+    return normalized_text_;
+}
+
+std::string cipher::square_code() const {
+    if (normalized_text_.empty()) {
+        return "";
+    }
+
+    const std::size_t columns = static_cast<std::size_t>(
+        std::ceil(std::sqrt(static_cast<double>(normalized_text_.size()))));
+    const std::size_t rows =
+        (normalized_text_.size() + columns - 1) / columns;
+
+    std::string result;
+
+    for (std::size_t column = 0; column < columns; ++column) {
+        for (std::size_t row = 0; row < rows; ++row) {
+            const std::size_t index = row * columns + column;
+
+            if (index < normalized_text_.size()) {
+                result += normalized_text_[index];
+            }
+        }
+    }
+
+    return result;
+}
+
+std::string cipher::encoded() const {
+    if (normalized_text_.empty()) {
+        return "";
+    }
+
+    const std::size_t columns = static_cast<std::size_t>(
+        std::ceil(std::sqrt(static_cast<double>(normalized_text_.size()))));
+    const std::size_t rows =
+        (normalized_text_.size() + columns - 1) / columns;
+
+    std::string result;
+
+    for (std::size_t column = 0; column < columns; ++column) {
+        if (column > 0) {
+            result += ' ';
+        }
+
+        for (std::size_t row = 0; row < rows; ++row) {
+            const std::size_t index = row * columns + column;
+
+            if (index < normalized_text_.size()) {
+                result += normalized_text_[index];
+            } else {
+                result += ' ';
+            }
+        }
+    }
+
+    return result;
+}
+
+}  // namespace crypto_square
+```

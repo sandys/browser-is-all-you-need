@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "reference_artifact": "gpt56-luna-medium-openrouter-fixed26-pristine-original-v1-stablefiles-strict1shot-4x-20260805",
+  "reference_first_turn_requests": 104,
+  "feedback_cohort_first_turn_requests": 104,
+  "tasks": 26,
+  "exact_semantic_message_matches": 26,
+  "normalization": "Only the inherited ordering of complete editable-file listings was normalized; filenames, bytes, roles, instructions, and all other messages were required to match exactly.",
+  "prompt_help_delta": 0
+}

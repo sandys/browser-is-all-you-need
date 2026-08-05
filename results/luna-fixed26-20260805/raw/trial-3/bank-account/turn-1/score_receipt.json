@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "bank_account.cpp",
+      "sha256": "28e77341b17abffded20891583b8edcf804b9bae684488653cdfc9a2ea8c1b52",
+      "size": 1365
+    },
+    {
+      "path": "bank_account.h",
+      "sha256": "cb3342f048345f8faf7834d6a47cacefac5e6c8db4c871bb9a791333b5b6c309",
+      "size": 379
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 6.771439075469971,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n-- Found Threads: TRUE\n-- Configuring done (0.7s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatebank-account/build\n[ 25%] Building CXX object CMakeFiles/bank-account.dir/bank_account_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/bank-account.dir/bank_account.cpp.o\n[ 75%] Building CXX object CMakeFiles/bank-account.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable bank-account\n[100%] Built target bank-account\n===============================================================================\nAll tests passed (17 assertions in 17 test cases)\n\n[100%] Built target test_bank-account\n",
+  "output_sha256": "9847e3a7059c3ee71104da91ba78627f82496464d5468520a4777f168585f0ae",
+  "request_id": "bank-account-1785913877567199000-4bd6a1f8475c",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "bank-account"
+}

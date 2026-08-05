@@ -1,0 +1,66 @@
+The build errors occur because the implementation exposes `Relation` and `check_lists`, while the tests expect:
+
+- `sublist::List_comparison`
+- `sublist::sublist(...)`
+
+The CMake deprecation warning is unrelated to these compilation errors and does not need to be addressed in the requested files.
+
+sublist.h
+```
+#pragma once
+
+#include <vector>
+
+namespace sublist {
+
+enum class List_comparison {
+    equal,
+    sublist,
+    superlist,
+    unequal
+};
+
+List_comparison sublist(const std::vector<int>& list_one,
+                        const std::vector<int>& list_two);
+
+}  // namespace sublist
+```
+
+sublist.cpp
+```
+#include "sublist.h"
+
+#include <algorithm>
+
+namespace sublist {
+
+namespace {
+
+bool contains(const std::vector<int>& list,
+              const std::vector<int>& candidate) {
+    return candidate.empty() ||
+           std::search(list.begin(), list.end(),
+                       candidate.begin(), candidate.end()) != list.end();
+}
+
+}  // namespace
+
+List_comparison sublist(const std::vector<int>& list_one,
+                        const std::vector<int>& list_two) {
+    if (list_one == list_two) {
+        return List_comparison::equal;
+    }
+
+    if (contains(list_one, list_two)) {
+        return List_comparison::superlist;
+    }
+
+    if (contains(list_two, list_one)) {
+        return List_comparison::sublist;
+    }
+
+    return List_comparison::unequal;
+}
+
+}  // namespace sublist
+```

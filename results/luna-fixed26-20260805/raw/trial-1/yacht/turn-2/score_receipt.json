@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "yacht.cpp",
+      "sha256": "3e36c417693f99e3d9ac4648e8297a0a1746baec8aa20b53fac30ce176db6037",
+      "size": 3402
+    },
+    {
+      "path": "yacht.h",
+      "sha256": "2a47d0937e39baea7116526502898fac928dddfecb1239b3717b2f51f9a130c6",
+      "size": 409
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 5.909331321716309,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.3s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privateyacht/build\n[ 25%] Building CXX object CMakeFiles/yacht.dir/yacht_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/yacht.dir/yacht.cpp.o\n[ 75%] Building CXX object CMakeFiles/yacht.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable yacht\n[100%] Built target yacht\n===============================================================================\nAll tests passed (29 assertions in 29 test cases)\n\n[100%] Built target test_yacht\n",
+  "output_sha256": "8acdcc93140eb202a2e788dde4a3c7f62b1837a84856397892484bca361f64fd",
+  "request_id": "yacht-1785913821174179000-2f60794eaf2a",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "yacht"
+}

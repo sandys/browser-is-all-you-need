@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "kind": "sft-v5-aiderfmt-1117-four-trial-comparison",
+  "status": "complete",
+  "disposition": "eval-only",
+  "training_eligible": false,
+  "sample_definition": "one terminal two-turn trajectory per fixed26 task per independent trial",
+  "sample_count": 104,
+  "task_count": 26,
+  "trial_count": 4,
+  "checkpoint": {
+    "identity": "SFT v5, July 27 Aider-format",
+    "run_id": "glm47-aider-sft-v5-aiderfmt-1117-3ep-20260726T211943Z",
+    "iteration": 164,
+    "lora_rank": 16,
+    "lora_alpha": 32,
+    "adapter_sha256": "9608cfe476b3bd2573ffd02f334f55a18e80a9de00a0581d1d6aacc54ad8972e",
+    "huggingface_repository": "TokenBender/glm47-aider-sft-v5-aiderfmt-1117-3ep",
+    "huggingface_revision": "5d06951941a30939920fb2b7558aa95085531d52",
+    "path": "checkpoints/sft_lora_r16/iter_0000164/adapter"
+  },
+  "training_data": {
+    "rows": 1117,
+    "epochs": 3,
+    "huggingface_repository": "TokenBender/glm47-aider-posttraining-data",
+    "huggingface_revision": "6ef50c6fd1aca637c3df2df00c9aab4120140797",
+    "manifest_sha256": "db1df88ed80bf3b8db8c857ec2cec61228323609547a95082d5d53e0ed60ec4b",
+    "train_jsonl_sha256": "e22547aea77500fe717a0ca3400df2f80473cf8837cd38ecf09bbb64274470cd"
+  },
+  "evaluation": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "source_commit": "c8edd0e343b5a7b689ea8ab0bb871a28036ad26b",
+    "huggingface_repository": "TokenBender/glm47-aider-fixed26-responses",
+    "huggingface_revision": "2397232ab6476b414a7af99d9ee6cfe45a856c86",
+    "huggingface_path": "evals/sft-v5-aiderfmt-1117-fixed26contract-pass8-20260727",
+    "contract": "fixed26-contract",
+    "edit_format": "whole",
+    "tries": 2,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "pass_at_1_scores": [8, 4, 6, 6],
+    "pass_at_1_mean": 6.0,
+    "cumulative_feedback_at_2_scores": [12, 10, 11, 8],
+    "cumulative_feedback_at_2_mean": 10.25
+  },
+  "source": {
+    "trials": ["a2", "a4", "a5", "a8"]
+  },
+  "verification": {
+    "terminal_task_records": 104,
+    "chat_histories": 104,
+    "identical_task_sets": true,
+    "adapter_identity_verified": true,
+    "benchmark_tests_in_archives": false
+  },
+  "archives": {
+    "a2": "27fd8e3f7e0aa333dab5c6170c9b7bd612d952190b5bfb95a798528c89c90b33",
+    "a4": "dca5d41a48b72a3af074f7ab029be08f25f30dcd8a60b9db9a9b5075faa89411",
+    "a5": "8232b34e1a326ac704d05b862feeb20fb5bea7ae328336a196a34edb3aadd673",
+    "a8": "bef6e40ed440c4ba14ef74b35e9910dbe0a18f411014035e18f67d36cbce1aef"
+  },
+  "source_receipts": {
+    "a2": "8e2dab9651ebfbf00292897ce9459d3af04cd726d1c7b84694d19b4c92567966",
+    "a4": "f7fa037c93ef3bf404389aea9876c357257c81028fdf407625185c7b304ccace",
+    "a5": "3216cbc338b1df95c84ab38f2831f60e0bbbccaeaa3a9409d6f7dd5200fd992d",
+    "a8": "5d461af0df34479d6cf98fe31ad310f2be4f32caf558a482d576a9f16ddf3510"
+  }
+}

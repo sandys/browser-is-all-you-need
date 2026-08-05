@@ -1,0 +1,132 @@
+The build errors occur because `frequency` is currently defined as a type alias, while the tests use it as a function:
+
+```cpp
+parallel_letter_frequency::frequency(texts)
+```
+
+The implementation now provides `frequency` overloads accepting `std::vector<std::string_view>`, while retaining the existing `count` function. It uses standard threads and does not require TBB.
+
+parallel_letter_frequency.h
+```
+#if !defined(PARALLEL_LETTER_FREQUENCY_H)
+#define PARALLEL_LETTER_FREQUENCY_H
+
+#include <map>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace parallel_letter_frequency {
+
+using frequency_map = std::map<char, int>;
+
+frequency_map frequency(const std::vector<std::string_view>& texts);
+
+frequency_map frequency(const std::vector<std::string_view>& texts,
+                        unsigned int workers);
+
+frequency_map count(const std::vector<std::string>& texts,
+                    unsigned int workers);
+
+}
+
+#endif
+```
+
+parallel_letter_frequency.cpp
+```
+#include "parallel_letter_frequency.h"
+
+#include <algorithm>
+#include <cctype>
+#include <thread>
+#include <utility>
+
+namespace parallel_letter_frequency {
+namespace {
+
+template <typename Text>
+frequency_map count_texts(const std::vector<Text>& texts,
+                          unsigned int workers)
+{
+    frequency_map result;
+
+    if (texts.empty()) {
+        return result;
+    }
+
+    const auto worker_count = std::max<std::size_t>(
+        1,
+        std::min<std::size_t>(workers, texts.size()));
+
+    std::vector<frequency_map> partial_frequencies(worker_count);
+    std::vector<std::thread> threads;
+    threads.reserve(worker_count);
+
+    const auto texts_per_worker = texts.size() / worker_count;
+    const auto extra_texts = texts.size() % worker_count;
+
+    std::size_t begin = 0;
+
+    for (std::size_t worker = 0; worker < worker_count; ++worker) {
+        const auto text_count =
+            texts_per_worker + (worker < extra_texts ? 1 : 0);
+        const auto end = begin + text_count;
+
+        threads.emplace_back(
+            [&texts, &partial_frequencies, begin, end, worker] {
+                auto& local_frequency = partial_frequencies[worker];
+
+                for (std::size_t text_index = begin;
+                     text_index < end;
+                     ++text_index) {
+                    for (const char character : texts[text_index]) {
+                        const auto unsigned_character =
+                            static_cast<unsigned char>(character);
+
+                        if (std::isalpha(unsigned_character)) {
+                            const auto lowercase_character = static_cast<char>(
+                                std::tolower(unsigned_character));
+                            ++local_frequency[lowercase_character];
+                        }
+                    }
+                }
+            });
+
+        begin = end;
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    for (const auto& partial_frequency : partial_frequencies) {
+        for (const auto& [character, count] : partial_frequency) {
+            result[character] += count;
+        }
+    }
+
+    return result;
+}
+
+} // namespace
+
+frequency_map frequency(const std::vector<std::string_view>& texts)
+{
+    return frequency(texts, 1);
+}
+
+frequency_map frequency(const std::vector<std::string_view>& texts,
+                        unsigned int workers)
+{
+    return count_texts(texts, workers);
+}
+
+frequency_map count(const std::vector<std::string>& texts,
+                    unsigned int workers)
+{
+    return count_texts(texts, workers);
+}
+
+}
+```

@@ -1,0 +1,72 @@
+The tests expect `diamond::rows(char)`, which is not declared or defined. I added it as a function returning `std::vector<std::string>`. The existing `print` function is retained for compatibility and now formats the rows with newline characters. The CMake deprecation warning is unrelated to these compilation errors.
+
+diamond.h
+```cpp
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter);
+std::string print(char letter);
+
+}  // namespace diamond
+```
+
+diamond.cpp
+```cpp
+#include "diamond.h"
+
+#include <algorithm>
+#include <string>
+#include <vector>
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter) {
+    const int last = letter - 'A';
+    const int width = 2 * last + 1;
+    const int row_count = 2 * last + 1;
+    std::vector<std::string> result;
+
+    result.reserve(row_count);
+
+    for (int row = 0; row < row_count; ++row) {
+        const int level = std::min(row, 2 * last - row);
+        const int padding = last - level;
+
+        std::string current;
+        current.append(padding, ' ');
+        current.push_back(static_cast<char>('A' + level));
+
+        if (level > 0) {
+            current.append(2 * level - 1, ' ');
+            current.push_back(static_cast<char>('A' + level));
+        }
+
+        current.append(
+            width - static_cast<int>(current.size()),
+            ' ');
+
+        result.push_back(current);
+    }
+
+    return result;
+}
+
+std::string print(char letter) {
+    const std::vector<std::string> diamond_rows = rows(letter);
+    std::string result;
+
+    for (const std::string& row : diamond_rows) {
+        result += row;
+        result += '\n';
+    }
+
+    return result;
+}
+
+}  // namespace diamond
+```

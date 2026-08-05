@@ -1,0 +1,95 @@
+`open()` must reject attempts to open an already open account. The CMake deprecation warning is unrelated to the failing test and does not require changes to the requested files.
+
+bank_account.cpp
+```cpp
+#include "bank_account.h"
+
+#include <stdexcept>
+
+namespace Bankaccount {
+
+void Bankaccount::open() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (is_open_) {
+        throw std::runtime_error("Account is already open");
+    }
+
+    balance_ = 0;
+    is_open_ = true;
+}
+
+void Bankaccount::close() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!is_open_) {
+        throw std::runtime_error("Account is already closed");
+    }
+
+    is_open_ = false;
+}
+
+int Bankaccount::balance() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!is_open_) {
+        throw std::runtime_error("Account is closed");
+    }
+
+    return balance_;
+}
+
+void Bankaccount::deposit(int amount) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!is_open_) {
+        throw std::runtime_error("Account is closed");
+    }
+    if (amount <= 0) {
+        throw std::runtime_error("Deposit amount must be positive");
+    }
+
+    balance_ += amount;
+}
+
+void Bankaccount::withdraw(int amount) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!is_open_) {
+        throw std::runtime_error("Account is closed");
+    }
+    if (amount <= 0) {
+        throw std::runtime_error("Withdrawal amount must be positive");
+    }
+    if (amount > balance_) {
+        throw std::runtime_error("Insufficient funds");
+    }
+
+    balance_ -= amount;
+}
+
+}  // namespace Bankaccount
+```
+
+bank_account.h
+```cpp
+#if !defined(BANK_ACCOUNT_H)
+#define BANK_ACCOUNT_H
+
+#include <mutex>
+
+namespace Bankaccount {
+
+class Bankaccount {
+public:
+    void open();
+    void close();
+    int balance() const;
+    void deposit(int amount);
+    void withdraw(int amount);
+
+private:
+    mutable std::mutex mutex_;
+    int balance_{0};
+    bool is_open_{false};
+};
+
+}  // namespace Bankaccount
+
+#endif  // BANK_ACCOUNT_H
+```

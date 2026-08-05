@@ -1,0 +1,104 @@
+The account needs state for its balance and open/closed status, protected by a mutex. Operations validate that the account is open and reject invalid amounts or insufficient funds by throwing `std::runtime_error`. Opening resets the balance to zero, and closing prevents further operations.
+
+bank_account.h
+```
+#if !defined(BANK_ACCOUNT_H)
+#define BANK_ACCOUNT_H
+
+#include <mutex>
+
+namespace Bankaccount {
+class Bankaccount {
+public:
+    void open();
+    void close();
+    void deposit(int amount);
+    void withdraw(int amount);
+    int balance();
+
+private:
+    int balance_ = 0;
+    bool is_open_ = false;
+    std::mutex mutex_;
+};
+
+}  // namespace Bankaccount
+
+#endif  // BANK_ACCOUNT_H
+```
+
+bank_account.cpp
+```
+#include "bank_account.h"
+
+#include <stdexcept>
+
+namespace Bankaccount {
+
+void Bankaccount::open()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (is_open_) {
+        throw std::runtime_error("Account is already open");
+    }
+
+    balance_ = 0;
+    is_open_ = true;
+}
+
+void Bankaccount::close()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!is_open_) {
+        throw std::runtime_error("Account is already closed");
+    }
+
+    is_open_ = false;
+}
+
+void Bankaccount::deposit(int amount)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!is_open_) {
+        throw std::runtime_error("Account is closed");
+    }
+    if (amount <= 0) {
+        throw std::runtime_error("Deposit amount must be positive");
+    }
+
+    balance_ += amount;
+}
+
+void Bankaccount::withdraw(int amount)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!is_open_) {
+        throw std::runtime_error("Account is closed");
+    }
+    if (amount <= 0) {
+        throw std::runtime_error("Withdrawal amount must be positive");
+    }
+    if (amount > balance_) {
+        throw std::runtime_error("Insufficient funds");
+    }
+
+    balance_ -= amount;
+}
+
+int Bankaccount::balance()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!is_open_) {
+        throw std::runtime_error("Account is closed");
+    }
+
+    return balance_;
+}
+
+}  // namespace Bankaccount
+```

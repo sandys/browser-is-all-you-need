@@ -1,0 +1,103 @@
+The errors come from two compatibility issues:
+
+- `std::chrono::year_month_day` and `std::chrono::year_month` require C++20, but this project uses an older C++ standard.
+- The tests expect the Exercism meetup interface with methods such as `monteenth()` and `tuesteenth()`, returning `boost::gregorian::date`.
+
+The implementation below uses Boost Gregorian dates and provides all seven expected teenth-day methods.
+
+meetup.h
+```
+#if !defined(MEETUP_H)
+#define MEETUP_H
+
+#include <boost/date_time/gregorian/gregorian.hpp>
+
+namespace meetup {
+
+class scheduler {
+public:
+    scheduler(int year, int month);
+
+    boost::gregorian::date monteenth() const;
+    boost::gregorian::date tuesteenth() const;
+    boost::gregorian::date wednesteenth() const;
+    boost::gregorian::date thursteenth() const;
+    boost::gregorian::date friteenth() const;
+    boost::gregorian::date saturteenth() const;
+    boost::gregorian::date sunteenth() const;
+
+private:
+    boost::gregorian::date teenth(
+        boost::gregorian::greg_weekday::value_enum weekday) const;
+
+    int year_;
+    int month_;
+};
+
+}  // namespace meetup
+
+#endif  // MEETUP_H
+```
+
+meetup.cpp
+```
+#include "meetup.h"
+
+namespace meetup {
+
+scheduler::scheduler(int year, int month)
+    : year_(year), month_(month)
+{
+}
+
+boost::gregorian::date scheduler::teenth(
+    boost::gregorian::greg_weekday::value_enum weekday) const
+{
+    using namespace boost::gregorian;
+
+    date candidate(year_, month_, 13);
+
+    while (candidate.day_of_week().as_number() != weekday) {
+        candidate += days(1);
+    }
+
+    return candidate;
+}
+
+boost::gregorian::date scheduler::monteenth() const
+{
+    return teenth(boost::gregorian::Monday);
+}
+
+boost::gregorian::date scheduler::tuesteenth() const
+{
+    return teenth(boost::gregorian::Tuesday);
+}
+
+boost::gregorian::date scheduler::wednesteenth() const
+{
+    return teenth(boost::gregorian::Wednesday);
+}
+
+boost::gregorian::date scheduler::thursteenth() const
+{
+    return teenth(boost::gregorian::Thursday);
+}
+
+boost::gregorian::date scheduler::friteenth() const
+{
+    return teenth(boost::gregorian::Friday);
+}
+
+boost::gregorian::date scheduler::saturteenth() const
+{
+    return teenth(boost::gregorian::Saturday);
+}
+
+boost::gregorian::date scheduler::sunteenth() const
+{
+    return teenth(boost::gregorian::Sunday);
+}
+
+}  // namespace meetup
+```

@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "kind": "glm47-base-fixed26-four-trial-comparison",
+  "status": "complete",
+  "disposition": "eval-only",
+  "training_eligible": false,
+  "eval_id": "base-fixed26-four-trial-20260711-20260719",
+  "sample_definition": "one terminal two-turn trajectory per fixed26 task per independent trial",
+  "sample_count": 104,
+  "task_count": 26,
+  "trial_count": 4,
+  "model": {
+    "repository": "zai-org/GLM-4.7-Flash",
+    "revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+    "adapter": null
+  },
+  "evaluation": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "edit_format": "whole",
+    "tries": 2,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "max_tokens": 32768,
+    "pass_at_1_scores": [0, 1, 1, 0],
+    "pass_at_1_mean": 0.5,
+    "cumulative_feedback_at_2_scores": [4, 5, 6, 3],
+    "cumulative_feedback_at_2_mean": 4.5
+  },
+  "verification": {
+    "terminal_task_records": 104,
+    "chat_histories": 104,
+    "identical_task_sets": true,
+    "identical_instruction_prompts": true
+  },
+  "source": {
+    "huggingface_repository": "TokenBender/glm47-aider-fixed26-responses",
+    "huggingface_revision": "d817c418b29eae23a97a83c70c896b56296b330c",
+    "trials": {
+      "a1": {
+        "archive_sha256": "dd26f2ef196084dbee03e8495f952bcba1f32fadf576c26533c86a7607123e43",
+        "run_receipt_sha256": "9e91376a9f71824018fb056d6df7790f791b12c066af69eb54ae8a2b2b2238fa"
+      },
+      "a2": {
+        "archive_sha256": "6ca5f03562166760d1e735ab8da896aa026399d7e99725be6809d3c089709140",
+        "run_receipt_sha256": "8a723e3d6d82e5adce27a0924ac0b7fa37bac7d6ecbe9abd72ce098a111186d8"
+      },
+      "a3": {
+        "archive_sha256": "f2e45813e0977943df0d3b0919d4880fb5d3a43edfd9d86680899f01452e912f",
+        "run_receipt_sha256": "ad4d2c689d2024dbe3ceb01d48ab611b110efb13058a6067f4dea2c6d11b6484"
+      },
+      "a4": {
+        "archive_sha256": "17b17806b7a619cf5b1edbebb766098bb323f4f6165c945db2dfbab4a0a40ce7",
+        "run_receipt_sha256": "5b38dc7d378aa22222052e8bcd6201ceb42ad8d6acf8616b8889c5b1bccc132e"
+      }
+    }
+  }
+}

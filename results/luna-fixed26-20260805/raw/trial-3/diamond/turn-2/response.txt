@@ -1,0 +1,56 @@
+The compilation errors occur because the tests call `diamond::rows(char)`, but the header only declares `make_diamond(char)`. I added `rows` with the expected return type and retained `make_diamond` as a compatible wrapper.
+
+The CMake deprecation warning is unrelated to these test failures.
+
+diamond.h
+```cpp
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter);
+std::vector<std::string> make_diamond(char letter);
+
+}  // namespace diamond
+```
+
+diamond.cpp
+```cpp
+#include "diamond.h"
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter) {
+  std::vector<std::string> result;
+  const int size = letter - 'A';
+  const int width = size * 2 + 1;
+
+  for (int row = 0; row <= size * 2; ++row) {
+    const int distance = row <= size ? row : size * 2 - row;
+    const char current_letter = static_cast<char>('A' + distance);
+    const int outer_spaces = size - distance;
+
+    std::string line(outer_spaces, ' ');
+    line += current_letter;
+
+    if (distance > 0) {
+      line.append(distance * 2 - 1, ' ');
+      line += current_letter;
+    }
+
+    line.append(width - line.size(), ' ');
+    result.push_back(line);
+  }
+
+  return result;
+}
+
+std::vector<std::string> make_diamond(char letter) {
+  return rows(letter);
+}
+
+}  // namespace diamond
+```

@@ -1,0 +1,64 @@
+The files need a `maximum_value` function that solves the 0/1 knapsack problem, allowing each item to be selected at most once. A one-dimensional dynamic programming table computes the maximum value for every capacity efficiently.
+
+knapsack.h
+```
+#ifndef KNAPSACK_H
+#define KNAPSACK_H
+
+#include <vector>
+
+namespace knapsack
+{
+
+struct Item
+{
+    int weight;
+    int value;
+};
+
+int maximum_value(int maximum_weight, std::vector<Item> items);
+
+} // namespace knapsack
+
+#endif // KNAPSACK_H
+```
+
+knapsack.cpp
+```
+#include "knapsack.h"
+
+#include <algorithm>
+#include <vector>
+
+namespace knapsack
+{
+
+int maximum_value(int maximum_weight, std::vector<Item> items)
+{
+    if (maximum_weight <= 0)
+    {
+        return 0;
+    }
+
+    std::vector<int> values(maximum_weight + 1, 0);
+
+    for (const auto& item : items)
+    {
+        if (item.weight <= 0 || item.weight > maximum_weight)
+        {
+            continue;
+        }
+
+        for (int capacity = maximum_weight; capacity >= item.weight; --capacity)
+        {
+            values[capacity] = std::max(
+                values[capacity],
+                values[capacity - item.weight] + item.value);
+        }
+    }
+
+    return values[maximum_weight];
+}
+
+} // namespace knapsack
+```

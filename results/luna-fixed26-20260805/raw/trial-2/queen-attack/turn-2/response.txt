@@ -1,0 +1,84 @@
+The tests expect `chess_board` to expose `white()` and `black()` accessors. Add these public methods while keeping the existing constructor and attack logic unchanged.
+
+queen_attack.h
+```
+#if !defined(QUEEN_ATTACK_H)
+#define QUEEN_ATTACK_H
+
+#include <utility>
+
+namespace queen_attack {
+
+using position = std::pair<int, int>;
+
+class chess_board {
+public:
+    chess_board(position white, position black);
+
+    position white() const;
+    position black() const;
+    bool can_attack() const;
+
+private:
+    position white_;
+    position black_;
+};
+
+}  // namespace queen_attack
+
+#endif  // QUEEN_ATTACK_H
+```
+
+queen_attack.cpp
+```
+#include "queen_attack.h"
+
+#include <stdexcept>
+
+namespace queen_attack {
+
+namespace {
+
+bool valid_position(const position& queen_position)
+{
+    return queen_position.first >= 0 && queen_position.first < 8 &&
+           queen_position.second >= 0 && queen_position.second < 8;
+}
+
+}  // namespace
+
+chess_board::chess_board(position white, position black)
+    : white_(white), black_(black)
+{
+    if (!valid_position(white_) || !valid_position(black_)) {
+        throw std::domain_error("Queen position must be on the chess board");
+    }
+
+    if (white_ == black_) {
+        throw std::domain_error("Queens cannot occupy the same position");
+    }
+}
+
+position chess_board::white() const
+{
+    return white_;
+}
+
+position chess_board::black() const
+{
+    return black_;
+}
+
+bool chess_board::can_attack() const
+{
+    const int row_difference = white_.first - black_.first;
+    const int column_difference = white_.second - black_.second;
+
+    return row_difference == 0 ||
+           column_difference == 0 ||
+           row_difference == column_difference ||
+           row_difference == -column_difference;
+}
+
+}  // namespace queen_attack
+```

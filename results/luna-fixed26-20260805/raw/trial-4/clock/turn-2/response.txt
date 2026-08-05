@@ -1,0 +1,99 @@
+The tests use `date_independent::clock::at(...)`, while the supplied code only defines `Clock`. I added the expected lowercase `clock` class, its static `at` factory, and string conversion for `HH:MM` formatting. `Clock` remains available as an alias for compatibility.
+
+clock.h
+```
+#if !defined(CLOCK_H)
+#define CLOCK_H
+
+#include <string>
+
+namespace date_independent {
+
+class clock {
+public:
+    static clock at(int hour, int minute = 0);
+
+    clock plus(int minutes) const;
+    clock minus(int minutes) const;
+
+    bool operator==(const clock& other) const;
+    operator std::string() const;
+
+private:
+    explicit clock(int minutes_since_midnight);
+
+    int minutes_since_midnight_;
+};
+
+using Clock = clock;
+
+}  // namespace date_independent
+
+#endif  // CLOCK_H
+```
+
+clock.cpp
+```
+#include "clock.h"
+
+#include <iomanip>
+#include <sstream>
+
+namespace date_independent {
+
+namespace {
+constexpr int minutes_per_hour = 60;
+constexpr int minutes_per_day = 24 * minutes_per_hour;
+
+int normalize_minutes(long long minutes)
+{
+    minutes %= minutes_per_day;
+    if (minutes < 0) {
+        minutes += minutes_per_day;
+    }
+    return static_cast<int>(minutes);
+}
+}  // namespace
+
+clock::clock(int minutes_since_midnight)
+    : minutes_since_midnight_(normalize_minutes(minutes_since_midnight))
+{
+}
+
+clock clock::at(int hour, int minute)
+{
+    return clock(normalize_minutes(
+        static_cast<long long>(hour) * minutes_per_hour + minute));
+}
+
+clock clock::plus(int minutes) const
+{
+    return clock(normalize_minutes(
+        static_cast<long long>(minutes_since_midnight_) + minutes));
+}
+
+clock clock::minus(int minutes) const
+{
+    return clock(normalize_minutes(
+        static_cast<long long>(minutes_since_midnight_) - minutes));
+}
+
+bool clock::operator==(const clock& other) const
+{
+    return minutes_since_midnight_ == other.minutes_since_midnight_;
+}
+
+clock::operator std::string() const
+{
+    const int hour = minutes_since_midnight_ / minutes_per_hour;
+    const int minute = minutes_since_midnight_ % minutes_per_hour;
+
+    std::ostringstream result;
+    result << std::setfill('0') << std::setw(2) << hour
+           << ':'
+           << std::setfill('0') << std::setw(2) << minute;
+    return result.str();
+}
+
+}  // namespace date_independent
+```

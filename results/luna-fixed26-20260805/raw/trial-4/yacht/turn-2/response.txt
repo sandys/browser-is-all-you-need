@@ -1,0 +1,112 @@
+The tests pass category names as string literals, but the current function expects the `category` enum. Update the interface and implementation to accept `std::string`, then select the scoring rules by category name.
+
+yacht.h
+```
+#pragma once
+
+#include <array>
+#include <string>
+
+namespace yacht {
+
+int score(std::array<int, 5> dice, const std::string& category);
+
+}  // namespace yacht
+```
+
+yacht.cpp
+```
+#include "yacht.h"
+
+#include <algorithm>
+#include <array>
+#include <numeric>
+#include <string>
+
+namespace yacht {
+
+int score(std::array<int, 5> dice, const std::string& category) {
+    std::array<int, 7> counts{};
+
+    for (int die : dice) {
+        ++counts[die];
+    }
+
+    if (category == "ones") {
+        return counts[1];
+    }
+
+    if (category == "twos") {
+        return 2 * counts[2];
+    }
+
+    if (category == "threes") {
+        return 3 * counts[3];
+    }
+
+    if (category == "fours") {
+        return 4 * counts[4];
+    }
+
+    if (category == "fives") {
+        return 5 * counts[5];
+    }
+
+    if (category == "sixes") {
+        return 6 * counts[6];
+    }
+
+    if (category == "full_house") {
+        bool has_three = false;
+        bool has_two = false;
+
+        for (int face = 1; face <= 6; ++face) {
+            has_three |= counts[face] == 3;
+            has_two |= counts[face] == 2;
+        }
+
+        return has_three && has_two
+                   ? std::accumulate(dice.begin(), dice.end(), 0)
+                   : 0;
+    }
+
+    if (category == "four_of_a_kind") {
+        for (int face = 1; face <= 6; ++face) {
+            if (counts[face] >= 4) {
+                return face * 4;
+            }
+        }
+
+        return 0;
+    }
+
+    if (category == "little_straight") {
+        return counts[1] == 1 && counts[2] == 1 && counts[3] == 1 &&
+                       counts[4] == 1 && counts[5] == 1
+                   ? 30
+                   : 0;
+    }
+
+    if (category == "big_straight") {
+        return counts[2] == 1 && counts[3] == 1 && counts[4] == 1 &&
+                       counts[5] == 1 && counts[6] == 1
+                   ? 30
+                   : 0;
+    }
+
+    if (category == "choice") {
+        return std::accumulate(dice.begin(), dice.end(), 0);
+    }
+
+    if (category == "yacht") {
+        return std::any_of(counts.begin(), counts.end(),
+                           [](int count) { return count == 5; })
+                   ? 50
+                   : 0;
+    }
+
+    return 0;
+}
+
+}  // namespace yacht
+```

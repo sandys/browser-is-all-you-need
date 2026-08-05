@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "zebra_puzzle.cpp",
+      "sha256": "4777f1575bc85255b6b3a2de8db6f5a3ebb11b9b4d85a641dc14c2ce3eebe8bf",
+      "size": 7529
+    },
+    {
+      "path": "zebra_puzzle.h",
+      "sha256": "a792db86736bb1b167a87ffe07f3a9ff4fe6de016b3dfabe559ef71f6d225d7a",
+      "size": 276
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 1.502579927444458,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.3s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatezebra-puzzle/build\n[ 25%] Building CXX object CMakeFiles/zebra-puzzle.dir/zebra_puzzle_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/zebra-puzzle.dir/zebra_puzzle.cpp.o\n/privatezebra-puzzle/zebra_puzzle.cpp:77:21: error: cannot jump from this goto statement to its label\n   77 |                     goto next_nationality;\n      |                     ^\n/privatezebra-puzzle/zebra_puzzle.cpp:89:29: note: jump bypasses variable initialization\n   89 |                 Arrangement drinks = drink_values;\n      |                             ^\n1 error generated.\nmake[2]: *** [CMakeFiles/zebra-puzzle.dir/zebra_puzzle.cpp.o] Error 1\nmake[1]: *** [CMakeFiles/zebra-puzzle.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "877e40471a868a440d265b7f96f8065fa17b013aa5e2ce24bf18737a284c793f",
+  "request_id": "zebra-puzzle-1785913975605758000-f5bba00e4155",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "zebra-puzzle"
+}

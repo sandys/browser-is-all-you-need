@@ -1,0 +1,82 @@
+The tests expect `plants` to return `std::array<Plants, 4>`, not `std::vector<Plants>`. The implementation also needs the appropriate standard headers for `std::find` and `std::distance`.
+
+kindergarten_garden.h
+```
+#pragma once
+
+#include <array>
+#include <string>
+
+namespace kindergarten_garden {
+
+enum class Plants {
+    grass,
+    clover,
+    radishes,
+    violets
+};
+
+std::array<Plants, 4> plants(const std::string& diagram,
+                             const std::string& student);
+
+}  // namespace kindergarten_garden
+```
+
+kindergarten_garden.cpp
+```
+#include "kindergarten_garden.h"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <iterator>
+#include <string>
+
+namespace kindergarten_garden {
+namespace {
+
+Plants plant_from_character(char plant) {
+    switch (plant) {
+        case 'G':
+            return Plants::grass;
+        case 'C':
+            return Plants::clover;
+        case 'R':
+            return Plants::radishes;
+        case 'V':
+            return Plants::violets;
+    }
+
+    return Plants::grass;
+}
+
+}  // namespace
+
+std::array<Plants, 4> plants(const std::string& diagram,
+                             const std::string& student) {
+    static constexpr std::array<const char*, 12> students = {
+        "Alice",   "Bob",     "Charlie", "David",   "Eve",     "Fred",
+        "Ginny",   "Harriet", "Ileana",  "Joseph",  "Kincaid", "Larry"};
+
+    const auto student_iterator =
+        std::find(students.begin(), students.end(), student);
+    const std::size_t student_index =
+        static_cast<std::size_t>(std::distance(students.begin(), student_iterator));
+
+    const std::size_t row_break = diagram.find('\n');
+    const std::string first_row = diagram.substr(0, row_break);
+    const std::string second_row =
+        row_break == std::string::npos ? "" : diagram.substr(row_break + 1);
+
+    const std::size_t cup_index = student_index * 2;
+
+    return {
+        plant_from_character(first_row[cup_index]),
+        plant_from_character(first_row[cup_index + 1]),
+        plant_from_character(second_row[cup_index]),
+        plant_from_character(second_row[cup_index + 1]),
+    };
+}
+
+}  // namespace kindergarten_garden
+```

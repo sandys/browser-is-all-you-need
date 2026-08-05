@@ -1,0 +1,88 @@
+The files need changes to define the plant type, expose the `plants` function, parse the two garden rows, and select the correct pair of columns based on the child’s alphabetical position.
+
+kindergarten_garden.h
+```
+#pragma once
+
+#include <array>
+#include <string>
+
+namespace kindergarten_garden {
+
+enum class Plants {
+    grass,
+    clover,
+    radishes,
+    violets
+};
+
+std::array<Plants, 4> plants(const std::string& diagram,
+                             const std::string& student);
+
+}  // namespace kindergarten_garden
+```
+
+kindergarten_garden.cpp
+```
+#include "kindergarten_garden.h"
+
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace kindergarten_garden {
+
+namespace {
+
+Plants plant_from_char(char plant) {
+    switch (plant) {
+        case 'G':
+            return Plants::grass;
+        case 'C':
+            return Plants::clover;
+        case 'R':
+            return Plants::radishes;
+        case 'V':
+            return Plants::violets;
+    }
+
+    return Plants::grass;
+}
+
+}  // namespace
+
+std::array<Plants, 4> plants(const std::string& diagram,
+                             const std::string& student) {
+    std::istringstream input(diagram);
+    std::string first_row;
+    std::string second_row;
+
+    std::getline(input, first_row);
+    std::getline(input, second_row);
+
+    const std::string children =
+        "Alice Bob Charlie David Eve Fred Ginny Harriet Ileana Joseph Kincaid Larry";
+
+    std::istringstream child_names(children);
+    std::string child;
+    std::size_t child_index = 0;
+
+    while (child_names >> child) {
+        if (child == student) {
+            break;
+        }
+        ++child_index;
+    }
+
+    const std::size_t start = child_index * 2;
+
+    return {
+        plant_from_char(first_row[start]),
+        plant_from_char(first_row[start + 1]),
+        plant_from_char(second_row[start]),
+        plant_from_char(second_row[start + 1])
+    };
+}
+
+}  // namespace kindergarten_garden
+```

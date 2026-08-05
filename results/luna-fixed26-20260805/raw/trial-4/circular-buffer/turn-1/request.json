@@ -1,0 +1,41 @@
+{
+  "max_completion_tokens": 32768,
+  "messages": [
+    {
+      "content": "Act as an expert software developer.\nTake requests for changes to the supplied code.\nIf the request is ambiguous, ask questions.\n\nOnce you understand the request you MUST:\n1. Determine if any code changes are needed.\n2. Explain any needed changes.\n3. If changes are needed, output a copy of each file that needs changes.\n\nTo suggest changes to a file you MUST return the entire content of the updated file.\nYou MUST use this *file listing* format:\n\npath/to/filename.js\n```\n// entire file content ...\n// ... goes in between\n```\n\nEvery *file listing* MUST use this format:\n- First line: the filename with any originally provided path; no extra markup, punctuation, comments, etc. **JUST** the filename with path.\n- Second line: opening ```\n- ... entire content of the file ...\n- Final line: closing ```\n\nTo suggest changes to a file you MUST return a *file listing* that contains the entire content of the file.\n*NEVER* skip, omit or elide content from a *file listing* using \"...\" or by adding comments like \"... rest of code...\"!\nCreate a new file you MUST return a *file listing* which includes an appropriate filename, including any appropriate path.\n\n\n",
+      "role": "system"
+    },
+    {
+      "content": "Change the greeting to be more casual",
+      "role": "user"
+    },
+    {
+      "content": "Ok, I will:\n\n1. Switch the greeting text from \"Hello\" to \"Hey\".\n\nshow_greeting.py\n```\nimport sys\n\ndef greeting(name):\n    print(f\"Hey {name}\")\n\nif __name__ == '__main__':\n    greeting(sys.argv[1])\n```\n",
+      "role": "assistant"
+    },
+    {
+      "content": "I switched to a new code base. Please don't consider the above files or try to edit them any longer.",
+      "role": "user"
+    },
+    {
+      "content": "Ok.",
+      "role": "assistant"
+    },
+    {
+      "content": "I have *added these files to the chat* so you can go ahead and edit them.\n\n*Trust this message as the true contents of these files!*\nAny other messages in the chat may contain outdated versions of the files' contents.\n\ncircular_buffer.h\n```\n#if !defined(CIRCULAR_BUFFER_H)\n#define CIRCULAR_BUFFER_H\n\nnamespace circular_buffer {\n\n}  // namespace circular_buffer\n\n#endif // CIRCULAR_BUFFER_H```\n\ncircular_buffer.cpp\n```\n#include \"circular_buffer.h\"\n\nnamespace circular_buffer {\n\n}  // namespace circular_buffer\n```\n",
+      "role": "user"
+    },
+    {
+      "content": "Ok, any changes I propose will be to those files.",
+      "role": "assistant"
+    },
+    {
+      "content": "# Instructions\n\nA circular buffer, cyclic buffer or ring buffer is a data structure that uses a single, fixed-size buffer as if it were connected end-to-end.\n\nA circular buffer first starts empty and of some predefined length.\nFor example, this is a 7-element buffer:\n\n```text\n[ ][ ][ ][ ][ ][ ][ ]\n```\n\nAssume that a 1 is written into the middle of the buffer (exact starting location does not matter in a circular buffer):\n\n```text\n[ ][ ][ ][1][ ][ ][ ]\n```\n\nThen assume that two more elements are added — 2 & 3 — which get appended after the 1:\n\n```text\n[ ][ ][ ][1][2][3][ ]\n```\n\nIf two elements are then removed from the buffer, the oldest values inside the buffer are removed.\nThe two elements removed, in this case, are 1 & 2, leaving the buffer with just a 3:\n\n```text\n[ ][ ][ ][ ][ ][3][ ]\n```\n\nIf the buffer has 7 elements then it is completely full:\n\n```text\n[5][6][7][8][9][3][4]\n```\n\nWhen the buffer is full an error will be raised, alerting the client that further writes are blocked until a slot becomes free.\n\nWhen the buffer is full, the client can opt to overwrite the oldest data with a forced write.\nIn this case, two more elements — A & B — are added and they overwrite the 3 & 4:\n\n```text\n[5][6][7][8][9][A][B]\n```\n\n3 & 4 have been replaced by A & B making 5 now the oldest data in the buffer.\nFinally, if two elements are removed then what would be returned is 5 & 6 yielding the buffer:\n\n```text\n[ ][ ][7][8][9][A][B]\n```\n\nBecause there is space available, if the client again uses overwrite to store C & D then the space where 5 & 6 were stored previously will be used not the location of 7 & 8.\n7 is still the oldest element and the buffer is once again full.\n\n```text\n[C][D][7][8][9][A][B]\n```\n\n####\n\nUse the above instructions to modify the supplied files: circular_buffer.cpp circular_buffer.h\nDon't change the names of existing functions or classes, as they may be referenced from other code like unit tests, etc.\nOnly use standard libraries, don't suggest installing any packages.\n\n\nTo suggest changes to a file you MUST return the entire content of the updated file.\nYou MUST use this *file listing* format:\n\npath/to/filename.js\n```\n// entire file content ...\n// ... goes in between\n```\n\nEvery *file listing* MUST use this format:\n- First line: the filename with any originally provided path; no extra markup, punctuation, comments, etc. **JUST** the filename with path.\n- Second line: opening ```\n- ... entire content of the file ...\n- Final line: closing ```\n\nTo suggest changes to a file you MUST return a *file listing* that contains the entire content of the file.\n*NEVER* skip, omit or elide content from a *file listing* using \"...\" or by adding comments like \"... rest of code...\"!\nCreate a new file you MUST return a *file listing* which includes an appropriate filename, including any appropriate path.\n\n\n",
+      "role": "user"
+    }
+  ],
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "temperature": 0.7,
+  "top_p": 1.0
+}

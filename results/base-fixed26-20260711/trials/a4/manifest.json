@@ -1,0 +1,36 @@
+{
+  "benchmark": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "name": "Aider Polyglot C++ fixed-26",
+    "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "tasks": 26,
+    "tries": 2
+  },
+  "checkpoint": "Signal v3 SFT",
+  "eval_id": "signal-v3-fixed26-20260719",
+  "exclusions": [
+    "benchmark source trees",
+    "test fixtures",
+    "hidden tests",
+    "grader/oracle material"
+  ],
+  "files": {
+    "responses.tar.gz": {
+      "sha256": "17b17806b7a619cf5b1edbebb766098bb323f4f6165c945db2dfbab4a0a40ce7",
+      "size_bytes": 187736
+    },
+    "run_receipt.json": {
+      "sha256": "5b38dc7d378aa22222052e8bcd6201ceb42ad8d6acf8616b8889c5b1bccc132e",
+      "size_bytes": 5922
+    }
+  },
+  "history_files": 26,
+  "kind": "glm47-aider-fixed26-response-corpus",
+  "pass_at_1": 0,
+  "pass_at_2": 3,
+  "result_files": 26,
+  "schema_version": 1,
+  "source": "glm47-aider-signal-v3-sft-eval-20260719",
+  "source_kind": "modal",
+  "task_count": 26
+}

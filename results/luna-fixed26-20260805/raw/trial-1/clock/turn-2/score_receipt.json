@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "clock.cpp",
+      "sha256": "74d0f8630b52bb46207a9adbbd5ef176f6958fd0a3e39a78e4a76a2001199f7f",
+      "size": 1810
+    },
+    {
+      "path": "clock.h",
+      "sha256": "2e70ba6b96fb7ed5b21553957eb329a764ecbab239cdad22d8f8b81a4bfda92d",
+      "size": 617
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 6.521471977233887,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.6s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privateclock/build\n[ 25%] Building CXX object CMakeFiles/clock.dir/clock_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/clock.dir/clock.cpp.o\n[ 75%] Building CXX object CMakeFiles/clock.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable clock\n[100%] Built target clock\n===============================================================================\nAll tests passed (50 assertions in 3 test cases)\n\n[100%] Built target test_clock\n",
+  "output_sha256": "464504f384d581f5102f8fbd88a11d6c2e92753f0f16694998d326ccf85efe10",
+  "request_id": "clock-1785913886501367000-30ab8cf23f8e",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "clock"
+}

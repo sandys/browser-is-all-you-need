@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "eval_id": "base-fixed26-four-trial-20260711-20260719",
+  "model": {
+    "repo": "zai-org/GLM-4.7-Flash",
+    "revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+    "adapter": null
+  },
+  "benchmark": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "instruction_revision": "pristine-no-contract-overlay",
+    "tasks": 26,
+    "edit_format": "whole",
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "max_tokens": 32768,
+    "tries": 2,
+    "threads": 8,
+    "model_settings_sha256": "3d716929098f9d6e1abbccb2ed1a4d37f749eaf549d7ccb685c01a6b17199170"
+  },
+  "observed_result": {
+    "trials": 4,
+    "samples": 104,
+    "pass_at_1_scores": [0, 1, 1, 0],
+    "pass_at_1_mean": 0.5,
+    "multi_turn_with_error_feedback_at_2_scores": [4, 5, 6, 3],
+    "multi_turn_with_error_feedback_at_2_mean": 4.5
+  },
+  "historical_artifacts": {
+    "response_corpus_url": "https://huggingface.co/datasets/TokenBender/glm47-aider-fixed26-responses/tree/d817c418b29eae23a97a83c70c896b56296b330c/evals",
+    "local_trials": ["../trials/a1", "../trials/a2", "../trials/a3", "../trials/a4"]
+  }
+}

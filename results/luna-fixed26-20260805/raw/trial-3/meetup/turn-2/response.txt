@@ -1,0 +1,219 @@
+The build errors occur because the tests expect a `meetup::scheduler` class with weekday-specific `teenth` methods, while the supplied code only defines `meetup_day`, `Weekday`, and `Schedule`. The CMake warnings are unrelated to the compilation failure and do not require changes to the requested files.
+
+meetup.h
+```cpp
+#if !defined(MEETUP_H)
+#define MEETUP_H
+
+#include <boost/date_time/gregorian/gregorian.hpp>
+
+namespace meetup {
+
+enum class Weekday {
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday
+};
+
+enum class Schedule {
+    First,
+    Second,
+    Third,
+    Fourth,
+    Last,
+    Teenth
+};
+
+class scheduler {
+public:
+    scheduler(boost::gregorian::greg_month month, int year);
+
+    boost::gregorian::date monteenth() const;
+    boost::gregorian::date tuesteenth() const;
+    boost::gregorian::date wednesteenth() const;
+    boost::gregorian::date thursteenth() const;
+    boost::gregorian::date friteenth() const;
+    boost::gregorian::date saturteenth() const;
+    boost::gregorian::date sundateenth() const;
+
+private:
+    boost::gregorian::date teenth(unsigned weekday) const;
+
+    boost::gregorian::greg_month month_;
+    int year_;
+};
+
+unsigned meetup_day(unsigned year,
+                    unsigned month,
+                    Weekday weekday,
+                    Schedule schedule);
+
+}  // namespace meetup
+
+#endif  // MEETUP_H
+```
+
+meetup.cpp
+```cpp
+#include "meetup.h"
+
+namespace meetup {
+namespace {
+
+bool is_leap_year(unsigned year)
+{
+    return year % 400 == 0 || (year % 4 == 0 && year % 100 != 0);
+}
+
+unsigned days_in_month(unsigned year, unsigned month)
+{
+    switch (month) {
+    case 2:
+        return is_leap_year(year) ? 29 : 28;
+    case 4:
+    case 6:
+    case 9:
+    case 11:
+        return 30;
+    default:
+        return 31;
+    }
+}
+
+// Returns the weekday with Sunday represented by 0 and Saturday by 6.
+unsigned weekday_of_date(unsigned year, unsigned month, unsigned day)
+{
+    static const int offsets[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+
+    int adjusted_year = static_cast<int>(year);
+    if (month < 3) {
+        --adjusted_year;
+    }
+
+    return static_cast<unsigned>(
+        (adjusted_year + adjusted_year / 4 - adjusted_year / 100 +
+         adjusted_year / 400 + offsets[month - 1] + day) %
+        7);
+}
+
+unsigned weekday_value(Weekday weekday)
+{
+    return (static_cast<unsigned>(weekday) + 1) % 7;
+}
+
+}  // namespace
+
+scheduler::scheduler(boost::gregorian::greg_month month, int year)
+    : month_(month), year_(year)
+{
+}
+
+boost::gregorian::date scheduler::teenth(unsigned weekday) const
+{
+    for (unsigned day = 13; day <= 19; ++day) {
+        boost::gregorian::date candidate(
+            year_, month_, static_cast<unsigned short>(day));
+
+        if (candidate.day_of_week().as_number() == weekday) {
+            return candidate;
+        }
+    }
+
+    return boost::gregorian::date(
+        year_, month_, static_cast<unsigned short>(13));
+}
+
+boost::gregorian::date scheduler::monteenth() const
+{
+    return teenth(1);
+}
+
+boost::gregorian::date scheduler::tuesteenth() const
+{
+    return teenth(2);
+}
+
+boost::gregorian::date scheduler::wednesteenth() const
+{
+    return teenth(3);
+}
+
+boost::gregorian::date scheduler::thursteenth() const
+{
+    return teenth(4);
+}
+
+boost::gregorian::date scheduler::friteenth() const
+{
+    return teenth(5);
+}
+
+boost::gregorian::date scheduler::saturteenth() const
+{
+    return teenth(6);
+}
+
+boost::gregorian::date scheduler::sundateenth() const
+{
+    return teenth(0);
+}
+
+unsigned meetup_day(unsigned year,
+                    unsigned month,
+                    Weekday weekday,
+                    Schedule schedule)
+{
+    const unsigned target_weekday = weekday_value(weekday);
+    const unsigned first_weekday = weekday_of_date(year, month, 1);
+    const unsigned month_length = days_in_month(year, month);
+
+    if (schedule == Schedule::Teenth) {
+        for (unsigned day = 13; day <= 19; ++day) {
+            if (weekday_of_date(year, month, day) == target_weekday) {
+                return day;
+            }
+        }
+    }
+
+    if (schedule == Schedule::Last) {
+        for (unsigned day = month_length;
+             day > month_length - 7;
+             --day) {
+            if (weekday_of_date(year, month, day) == target_weekday) {
+                return day;
+            }
+        }
+    }
+
+    unsigned occurrence = 0;
+
+    switch (schedule) {
+    case Schedule::First:
+        occurrence = 0;
+        break;
+    case Schedule::Second:
+        occurrence = 1;
+        break;
+    case Schedule::Third:
+        occurrence = 2;
+        break;
+    case Schedule::Fourth:
+        occurrence = 3;
+        break;
+    case Schedule::Last:
+    case Schedule::Teenth:
+        break;
+    }
+
+    const unsigned first_occurrence =
+        1 + (target_weekday + 7 - first_weekday) % 7;
+
+    return first_occurrence + occurrence * 7;
+}
+
+}  // namespace meetup
+```

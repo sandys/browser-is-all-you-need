@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "kind": "synth-v1-epoch50-historical-comparison",
+  "status": "complete",
+  "disposition": "eval-only",
+  "training_eligible": false,
+  "sample_definition": "one terminal task trajectory per task and trial",
+  "sample_count": 104,
+  "task_count": 26,
+  "trial_count": 4,
+  "checkpoint": {
+    "identity": "Synth v1 epoch 50",
+    "iteration": 649,
+    "lora_rank": 16,
+    "adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+    "huggingface_repository": "TokenBender/glm47-synth-v1-100ep",
+    "huggingface_revision": "a8d386d6b5bedf761cbe4effe2fdc36a97ad62bc",
+    "path": "checkpoints/iter_0000649/adapter"
+  },
+  "training_data": {
+    "rows": 260,
+    "huggingface_repository": "TokenBender/glm47-synth-v1-dataset",
+    "huggingface_revision": "c586446fd309a1c2488b2953f77f3f370a73913c",
+    "manifest_sha256": "afec0d05d5c1f9460ac9b2ed4e65aea69775b49639c7ae727f3660308ae1b8b8",
+    "train_jsonl_sha256": "3472d76169e52bd0859c181d63de24a060c4c7f2d3d8a004ceb6090498f1ddc1"
+  },
+  "evaluation": {
+    "group": "epoch-50-turn-2-error-feedback",
+    "contract": "fixed26-contract-v2",
+    "tries": 2,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "thinking_disabled": false,
+    "first_turn_scores": [10, 9, 10, 9],
+    "first_turn_mean": 9.5,
+    "cumulative_feedback_at_2_scores": [11, 13, 12, 12],
+    "cumulative_feedback_at_2_mean": 12.0
+  },
+  "source": {
+    "huggingface_repository": "TokenBender/glm47-synth-v1-fixed26-evals",
+    "huggingface_revision": "50ac092701d7c7c52a185a73a550f889288c93f4"
+  },
+  "reproducibility_bundle": {
+    "huggingface_repository": "TokenBender/glm47-synth-v1-reproducibility",
+    "huggingface_revision": "17a73a21f38512f2af9a2bf8b41e283dc31430d1",
+    "public": true,
+    "gating": "manual"
+  },
+  "archive_sha256": {
+    "a1": "f6c620a31b61110bdeb748984c61cdfb8da4b78437de3e4d97999061d8aac6e2",
+    "a2": "50b9be15626bc9aad2057d59f2e7260b62aec8bf955ee97e34e7f01ed754ba65",
+    "a3": "6857dcfe3a29c0492c59b7a5028c8a5db61cd772f529d4adf58c2da6d0c03e2a",
+    "a4": "84d477be81f9ba9983f3aec3845527f17a56f46cd3264cad14ed4b5bda35866b"
+  }
+}

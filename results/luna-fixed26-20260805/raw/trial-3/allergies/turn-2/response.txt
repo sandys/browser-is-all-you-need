@@ -1,0 +1,112 @@
+The compilation errors occur because the tests pass allergen names as strings, while `is_allergic_to` currently accepts an `Allergen` enum. The method should accept a `std::string` and map recognized names to their corresponding bit values. Unknown names return `false`.
+
+The CMake deprecation warning is unrelated to these errors and does not need to be changed in the requested files.
+
+allergies.h
+```
+#if !defined(ALLERGIES_H)
+#define ALLERGIES_H
+
+#include <string>
+#include <unordered_set>
+
+namespace allergies {
+
+enum class Allergen : unsigned {
+    eggs = 1,
+    peanuts = 2,
+    shellfish = 4,
+    strawberries = 8,
+    tomatoes = 16,
+    chocolate = 32,
+    pollen = 64,
+    cats = 128
+};
+
+class allergy_test {
+public:
+    explicit allergy_test(unsigned score);
+
+    bool is_allergic_to(const std::string& allergen) const;
+    std::unordered_set<Allergen> get_allergies() const;
+
+private:
+    unsigned score_;
+};
+
+}  // namespace allergies
+
+#endif  // ALLERGIES_H
+```
+
+allergies.cpp
+```
+#include "allergies.h"
+
+namespace allergies {
+
+allergy_test::allergy_test(unsigned score) : score_(score) {}
+
+bool allergy_test::is_allergic_to(const std::string& allergen) const
+{
+    if (allergen == "eggs") {
+        return (score_ & static_cast<unsigned>(Allergen::eggs)) != 0;
+    }
+
+    if (allergen == "peanuts") {
+        return (score_ & static_cast<unsigned>(Allergen::peanuts)) != 0;
+    }
+
+    if (allergen == "shellfish") {
+        return (score_ & static_cast<unsigned>(Allergen::shellfish)) != 0;
+    }
+
+    if (allergen == "strawberries") {
+        return (score_ & static_cast<unsigned>(Allergen::strawberries)) != 0;
+    }
+
+    if (allergen == "tomatoes") {
+        return (score_ & static_cast<unsigned>(Allergen::tomatoes)) != 0;
+    }
+
+    if (allergen == "chocolate") {
+        return (score_ & static_cast<unsigned>(Allergen::chocolate)) != 0;
+    }
+
+    if (allergen == "pollen") {
+        return (score_ & static_cast<unsigned>(Allergen::pollen)) != 0;
+    }
+
+    if (allergen == "cats") {
+        return (score_ & static_cast<unsigned>(Allergen::cats)) != 0;
+    }
+
+    return false;
+}
+
+std::unordered_set<Allergen> allergy_test::get_allergies() const
+{
+    const Allergen allergens[] = {
+        Allergen::eggs,
+        Allergen::peanuts,
+        Allergen::shellfish,
+        Allergen::strawberries,
+        Allergen::tomatoes,
+        Allergen::chocolate,
+        Allergen::pollen,
+        Allergen::cats
+    };
+
+    std::unordered_set<Allergen> result;
+
+    for (const auto allergen : allergens) {
+        if ((score_ & static_cast<unsigned>(allergen)) != 0) {
+            result.emplace(allergen);
+        }
+    }
+
+    return result;
+}
+
+}  // namespace allergies
+```

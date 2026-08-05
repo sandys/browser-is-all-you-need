@@ -1,0 +1,45 @@
+The test failures occur because non-positive inputs must throw `std::domain_error`. The CMake deprecation warning is unrelated to these test failures and does not require changes to the requested files.
+
+perfect_numbers.cpp
+```
+#include "perfect_numbers.h"
+
+#include <stdexcept>
+
+namespace perfect_numbers {
+
+classification classify(int number) {
+    if (number <= 0) {
+        throw std::domain_error("number must be positive");
+    }
+
+    if (number == 1) {
+        return classification::deficient;
+    }
+
+    long long aliquot_sum = 1;
+
+    for (int divisor = 2; divisor <= number / divisor; ++divisor) {
+        if (number % divisor == 0) {
+            aliquot_sum += divisor;
+
+            const int paired_divisor = number / divisor;
+            if (paired_divisor != divisor) {
+                aliquot_sum += paired_divisor;
+            }
+        }
+    }
+
+    if (aliquot_sum == number) {
+        return classification::perfect;
+    }
+
+    if (aliquot_sum > number) {
+        return classification::abundant;
+    }
+
+    return classification::deficient;
+}
+
+}  // namespace perfect_numbers
+```

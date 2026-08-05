@@ -1,0 +1,132 @@
+Implemented the `robot_name::robot` class with:
+
+- Random names in the required `AA000` format.
+- Uniqueness tracking across all existing robots.
+- `reset()` support that releases the old name and assigns a new one.
+- Thread-safe name allocation and release.
+- Copy and move operations disabled to prevent duplicate names.
+- An exception if all possible names are exhausted.
+
+robot_name.h
+```
+#if !defined(ROBOT_NAME_H)
+#define ROBOT_NAME_H
+
+#include <string>
+
+namespace robot_name {
+
+class robot {
+public:
+    robot();
+    ~robot();
+
+    robot(const robot&) = delete;
+    robot& operator=(const robot&) = delete;
+    robot(robot&&) = delete;
+    robot& operator=(robot&&) = delete;
+
+    std::string name() const;
+    void reset();
+
+private:
+    std::string name_;
+};
+
+}  // namespace robot_name
+
+#endif  // ROBOT_NAME_H
+```
+
+robot_name.cpp
+```
+#include "robot_name.h"
+
+#include <mutex>
+#include <random>
+#include <set>
+#include <stdexcept>
+#include <string>
+
+namespace robot_name {
+namespace {
+
+std::set<std::string>& assigned_names()
+{
+    static std::set<std::string> names;
+    return names;
+}
+
+std::mutex& names_mutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::string generate_name()
+{
+    static std::random_device random_device;
+
+    std::uniform_int_distribution<int> letter_distribution('A', 'Z');
+    std::uniform_int_distribution<int> digit_distribution(0, 9);
+
+    std::string name;
+    name += static_cast<char>(letter_distribution(random_device));
+    name += static_cast<char>(letter_distribution(random_device));
+
+    for (int i = 0; i < 3; ++i) {
+        name += static_cast<char>('0' + digit_distribution(random_device));
+    }
+
+    return name;
+}
+
+std::string acquire_name()
+{
+    std::lock_guard<std::mutex> lock(names_mutex());
+
+    constexpr std::size_t maximum_names = 26 * 26 * 1000;
+
+    if (assigned_names().size() >= maximum_names) {
+        throw std::runtime_error("No unique robot names remain");
+    }
+
+    std::string name;
+    do {
+        name = generate_name();
+    } while (assigned_names().find(name) != assigned_names().end());
+
+    assigned_names().insert(name);
+    return name;
+}
+
+}  // namespace
+
+robot::robot()
+    : name_(acquire_name())
+{
+}
+
+robot::~robot()
+{
+    std::lock_guard<std::mutex> lock(names_mutex());
+    assigned_names().erase(name_);
+}
+
+std::string robot::name() const
+{
+    return name_;
+}
+
+void robot::reset()
+{
+    const std::string new_name = acquire_name();
+
+    std::lock_guard<std::mutex> lock(names_mutex());
+    assigned_names().erase(name_);
+    assigned_names().insert(new_name);
+    name_ = new_name;
+}
+
+}  // namespace robot_name
+```

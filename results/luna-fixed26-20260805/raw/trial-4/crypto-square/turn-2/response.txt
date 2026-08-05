@@ -1,0 +1,99 @@
+The build errors occur because the header and implementation define only the free function `cipher_text`, while the tests expect a `crypto_square::cipher` class with a constructor and `normalized_cipher_text()` method. The updated implementation preserves the existing free function and adds the expected class API, including `ciphertext()` for the encoded output.
+
+crypto_square.h
+```
+#if !defined(CRYPTO_SQUARE_H)
+#define CRYPTO_SQUARE_H
+
+#include <string>
+
+namespace crypto_square {
+
+class cipher {
+public:
+    explicit cipher(std::string plaintext);
+
+    std::string normalized_cipher_text() const;
+    std::string ciphertext() const;
+
+private:
+    std::string normalized_text;
+};
+
+std::string cipher_text(std::string plaintext);
+
+}  // namespace crypto_square
+
+#endif  // CRYPTO_SQUARE_H
+```
+
+crypto_square.cpp
+```
+#include "crypto_square.h"
+
+#include <cctype>
+#include <cmath>
+#include <string>
+
+namespace crypto_square {
+
+cipher::cipher(std::string plaintext) {
+    normalized_text.reserve(plaintext.size());
+
+    for (unsigned char character : plaintext) {
+        if (std::isalnum(character)) {
+            normalized_text +=
+                static_cast<char>(std::tolower(character));
+        }
+    }
+}
+
+std::string cipher::normalized_cipher_text() const {
+    return normalized_text;
+}
+
+std::string cipher::ciphertext() const {
+    if (normalized_text.empty()) {
+        return {};
+    }
+
+    const std::size_t length = normalized_text.size();
+
+    std::size_t columns =
+        static_cast<std::size_t>(std::ceil(std::sqrt(
+            static_cast<double>(length))));
+    std::size_t rows = (length + columns - 1) / columns;
+
+    while (columns < rows || columns - rows > 1) {
+        ++columns;
+        rows = (length + columns - 1) / columns;
+    }
+
+    std::string result;
+    result.reserve(columns * rows + columns - 1);
+
+    for (std::size_t column = 0; column < columns; ++column) {
+        if (column > 0) {
+            result += ' ';
+        }
+
+        for (std::size_t row = 0; row < rows; ++row) {
+            const std::size_t index = row * columns + column;
+
+            if (index < length) {
+                result += normalized_text[index];
+            } else {
+                result += ' ';
+            }
+        }
+    }
+
+    return result;
+}
+
+std::string cipher_text(std::string plaintext) {
+    return cipher(std::move(plaintext)).ciphertext();
+}
+
+}  // namespace crypto_square
+```

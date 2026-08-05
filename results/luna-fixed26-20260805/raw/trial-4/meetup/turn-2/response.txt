@@ -1,0 +1,98 @@
+The build errors occur because `meetup::scheduler` is missing. The implementation below adds the expected scheduler class using Boost Gregorian date types, matching the test construction and meetup calls. It supports `first`, `second`, `third`, `fourth`, `last`, and `teenth`.
+
+The CMake warnings are unrelated to these compilation errors.
+
+meetup.h
+```
+#if !defined(MEETUP_H)
+#define MEETUP_H
+
+#include <boost/date_time/gregorian/gregorian.hpp>
+
+namespace meetup {
+
+class scheduler {
+public:
+    scheduler(boost::gregorian::greg_month month, int year);
+
+    boost::gregorian::date meetup(
+        boost::gregorian::weekdays weekday,
+        boost::gregorian::nth_week_of_month week) const;
+
+private:
+    boost::gregorian::greg_month month_;
+    int year_;
+};
+
+}  // namespace meetup
+
+#endif  // MEETUP_H
+```
+
+meetup.cpp
+```
+#include "meetup.h"
+
+namespace meetup {
+
+scheduler::scheduler(boost::gregorian::greg_month month, int year)
+    : month_(month), year_(year) {}
+
+boost::gregorian::date scheduler::meetup(
+    boost::gregorian::weekdays weekday,
+    boost::gregorian::nth_week_of_month week) const {
+    using namespace boost::gregorian;
+
+    const date first_day(year_, month_, 1);
+    const date next_month = first_day.end_of_month() + date_duration(1);
+    const int target_weekday = static_cast<int>(weekday);
+
+    if (week == teenth) {
+        for (date current = first_day + date_duration(12);
+             current < next_month && current.day() <= 19;
+             current += date_duration(1)) {
+            if (current.day_of_week().as_number() == target_weekday) {
+                return current;
+            }
+        }
+    }
+
+    if (week == last) {
+        date result = first_day;
+        for (date current = first_day; current < next_month;
+             current += date_duration(1)) {
+            if (current.day_of_week().as_number() == target_weekday) {
+                result = current;
+            }
+        }
+        return result;
+    }
+
+    int occurrence = 0;
+    int requested_occurrence = 0;
+
+    if (week == first) {
+        requested_occurrence = 1;
+    } else if (week == second) {
+        requested_occurrence = 2;
+    } else if (week == third) {
+        requested_occurrence = 3;
+    } else if (week == fourth) {
+        requested_occurrence = 4;
+    }
+
+    for (date current = first_day; current < next_month;
+         current += date_duration(1)) {
+        if (current.day_of_week().as_number() == target_weekday) {
+            ++occurrence;
+            if (occurrence == requested_occurrence) {
+                return current;
+            }
+        }
+    }
+
+    return date(not_a_date_time);
+}
+
+}  // namespace meetup
+```

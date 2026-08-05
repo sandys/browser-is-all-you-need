@@ -1,0 +1,164 @@
+The list implementation needs to be defined in the header because `List` is a template. It maintains head and tail pointers, supports insertion and removal at both ends, removes only the first matching value, and throws `std::out_of_range` when `pop` or `shift` is called on an empty list.
+
+linked_list.h
+```
+#pragma once
+
+#include <stdexcept>
+
+namespace linked_list {
+
+template <typename T>
+class List {
+public:
+    List() : head_(nullptr), tail_(nullptr), size_(0) {}
+
+    ~List()
+    {
+        while (head_ != nullptr) {
+            Node* next = head_->next;
+            delete head_;
+            head_ = next;
+        }
+    }
+
+    void push(T value)
+    {
+        Node* node = new Node(value);
+
+        if (tail_ == nullptr) {
+            head_ = node;
+            tail_ = node;
+        } else {
+            node->previous = tail_;
+            tail_->next = node;
+            tail_ = node;
+        }
+
+        ++size_;
+    }
+
+    T pop()
+    {
+        if (tail_ == nullptr) {
+            throw std::out_of_range("Cannot pop from an empty list");
+        }
+
+        Node* node = tail_;
+        T value = node->value;
+
+        tail_ = node->previous;
+
+        if (tail_ == nullptr) {
+            head_ = nullptr;
+        } else {
+            tail_->next = nullptr;
+        }
+
+        delete node;
+        --size_;
+
+        return value;
+    }
+
+    T shift()
+    {
+        if (head_ == nullptr) {
+            throw std::out_of_range("Cannot shift from an empty list");
+        }
+
+        Node* node = head_;
+        T value = node->value;
+
+        head_ = node->next;
+
+        if (head_ == nullptr) {
+            tail_ = nullptr;
+        } else {
+            head_->previous = nullptr;
+        }
+
+        delete node;
+        --size_;
+
+        return value;
+    }
+
+    void unshift(T value)
+    {
+        Node* node = new Node(value);
+
+        if (head_ == nullptr) {
+            head_ = node;
+            tail_ = node;
+        } else {
+            node->next = head_;
+            head_->previous = node;
+            head_ = node;
+        }
+
+        ++size_;
+    }
+
+    int count() const
+    {
+        return size_;
+    }
+
+    bool erase(T value)
+    {
+        Node* current = head_;
+
+        while (current != nullptr) {
+            if (current->value == value) {
+                if (current->previous != nullptr) {
+                    current->previous->next = current->next;
+                } else {
+                    head_ = current->next;
+                }
+
+                if (current->next != nullptr) {
+                    current->next->previous = current->previous;
+                } else {
+                    tail_ = current->previous;
+                }
+
+                delete current;
+                --size_;
+                return true;
+            }
+
+            current = current->next;
+        }
+
+        return false;
+    }
+
+private:
+    struct Node {
+        explicit Node(const T& value)
+            : value(value), previous(nullptr), next(nullptr)
+        {
+        }
+
+        T value;
+        Node* previous;
+        Node* next;
+    };
+
+    Node* head_;
+    Node* tail_;
+    int size_;
+};
+
+}  // namespace linked_list
+```
+
+linked_list.cpp
+```
+#include "linked_list.h"
+
+namespace linked_list {
+
+}  // namespace linked_list
+```

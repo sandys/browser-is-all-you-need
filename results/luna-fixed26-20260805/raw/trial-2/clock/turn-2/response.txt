@@ -1,0 +1,98 @@
+The build errors occur because the tests expect a static `clock::at(hour, minute)` factory method. The tests also convert clocks to strings, so the class needs an `operator<<` that formats times as `HH:MM`.
+
+The CMake deprecation warning is unrelated to the compilation failure and does not require changes to `clock.cpp` or `clock.h`.
+
+clock.h
+```
+#if !defined(CLOCK_H)
+#define CLOCK_H
+
+#include <iosfwd>
+
+namespace date_independent {
+
+class clock {
+public:
+    static clock at(int hour, int minute);
+
+    clock(int hour, int minute);
+
+    clock plus(int minutes) const;
+    clock minus(int minutes) const;
+
+    bool operator==(const clock& other) const;
+
+private:
+    int minutes_since_midnight;
+
+    friend std::ostream& operator<<(std::ostream& output, const clock& value);
+};
+
+std::ostream& operator<<(std::ostream& output, const clock& value);
+
+}  // namespace date_independent
+
+#endif  // CLOCK_H
+```
+
+clock.cpp
+```
+#include "clock.h"
+
+#include <iomanip>
+#include <ostream>
+
+namespace date_independent {
+
+namespace {
+constexpr int minutes_per_day = 24 * 60;
+
+int normalize_minutes(long long minutes)
+{
+    minutes %= minutes_per_day;
+    if (minutes < 0) {
+        minutes += minutes_per_day;
+    }
+    return static_cast<int>(minutes);
+}
+}  // namespace
+
+clock clock::at(int hour, int minute)
+{
+    return clock(hour, minute);
+}
+
+clock::clock(int hour, int minute)
+    : minutes_since_midnight(normalize_minutes(static_cast<long long>(hour) * 60 + minute))
+{
+}
+
+clock clock::plus(int minutes) const
+{
+    return clock(0, normalize_minutes(static_cast<long long>(minutes_since_midnight) + minutes));
+}
+
+clock clock::minus(int minutes) const
+{
+    return clock(0, normalize_minutes(static_cast<long long>(minutes_since_midnight) - minutes));
+}
+
+bool clock::operator==(const clock& other) const
+{
+    return minutes_since_midnight == other.minutes_since_midnight;
+}
+
+std::ostream& operator<<(std::ostream& output, const clock& value)
+{
+    const int hour = value.minutes_since_midnight / 60;
+    const int minute = value.minutes_since_midnight % 60;
+
+    output << std::setfill('0') << std::setw(2) << hour
+           << ':'
+           << std::setfill('0') << std::setw(2) << minute;
+
+    return output;
+}
+
+}  // namespace date_independent
+```

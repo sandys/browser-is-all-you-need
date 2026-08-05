@@ -1,0 +1,243 @@
+The tests call `zebra_puzzle::solve()`, but the header only declares `get_solution()`. I added the expected `solve()` function and retained `get_solution()` for compatibility. I also reordered the initial value arrays so `std::next_permutation` examines all permutations, and added the appropriate header for `std::abs`.
+
+The CMake deprecation warning is unrelated to the compilation failure.
+
+zebra_puzzle.h
+```
+#if !defined(ZEBRA_PUZZLE_H)
+#define ZEBRA_PUZZLE_H
+
+#include <string>
+
+namespace zebra_puzzle {
+
+struct Solution {
+    std::string drinksWater;
+    std::string ownsZebra;
+};
+
+Solution solve();
+Solution get_solution();
+
+}  // namespace zebra_puzzle
+
+#endif  // ZEBRA_PUZZLE_H
+```
+
+zebra_puzzle.cpp
+```
+#include "zebra_puzzle.h"
+
+#include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <string>
+
+namespace zebra_puzzle {
+namespace {
+
+using Arrangement = std::array<std::string, 5>;
+
+bool adjacent(int first, int second) {
+    return std::abs(first - second) == 1;
+}
+
+template <typename Predicate>
+bool next_valid_arrangement(Arrangement& arrangement, Predicate predicate) {
+    do {
+        if (predicate(arrangement)) {
+            return true;
+        }
+    } while (std::next_permutation(arrangement.begin(), arrangement.end()));
+
+    return false;
+}
+
+}  // namespace
+
+Solution get_solution() {
+    const Arrangement color_values = {
+        "blue", "green", "ivory", "red", "yellow"
+    };
+    const Arrangement nationality_values = {
+        "Englishman", "Japanese", "Norwegian", "Spaniard", "Ukrainian"
+    };
+    const Arrangement drink_values = {
+        "coffee", "milk", "orange juice", "tea", "water"
+    };
+    const Arrangement pet_values = {
+        "dog", "fox", "horse", "snails", "zebra"
+    };
+    const Arrangement hobby_values = {
+        "chess", "dancing", "football", "painting", "reading"
+    };
+
+    Arrangement colors = color_values;
+
+    do {
+        int green_house = -1;
+        int ivory_house = -1;
+
+        for (int house = 0; house < 5; ++house) {
+            if (colors[house] == "green") {
+                green_house = house;
+            } else if (colors[house] == "ivory") {
+                ivory_house = house;
+            }
+        }
+
+        if (green_house != ivory_house + 1) {
+            continue;
+        }
+
+        Arrangement nationalities = nationality_values;
+        do {
+            if (nationalities[0] != "Norwegian") {
+                continue;
+            }
+
+            int Norwegian_house = 0;
+            int blue_house = -1;
+
+            for (int house = 0; house < 5; ++house) {
+                if (nationalities[house] == "Englishman" &&
+                    colors[house] != "red") {
+                    goto next_nationality;
+                }
+                if (colors[house] == "blue") {
+                    blue_house = house;
+                }
+            }
+
+            if (!adjacent(Norwegian_house, blue_house)) {
+                continue;
+            }
+
+            {
+                Arrangement drinks = drink_values;
+                do {
+                    int coffee_house = -1;
+                    int Ukrainian_house = -1;
+
+                    for (int house = 0; house < 5; ++house) {
+                        if (drinks[house] == "coffee") {
+                            coffee_house = house;
+                        }
+                        if (nationalities[house] == "Ukrainian") {
+                            Ukrainian_house = house;
+                        }
+                    }
+
+                    if (coffee_house != green_house ||
+                        drinks[2] != "milk" ||
+                        drinks[Ukrainian_house] != "tea") {
+                        continue;
+                    }
+
+                    Arrangement hobbies = hobby_values;
+                    do {
+                        int yellow_house = -1;
+                        int Japanese_house = -1;
+                        int football_house = -1;
+
+                        for (int house = 0; house < 5; ++house) {
+                            if (colors[house] == "yellow") {
+                                yellow_house = house;
+                            }
+                            if (nationalities[house] == "Japanese") {
+                                Japanese_house = house;
+                            }
+                            if (hobbies[house] == "football") {
+                                football_house = house;
+                            }
+                        }
+
+                        if (hobbies[yellow_house] != "painting" ||
+                            hobbies[Japanese_house] != "chess" ||
+                            drinks[football_house] != "orange juice") {
+                            continue;
+                        }
+
+                        Arrangement pets = pet_values;
+                        do {
+                            int Spaniard_house = -1;
+                            int dog_house = -1;
+                            int snail_house = -1;
+                            int dancing_house = -1;
+                            int fox_house = -1;
+                            int reading_house = -1;
+                            int horse_house = -1;
+                            int painting_house = -1;
+
+                            for (int house = 0; house < 5; ++house) {
+                                if (nationalities[house] == "Spaniard") {
+                                    Spaniard_house = house;
+                                }
+                                if (pets[house] == "dog") {
+                                    dog_house = house;
+                                }
+                                if (pets[house] == "snails") {
+                                    snail_house = house;
+                                }
+                                if (hobbies[house] == "dancing") {
+                                    dancing_house = house;
+                                }
+                                if (pets[house] == "fox") {
+                                    fox_house = house;
+                                }
+                                if (hobbies[house] == "reading") {
+                                    reading_house = house;
+                                }
+                                if (pets[house] == "horse") {
+                                    horse_house = house;
+                                }
+                                if (hobbies[house] == "painting") {
+                                    painting_house = house;
+                                }
+                            }
+
+                            if (dog_house != Spaniard_house ||
+                                snail_house != dancing_house ||
+                                !adjacent(reading_house, fox_house) ||
+                                !adjacent(painting_house, horse_house)) {
+                                continue;
+                            }
+
+                            Solution solution;
+                            for (int house = 0; house < 5; ++house) {
+                                if (drinks[house] == "water") {
+                                    solution.drinksWater =
+                                        nationalities[house];
+                                }
+                                if (pets[house] == "zebra") {
+                                    solution.ownsZebra =
+                                        nationalities[house];
+                                }
+                            }
+                            return solution;
+                        } while (std::next_permutation(
+                            pets.begin(), pets.end()));
+
+                    } while (std::next_permutation(
+                        hobbies.begin(), hobbies.end()));
+
+                } while (std::next_permutation(
+                    drinks.begin(), drinks.end()));
+
+            next_nationality:
+                continue;
+            } while (std::next_permutation(
+                nationalities.begin(), nationalities.end()));
+        } while (false);
+
+    } while (std::next_permutation(colors.begin(), colors.end()));
+
+    return {};
+}
+
+Solution solve() {
+    return get_solution();
+}
+
+}  // namespace zebra_puzzle
+```

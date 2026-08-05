@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "robot_name.cpp",
+      "sha256": "c5403c4ac882e21ccaacf513271ea41bd13de9038c397bd3ac27965168a353b3",
+      "size": 2118
+    },
+    {
+      "path": "robot_name.h",
+      "sha256": "d90b364c01646a83f3d56328e6a80fcfa619cb7f37b9addc1e522275bcd7a4a5",
+      "size": 455
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 6.738515377044678,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.6s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privaterobot-name/build\n[ 25%] Building CXX object CMakeFiles/robot-name.dir/robot_name_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/robot-name.dir/robot_name.cpp.o\n[ 75%] Building CXX object CMakeFiles/robot-name.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable robot-name\n[100%] Built target robot-name\n===============================================================================\nAll tests passed (2004 assertions in 5 test cases)\n\n[100%] Built target test_robot-name\n",
+  "output_sha256": "406fa6e115250fae719d2208f1394cd1525fed88f1c9fdf7521be423735cc64f",
+  "request_id": "robot-name-1785913871694022000-76e4a4275343",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "robot-name"
+}

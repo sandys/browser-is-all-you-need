@@ -1,0 +1,105 @@
+result,task,pass_at_1_successes_out_of_4,multi_turn_successes_out_of_4,turn_2_recoveries,turn_1_failures,conditional_turn_2_recovery_rate
+GLM-4.7-Flash base,all-your-base,0,0,0,4,0.0
+GLM-4.7-Flash base,allergies,0,2,2,4,0.5
+GLM-4.7-Flash base,bank-account,0,0,0,4,0.0
+GLM-4.7-Flash base,binary-search-tree,0,0,0,4,0.0
+GLM-4.7-Flash base,circular-buffer,0,0,0,4,0.0
+GLM-4.7-Flash base,clock,0,0,0,4,0.0
+GLM-4.7-Flash base,complex-numbers,0,2,2,4,0.5
+GLM-4.7-Flash base,crypto-square,0,1,1,4,0.25
+GLM-4.7-Flash base,diamond,0,0,0,4,0.0
+GLM-4.7-Flash base,dnd-character,0,0,0,4,0.0
+GLM-4.7-Flash base,gigasecond,0,0,0,4,0.0
+GLM-4.7-Flash base,grade-school,0,2,2,4,0.5
+GLM-4.7-Flash base,kindergarten-garden,0,0,0,4,0.0
+GLM-4.7-Flash base,knapsack,0,3,3,4,0.75
+GLM-4.7-Flash base,linked-list,1,1,0,3,0.0
+GLM-4.7-Flash base,meetup,0,0,0,4,0.0
+GLM-4.7-Flash base,parallel-letter-frequency,0,1,1,4,0.25
+GLM-4.7-Flash base,perfect-numbers,0,0,0,4,0.0
+GLM-4.7-Flash base,phone-number,0,0,0,4,0.0
+GLM-4.7-Flash base,queen-attack,0,1,1,4,0.25
+GLM-4.7-Flash base,robot-name,0,1,1,4,0.25
+GLM-4.7-Flash base,space-age,0,2,2,4,0.5
+GLM-4.7-Flash base,spiral-matrix,0,0,0,4,0.0
+GLM-4.7-Flash base,sublist,0,0,0,4,0.0
+GLM-4.7-Flash base,yacht,1,2,1,3,0.3333333333333333
+GLM-4.7-Flash base,zebra-puzzle,0,0,0,4,0.0
+"Synth v1, epoch 50",all-your-base,4,4,0,0,
+"Synth v1, epoch 50",allergies,2,3,1,2,0.5
+"Synth v1, epoch 50",bank-account,2,2,0,2,0.0
+"Synth v1, epoch 50",binary-search-tree,0,2,2,4,0.5
+"Synth v1, epoch 50",circular-buffer,1,2,1,3,0.3333333333333333
+"Synth v1, epoch 50",clock,0,0,0,4,0.0
+"Synth v1, epoch 50",complex-numbers,0,1,1,4,0.25
+"Synth v1, epoch 50",crypto-square,0,0,0,4,0.0
+"Synth v1, epoch 50",diamond,1,1,0,3,0.0
+"Synth v1, epoch 50",dnd-character,0,0,0,4,0.0
+"Synth v1, epoch 50",gigasecond,3,4,1,1,1.0
+"Synth v1, epoch 50",grade-school,3,3,0,1,0.0
+"Synth v1, epoch 50",kindergarten-garden,0,0,0,4,0.0
+"Synth v1, epoch 50",knapsack,4,4,0,0,
+"Synth v1, epoch 50",linked-list,0,0,0,4,0.0
+"Synth v1, epoch 50",meetup,0,0,0,4,0.0
+"Synth v1, epoch 50",parallel-letter-frequency,0,1,1,4,0.25
+"Synth v1, epoch 50",perfect-numbers,2,2,0,2,0.0
+"Synth v1, epoch 50",phone-number,1,2,1,3,0.3333333333333333
+"Synth v1, epoch 50",queen-attack,4,4,0,0,
+"Synth v1, epoch 50",robot-name,1,1,0,3,0.0
+"Synth v1, epoch 50",space-age,3,4,1,1,1.0
+"Synth v1, epoch 50",spiral-matrix,0,1,1,4,0.25
+"Synth v1, epoch 50",sublist,3,3,0,1,0.0
+"Synth v1, epoch 50",yacht,4,4,0,0,
+"Synth v1, epoch 50",zebra-puzzle,0,0,0,4,0.0
+"SFT v5, Aider-format",all-your-base,0,0,0,4,0.0
+"SFT v5, Aider-format",allergies,1,3,2,3,0.6666666666666666
+"SFT v5, Aider-format",bank-account,0,2,2,4,0.5
+"SFT v5, Aider-format",binary-search-tree,0,1,1,4,0.25
+"SFT v5, Aider-format",circular-buffer,0,0,0,4,0.0
+"SFT v5, Aider-format",clock,0,0,0,4,0.0
+"SFT v5, Aider-format",complex-numbers,0,0,0,4,0.0
+"SFT v5, Aider-format",crypto-square,0,1,1,4,0.25
+"SFT v5, Aider-format",diamond,0,1,1,4,0.25
+"SFT v5, Aider-format",dnd-character,0,2,2,4,0.5
+"SFT v5, Aider-format",gigasecond,1,1,0,3,0.0
+"SFT v5, Aider-format",grade-school,3,4,1,1,1.0
+"SFT v5, Aider-format",kindergarten-garden,0,0,0,4,0.0
+"SFT v5, Aider-format",knapsack,3,3,0,1,0.0
+"SFT v5, Aider-format",linked-list,2,3,1,2,0.5
+"SFT v5, Aider-format",meetup,0,0,0,4,0.0
+"SFT v5, Aider-format",parallel-letter-frequency,2,2,0,2,0.0
+"SFT v5, Aider-format",perfect-numbers,1,1,0,3,0.0
+"SFT v5, Aider-format",phone-number,0,1,1,4,0.25
+"SFT v5, Aider-format",queen-attack,3,4,1,1,1.0
+"SFT v5, Aider-format",robot-name,2,2,0,2,0.0
+"SFT v5, Aider-format",space-age,4,4,0,0,
+"SFT v5, Aider-format",spiral-matrix,1,1,0,3,0.0
+"SFT v5, Aider-format",sublist,1,3,2,3,0.6666666666666666
+"SFT v5, Aider-format",yacht,0,2,2,4,0.5
+"SFT v5, Aider-format",zebra-puzzle,0,0,0,4,0.0
+Luna,all-your-base,0,0,0,4,0.0
+Luna,allergies,0,2,2,4,0.5
+Luna,bank-account,1,4,3,3,1.0
+Luna,binary-search-tree,0,0,0,4,0.0
+Luna,circular-buffer,3,3,0,1,0.0
+Luna,clock,0,1,1,4,0.25
+Luna,complex-numbers,0,0,0,4,0.0
+Luna,crypto-square,0,0,0,4,0.0
+Luna,diamond,1,4,3,3,1.0
+Luna,dnd-character,0,1,1,4,0.25
+Luna,gigasecond,0,4,4,4,1.0
+Luna,grade-school,2,4,2,2,1.0
+Luna,kindergarten-garden,2,4,2,2,1.0
+Luna,knapsack,2,4,2,2,1.0
+Luna,linked-list,4,4,0,0,
+Luna,meetup,0,0,0,4,0.0
+Luna,parallel-letter-frequency,0,2,2,4,0.5
+Luna,perfect-numbers,1,3,2,3,0.6666666666666666
+Luna,phone-number,0,4,4,4,1.0
+Luna,queen-attack,0,3,3,4,0.75
+Luna,robot-name,2,4,2,2,1.0
+Luna,space-age,4,4,0,0,
+Luna,spiral-matrix,2,3,1,2,0.5
+Luna,sublist,0,4,4,4,1.0
+Luna,yacht,0,2,2,4,0.5
+Luna,zebra-puzzle,1,3,2,3,0.6666666666666666

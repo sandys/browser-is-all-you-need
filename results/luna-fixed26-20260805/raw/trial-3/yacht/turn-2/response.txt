@@ -1,0 +1,154 @@
+The compilation errors occur because the tests pass category names as strings, while `score` currently accepts `Category`. I added a string-based overload that supports the category names used by the tests and delegates to the existing scoring implementation. The CMake warning is unrelated to these errors.
+
+yacht.h
+```
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace yacht {
+
+enum class Category {
+    Ones,
+    Twos,
+    Threes,
+    Fours,
+    Fives,
+    Sixes,
+    FullHouse,
+    FourOfAKind,
+    LittleStraight,
+    BigStraight,
+    Choice,
+    Yacht
+};
+
+int score(const std::vector<int>& dice, Category category);
+int score(const std::vector<int>& dice, const std::string& category);
+
+}  // namespace yacht
+```
+
+yacht.cpp
+```
+#include "yacht.h"
+
+#include <array>
+#include <numeric>
+#include <string>
+
+namespace yacht {
+
+int score(const std::vector<int>& dice, Category category) {
+    std::array<int, 7> counts{};
+    const int total = std::accumulate(dice.begin(), dice.end(), 0);
+
+    for (const int die : dice) {
+        ++counts[die];
+    }
+
+    switch (category) {
+        case Category::Ones:
+        case Category::Twos:
+        case Category::Threes:
+        case Category::Fours:
+        case Category::Fives:
+        case Category::Sixes: {
+            const int face = static_cast<int>(category) + 1;
+            return face * counts[face];
+        }
+
+        case Category::FullHouse: {
+            bool hasThree = false;
+            bool hasTwo = false;
+
+            for (int face = 1; face <= 6; ++face) {
+                if (counts[face] == 3) {
+                    hasThree = true;
+                } else if (counts[face] == 2) {
+                    hasTwo = true;
+                }
+            }
+
+            return hasThree && hasTwo ? total : 0;
+        }
+
+        case Category::FourOfAKind:
+            for (int face = 1; face <= 6; ++face) {
+                if (counts[face] >= 4) {
+                    return face * 4;
+                }
+            }
+            return 0;
+
+        case Category::LittleStraight:
+            return counts[1] == 1 && counts[2] == 1 && counts[3] == 1 &&
+                           counts[4] == 1 && counts[5] == 1
+                       ? 30
+                       : 0;
+
+        case Category::BigStraight:
+            return counts[2] == 1 && counts[3] == 1 && counts[4] == 1 &&
+                           counts[5] == 1 && counts[6] == 1
+                       ? 30
+                       : 0;
+
+        case Category::Choice:
+            return total;
+
+        case Category::Yacht:
+            for (int face = 1; face <= 6; ++face) {
+                if (counts[face] == 5) {
+                    return 50;
+                }
+            }
+            return 0;
+    }
+
+    return 0;
+}
+
+int score(const std::vector<int>& dice, const std::string& category) {
+    if (category == "ones") {
+        return score(dice, Category::Ones);
+    }
+    if (category == "twos") {
+        return score(dice, Category::Twos);
+    }
+    if (category == "threes") {
+        return score(dice, Category::Threes);
+    }
+    if (category == "fours") {
+        return score(dice, Category::Fours);
+    }
+    if (category == "fives") {
+        return score(dice, Category::Fives);
+    }
+    if (category == "sixes") {
+        return score(dice, Category::Sixes);
+    }
+    if (category == "full house") {
+        return score(dice, Category::FullHouse);
+    }
+    if (category == "four of a kind") {
+        return score(dice, Category::FourOfAKind);
+    }
+    if (category == "little straight") {
+        return score(dice, Category::LittleStraight);
+    }
+    if (category == "big straight") {
+        return score(dice, Category::BigStraight);
+    }
+    if (category == "choice") {
+        return score(dice, Category::Choice);
+    }
+    if (category == "yacht") {
+        return score(dice, Category::Yacht);
+    }
+
+    return 0;
+}
+
+}  // namespace yacht
+```

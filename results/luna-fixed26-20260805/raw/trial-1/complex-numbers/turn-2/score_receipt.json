@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "complex_numbers.cpp",
+      "sha256": "f418c98cf3743bc36b4821f2ec0f7fb3dbfd2a77137b6fa4483698e3afc92d71",
+      "size": 1523
+    },
+    {
+      "path": "complex_numbers.h",
+      "sha256": "46995727db3a93c0a81203d4230d33919f0ad8b2e75261947e7dd5713bc39367",
+      "size": 643
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 2.286742925643921,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.5s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatecomplex-numbers/build\n[ 25%] Building CXX object CMakeFiles/complex-numbers.dir/complex_numbers_test.cpp.o\n/privatecomplex-numbers/complex_numbers_test.cpp:198:47: error: no member named 'conj' in 'complex_numbers::Complex'\n  198 |     require_approx_equal(Complex(5.0, 0.0), c.conj());\n      |                                             ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:204:48: error: no member named 'conj' in 'complex_numbers::Complex'\n  204 |     require_approx_equal(Complex(0.0, -5.0), c.conj());\n      |                                              ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:210:48: error: no member named 'conj' in 'complex_numbers::Complex'\n  210 |     require_approx_equal(Complex(1.0, -1.0), c.conj());\n      |                                              ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:247:46: error: invalid operands to binary expression ('const Complex' and 'double')\n  247 |     require_approx_equal(Complex(6.0,2.0), c + 5.0);\n      |                                            ~ ^ ~~~\n/privatecomplex-numbers/complex_numbers.h:17:13: note: candidate function not viable: no known conversion from 'double' to 'const Complex' for 1st argument\n   17 |     Complex operator+(const Complex& other) const;\n      |             ^         ~~~~~~~~~~~~~~~~~~~~\n/privatecomplex-numbers/complex_numbers_test.cpp:253:48: error: invalid operands to binary expression ('double' and 'const Complex')\n  253 |     require_approx_equal(Complex(6.0,2.0), 5.0 + c);\n      |                                            ~~~ ^ ~\n/privatecomplex-numbers/complex_numbers_test.cpp:259:46: error: invalid operands to binary expression ('const Complex' and 'double')\n  259 |     require_approx_equal(Complex(1.0,7.0), c - 4.0 );\n      |                                            ~ ^ ~~~\n/privatecomplex-numbers/complex_numbers.h:18:13: note: candidate function not viable: no known conversion from 'double' to 'const Complex' for 1st argument\n   18 |     Complex operator-(const Complex& other) const;\n      |             ^         ~~~~~~~~~~~~~~~~~~~~\n/privatecomplex-numbers/complex_numbers_test.cpp:265:50: error: invalid operands to binary expression ('double' and 'const Complex')\n  265 |     require_approx_equal(Complex(-1.0,-7.0), 4.0 - c);\n      |                                              ~~~ ^ ~\n/privatecomplex-numbers/complex_numbers_test.cpp:271:48: error: invalid operands to binary expression ('const Complex' and 'double')\n  271 |     require_approx_equal(Complex(10.0,25.0), c * 5.0);\n      |                                              ~ ^ ~~~\n/privatecomplex-numbers/complex_numbers.h:19:13: note: candidate function not viable: no known conversion from 'double' to 'const Complex' for 1st argument\n   19 |     Complex operator*(const Complex& other) const;\n      |             ^         ~~~~~~~~~~~~~~~~~~~~\n/privatecomplex-numbers/complex_numbers_test.cpp:277:50: error: invalid operands to binary expression ('double' and 'const Complex')\n  277 |     require_approx_equal(Complex(10.0,25.0), 5.0 * c);\n      |                                              ~~~ ^ ~\n/privatecomplex-numbers/complex_numbers_test.cpp:283:47: error: invalid operands to binary expression ('const Complex' and 'double')\n  283 |     require_approx_equal(Complex(1.0,10.0), c / 10.0 );\n      |                                             ~ ^ ~~~~\n/privatecomplex-numbers/complex_numbers.h:20:13: note: candidate function not viable: no known conversion from 'double' to 'const Complex' for 1st argument\n   20 |     Complex operator/(const Complex& other) const;\n      |             ^         ~~~~~~~~~~~~~~~~~~~~\n/privatecomplex-numbers/complex_numbers_test.cpp:289:49: error: invalid operands to binary expression ('double' and 'const Complex')\n  289 |     require_approx_equal(Complex(2.5,-2.5), 5.0 / c);\n      |                                             ~~~ ^ ~\n11 errors generated.\nmake[2]: *** [CMakeFiles/complex-numbers.dir/complex_numbers_test.cpp.o] Error 1\nmake[1]: *** [CMakeFiles/complex-numbers.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "c0419fed9cb7a32c8ba37fb41f49b64a5de9419b3bcc9edc930f4b95379bc688",
+  "request_id": "complex-numbers-1785913958679345000-be842b865bed",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "complex-numbers"
+}

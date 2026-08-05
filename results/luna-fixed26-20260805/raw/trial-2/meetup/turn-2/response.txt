@@ -1,0 +1,401 @@
+The CMake warnings are unrelated to the compilation failure. The tests expect the older `meetup::scheduler` API, including Boost Gregorian dates and methods such as `monteenth()` and `tuesteenth()`. The header and implementation need to provide that API while retaining the existing `Meetup` interface.
+
+meetup.h
+```
+#if !defined(MEETUP_H)
+#define MEETUP_H
+
+#include <boost/date_time/gregorian/gregorian.hpp>
+
+#include <string>
+
+namespace meetup {
+
+enum class Month {
+    January = 1,
+    February,
+    March,
+    April,
+    May,
+    June,
+    July,
+    August,
+    September,
+    October,
+    November,
+    December
+};
+
+enum class Weekday {
+    Sunday = 0,
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday
+};
+
+enum class Schedule {
+    first,
+    second,
+    third,
+    fourth,
+    last,
+    teenth,
+
+    First = first,
+    Second = second,
+    Third = third,
+    Fourth = fourth,
+    Last = last,
+    Teenth = teenth
+};
+
+class scheduler {
+public:
+    scheduler(boost::gregorian::greg_month month, int year);
+
+    boost::gregorian::date monfirst() const;
+    boost::gregorian::date monsecond() const;
+    boost::gregorian::date monthird() const;
+    boost::gregorian::date monfourth() const;
+    boost::gregorian::date monlast() const;
+    boost::gregorian::date monteenth() const;
+
+    boost::gregorian::date tuefirst() const;
+    boost::gregorian::date tuesecond() const;
+    boost::gregorian::date tuethird() const;
+    boost::gregorian::date tuefourth() const;
+    boost::gregorian::date tuelast() const;
+    boost::gregorian::date tuesteenth() const;
+
+    boost::gregorian::date wedfirst() const;
+    boost::gregorian::date wedsecond() const;
+    boost::gregorian::date wedthird() const;
+    boost::gregorian::date wedfourth() const;
+    boost::gregorian::date wedlast() const;
+    boost::gregorian::date wednesteenth() const;
+
+    boost::gregorian::date thurfirst() const;
+    boost::gregorian::date thursecond() const;
+    boost::gregorian::date thurthird() const;
+    boost::gregorian::date thurfourth() const;
+    boost::gregorian::date thurlast() const;
+    boost::gregorian::date thursteenth() const;
+
+    boost::gregorian::date frifirst() const;
+    boost::gregorian::date frisecond() const;
+    boost::gregorian::date frithird() const;
+    boost::gregorian::date frifourth() const;
+    boost::gregorian::date frilast() const;
+    boost::gregorian::date friteenth() const;
+
+    boost::gregorian::date satfirst() const;
+    boost::gregorian::date satsecond() const;
+    boost::gregorian::date satthird() const;
+    boost::gregorian::date satfourth() const;
+    boost::gregorian::date satlast() const;
+    boost::gregorian::date saturteenth() const;
+
+    boost::gregorian::date sunfirst() const;
+    boost::gregorian::date sunsecond() const;
+    boost::gregorian::date sunthird() const;
+    boost::gregorian::date sunfourth() const;
+    boost::gregorian::date sunlast() const;
+    boost::gregorian::date sunteenth() const;
+
+private:
+    boost::gregorian::date find_date(
+        Weekday weekday,
+        Schedule schedule) const;
+
+    boost::gregorian::greg_month month_;
+    int year_;
+};
+
+class Meetup {
+public:
+    Meetup(int year, int month);
+    Meetup(int year, Month month);
+
+    std::string day(Weekday weekday, Schedule schedule) const;
+
+private:
+    int year_;
+    int month_;
+};
+
+using meetup = Meetup;
+
+}  // namespace meetup
+
+#endif  // MEETUP_H
+```
+
+meetup.cpp
+```
+#include "meetup.h"
+
+#include <iomanip>
+#include <sstream>
+#include <string>
+
+namespace meetup {
+namespace {
+
+int month_number(boost::gregorian::greg_month month)
+{
+    return month.as_number();
+}
+
+boost::gregorian::date make_date(
+    int year,
+    int month,
+    int day)
+{
+    return boost::gregorian::date(
+        year,
+        static_cast<unsigned short>(month),
+        static_cast<unsigned short>(day));
+}
+
+int days_in_month(int year, int month)
+{
+    return static_cast<int>(
+        boost::gregorian::gregorian_calendar::end_of_month_day(
+            year,
+            static_cast<unsigned short>(month)));
+}
+
+int weekday_number(const boost::gregorian::date& date)
+{
+    return static_cast<int>(date.day_of_week());
+}
+
+std::string format_date(int year, int month, int day)
+{
+    std::ostringstream result;
+    result << std::setfill('0')
+           << std::setw(4) << year << '-'
+           << std::setw(2) << month << '-'
+           << std::setw(2) << day;
+    return result.str();
+}
+
+}  // namespace
+
+scheduler::scheduler(boost::gregorian::greg_month month, int year)
+    : month_(month), year_(year)
+{
+}
+
+boost::gregorian::date scheduler::find_date(
+    Weekday weekday,
+    Schedule schedule) const
+{
+    const int month = month_number(month_);
+    const int target_weekday = static_cast<int>(weekday);
+    const int last_day = days_in_month(year_, month);
+
+    if (schedule == Schedule::teenth) {
+        for (int day = 13; day <= 19; ++day) {
+            const auto date = make_date(year_, month, day);
+            if (weekday_number(date) == target_weekday) {
+                return date;
+            }
+        }
+    }
+
+    if (schedule == Schedule::last) {
+        for (int day = last_day; day >= 1; --day) {
+            const auto date = make_date(year_, month, day);
+            if (weekday_number(date) == target_weekday) {
+                return date;
+            }
+        }
+    }
+
+    int occurrence = 0;
+
+    switch (schedule) {
+    case Schedule::first:
+        occurrence = 1;
+        break;
+    case Schedule::second:
+        occurrence = 2;
+        break;
+    case Schedule::third:
+        occurrence = 3;
+        break;
+    case Schedule::fourth:
+        occurrence = 4;
+        break;
+    case Schedule::last:
+    case Schedule::teenth:
+        break;
+    }
+
+    int matching_days = 0;
+
+    for (int day = 1; day <= last_day; ++day) {
+        const auto date = make_date(year_, month, day);
+
+        if (weekday_number(date) == target_weekday) {
+            ++matching_days;
+
+            if (matching_days == occurrence) {
+                return date;
+            }
+        }
+    }
+
+    return boost::gregorian::date();
+}
+
+#define MEETUP_SCHEDULER_METHODS(prefix, weekday) \
+    boost::gregorian::date scheduler::prefix##first() const \
+    { \
+        return find_date(weekday, Schedule::first); \
+    } \
+    boost::gregorian::date scheduler::prefix##second() const \
+    { \
+        return find_date(weekday, Schedule::second); \
+    } \
+    boost::gregorian::date scheduler::prefix##third() const \
+    { \
+        return find_date(weekday, Schedule::third); \
+    } \
+    boost::gregorian::date scheduler::prefix##fourth() const \
+    { \
+        return find_date(weekday, Schedule::fourth); \
+    } \
+    boost::gregorian::date scheduler::prefix##last() const \
+    { \
+        return find_date(weekday, Schedule::last); \
+    } \
+    boost::gregorian::date scheduler::prefix##teenth() const \
+    { \
+        return find_date(weekday, Schedule::teenth); \
+    }
+
+MEETUP_SCHEDULER_METHODS(mon, Weekday::Monday)
+MEETUP_SCHEDULER_METHODS(tue, Weekday::Tuesday)
+MEETUP_SCHEDULER_METHODS(wed, Weekday::Wednesday)
+MEETUP_SCHEDULER_METHODS(thur, Weekday::Thursday)
+MEETUP_SCHEDULER_METHODS(fri, Weekday::Friday)
+MEETUP_SCHEDULER_METHODS(sat, Weekday::Saturday)
+MEETUP_SCHEDULER_METHODS(sun, Weekday::Sunday)
+
+#undef MEETUP_SCHEDULER_METHODS
+
+Meetup::Meetup(int year, int month)
+    : year_(year), month_(month)
+{
+}
+
+Meetup::Meetup(int year, Month month)
+    : Meetup(year, static_cast<int>(month))
+{
+}
+
+std::string Meetup::day(Weekday weekday, Schedule schedule) const
+{
+    scheduler calendar(
+        boost::gregorian::greg_month(
+            static_cast<unsigned short>(month_)),
+        year_);
+
+    boost::gregorian::date result;
+
+    switch (weekday) {
+    case Weekday::Sunday:
+        switch (schedule) {
+        case Schedule::first: result = calendar.sunfirst(); break;
+        case Schedule::second: result = calendar.sunsecond(); break;
+        case Schedule::third: result = calendar.sunthird(); break;
+        case Schedule::fourth: result = calendar.sunfourth(); break;
+        case Schedule::last: result = calendar.sunlast(); break;
+        case Schedule::teenth: result = calendar.sunteenth(); break;
+        }
+        break;
+
+    case Weekday::Monday:
+        switch (schedule) {
+        case Schedule::first: result = calendar.monfirst(); break;
+        case Schedule::second: result = calendar.monsecond(); break;
+        case Schedule::third: result = calendar.monthird(); break;
+        case Schedule::fourth: result = calendar.monfourth(); break;
+        case Schedule::last: result = calendar.monlast(); break;
+        case Schedule::teenth: result = calendar.monteenth(); break;
+        }
+        break;
+
+    case Weekday::Tuesday:
+        switch (schedule) {
+        case Schedule::first: result = calendar.tuefirst(); break;
+        case Schedule::second: result = calendar.tuesecond(); break;
+        case Schedule::third: result = calendar.tuethird(); break;
+        case Schedule::fourth: result = calendar.tuefourth(); break;
+        case Schedule::last: result = calendar.tuelast(); break;
+        case Schedule::teenth: result = calendar.tuesteenth(); break;
+        }
+        break;
+
+    case Weekday::Wednesday:
+        switch (schedule) {
+        case Schedule::first: result = calendar.wedfirst(); break;
+        case Schedule::second: result = calendar.wedsecond(); break;
+        case Schedule::third: result = calendar.wedthird(); break;
+        case Schedule::fourth: result = calendar.wedfourth(); break;
+        case Schedule::last: result = calendar.wedlast(); break;
+        case Schedule::teenth: result = calendar.wednesteenth(); break;
+        }
+        break;
+
+    case Weekday::Thursday:
+        switch (schedule) {
+        case Schedule::first: result = calendar.thurfirst(); break;
+        case Schedule::second: result = calendar.thursecond(); break;
+        case Schedule::third: result = calendar.thurthird(); break;
+        case Schedule::fourth: result = calendar.thurfourth(); break;
+        case Schedule::last: result = calendar.thurlast(); break;
+        case Schedule::teenth: result = calendar.thursteenth(); break;
+        }
+        break;
+
+    case Weekday::Friday:
+        switch (schedule) {
+        case Schedule::first: result = calendar.frifirst(); break;
+        case Schedule::second: result = calendar.frisecond(); break;
+        case Schedule::third: result = calendar.frithird(); break;
+        case Schedule::fourth: result = calendar.frifourth(); break;
+        case Schedule::last: result = calendar.frilast(); break;
+        case Schedule::teenth: result = calendar.friteenth(); break;
+        }
+        break;
+
+    case Weekday::Saturday:
+        switch (schedule) {
+        case Schedule::first: result = calendar.satfirst(); break;
+        case Schedule::second: result = calendar.satsecond(); break;
+        case Schedule::third: result = calendar.satthird(); break;
+        case Schedule::fourth: result = calendar.satfourth(); break;
+        case Schedule::last: result = calendar.satlast(); break;
+        case Schedule::teenth: result = calendar.saturteenth(); break;
+        }
+        break;
+    }
+
+    if (result.is_not_a_date()) {
+        return {};
+    }
+
+    return format_date(
+        static_cast<int>(result.year()),
+        static_cast<int>(result.month()),
+        static_cast<int>(result.day()));
+}
+
+}  // namespace meetup
+```

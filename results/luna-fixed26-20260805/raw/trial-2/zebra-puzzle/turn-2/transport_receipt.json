@@ -1,0 +1,128 @@
+{
+  "call_id": "call-000124-fce0d01853a0",
+  "duration_seconds": 32.163365,
+  "feedback_authorization": {
+    "candidate_state_message_index": 9,
+    "feedback_output_sha256": "310994da7100baf651450d3d986e884b327bedc984dfd094983b6b3aa7e4efd0",
+    "matched_candidate_files": [
+      {
+        "path": "zebra_puzzle.cpp",
+        "sha256": "b5c24c633131b3fdea0675745ee6dad530846029a090f7b5bd0fe9097478e567",
+        "size": 4186
+      },
+      {
+        "path": "zebra_puzzle.h",
+        "sha256": "21f69cbc10abc8b0200ad425ca6859573d1108eb32013d8ccb11e245d84e3d03",
+        "size": 251
+      }
+    ],
+    "matched_scorer_receipts": [
+      {
+        "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/zebra-puzzle-1785913867450933000-af3a8e90bcc7.json",
+        "request_id": "zebra-puzzle-1785913867450933000-af3a8e90bcc7",
+        "sha256": "7cb25f84a3aa3299230c83264553d814897d1b16f16dfff6ec400215dc4e9855"
+      }
+    ],
+    "present": true,
+    "status": "authorized",
+    "task": "zebra-puzzle"
+  },
+  "http_status": 200,
+  "kind": "luna-low-openrouter-strict-one-shot-call",
+  "leak_audit": {
+    "feedback_authorization": {
+      "candidate_state_message_index": 9,
+      "feedback_output_sha256": "310994da7100baf651450d3d986e884b327bedc984dfd094983b6b3aa7e4efd0",
+      "matched_candidate_files": [
+        {
+          "path": "zebra_puzzle.cpp",
+          "sha256": "b5c24c633131b3fdea0675745ee6dad530846029a090f7b5bd0fe9097478e567",
+          "size": 4186
+        },
+        {
+          "path": "zebra_puzzle.h",
+          "sha256": "21f69cbc10abc8b0200ad425ca6859573d1108eb32013d8ccb11e245d84e3d03",
+          "size": 251
+        }
+      ],
+      "matched_scorer_receipts": [
+        {
+          "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/zebra-puzzle-1785913867450933000-af3a8e90bcc7.json",
+          "request_id": "zebra-puzzle-1785913867450933000-af3a8e90bcc7",
+          "sha256": "7cb25f84a3aa3299230c83264553d814897d1b16f16dfff6ec400215dc4e9855"
+        }
+      ],
+      "present": true,
+      "status": "authorized",
+      "task": "zebra-puzzle"
+    },
+    "hidden_corpus_sha256": "089653d6ccb5e7531bddeb60ba9c0838eba746afb94b6811810468d3fa742529",
+    "hidden_excerpt_count": 196430,
+    "hidden_file_count": 152,
+    "hidden_filename_count": 30,
+    "message_count": 12,
+    "message_roles": [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ],
+    "prompt_chars": 3950,
+    "prompt_sha256": "54b52bc985d345fc97253e052163aec1e826f47ff2a5dcc81d8c7a0424d18d50",
+    "status": "passed",
+    "violations": []
+  },
+  "model_requested": "openai/gpt-5.6-luna",
+  "model_returned": "openai/gpt-5.6-luna",
+  "plugins_present": false,
+  "provider_data_collection": "deny",
+  "provider_fallbacks_allowed": false,
+  "provider_requires_parameters": true,
+  "provider_returned": "OpenAI",
+  "provider_zdr_required": false,
+  "reasoning_effort": "medium",
+  "reasoning_excluded_from_response": true,
+  "request_sha256": "fce0d01853a09d7fd57296b2b1e05707d2c0d4d44c485de07fe89441b9a1b6d1",
+  "response_headers": {
+    "content-type": "application/json",
+    "date": "Wed, 05 Aug 2026 07:11:34 GMT"
+  },
+  "response_sha256": "66eb5823f1d584f4f11b99815319af1d7b186610859dfe8e085ef91e65017049",
+  "schema_version": 1,
+  "status": "accepted",
+  "tools_present": false,
+  "upstream_http_attempts": 1,
+  "usage": {
+    "completion_tokens": 1047,
+    "completion_tokens_details": {
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "reasoning_tokens": 153
+    },
+    "cost": 0.0010456875,
+    "cost_details": {
+      "upstream_inference_completions_cost": 0.0006282,
+      "upstream_inference_cost": 0.00105625,
+      "upstream_inference_prompt_cost": 0.00042805
+    },
+    "is_byok": false,
+    "prompt_tokens": 3425,
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cache_write_tokens": 3422,
+      "cached_tokens": 0,
+      "video_tokens": 0
+    },
+    "total_tokens": 4472
+  },
+  "violations": [],
+  "web_search_enabled": false
+}

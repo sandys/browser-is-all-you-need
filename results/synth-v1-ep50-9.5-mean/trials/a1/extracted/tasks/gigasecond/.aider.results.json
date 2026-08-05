@@ -1,0 +1,38 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-19-47-06--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a1-shard-0/cpp/exercises/practice/gigasecond",
+    "testcase": "gigasecond",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        true
+    ],
+    "cost": 0.0,
+    "duration": 101.9558916091919,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 2,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 5366,
+    "completion_tokens": 4233,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "e68c240586ce988a026b260304fbd8d7a0c880fb"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "aa909340d1a2bc3bca58fb439212c525ca5e58d0"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

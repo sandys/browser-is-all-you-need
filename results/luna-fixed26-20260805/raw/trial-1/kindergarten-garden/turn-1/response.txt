@@ -1,0 +1,75 @@
+The files need changes to define the expected `Plants` enum and `plants` function, then parse the two garden rows and return the four cups assigned to the requested student.
+
+kindergarten_garden.h
+```
+#pragma once
+
+#include <array>
+#include <string>
+
+namespace kindergarten_garden {
+
+enum class Plants {
+    grass,
+    clover,
+    radishes,
+    violets
+};
+
+std::array<Plants, 4> plants(std::string diagram, std::string student);
+
+}  // namespace kindergarten_garden
+```
+
+kindergarten_garden.cpp
+```
+#include "kindergarten_garden.h"
+
+#include <sstream>
+#include <vector>
+
+namespace kindergarten_garden {
+
+namespace {
+
+Plants plant_from_character(char plant) {
+    switch (plant) {
+        case 'G':
+            return Plants::grass;
+        case 'C':
+            return Plants::clover;
+        case 'R':
+            return Plants::radishes;
+        case 'V':
+            return Plants::violets;
+    }
+
+    return Plants::grass;
+}
+
+}  // namespace
+
+std::array<Plants, 4> plants(std::string diagram, std::string student) {
+    std::istringstream input(diagram);
+    std::vector<std::string> rows;
+    std::string row;
+
+    while (std::getline(input, row)) {
+        if (!row.empty() && row.back() == '\r') {
+            row.pop_back();
+        }
+        rows.push_back(row);
+    }
+
+    const std::size_t student_index = (student.front() - 'A') * 2;
+
+    return {
+        plant_from_character(rows[0][student_index]),
+        plant_from_character(rows[0][student_index + 1]),
+        plant_from_character(rows[1][student_index]),
+        plant_from_character(rows[1][student_index + 1])
+    };
+}
+
+}  // namespace kindergarten_garden
+```

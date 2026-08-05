@@ -1,0 +1,128 @@
+{
+  "call_id": "call-000164-a81c96a130d6",
+  "duration_seconds": 22.296096,
+  "feedback_authorization": {
+    "candidate_state_message_index": 9,
+    "feedback_output_sha256": "69da7ffaadcf846f64d1f6981981f4b042cf1752acabefd0fccd15d089220148",
+    "matched_candidate_files": [
+      {
+        "path": "clock.cpp",
+        "sha256": "fecda24acf4ad2d5ef2af1e6766df1f31b33197c6895e40651f67f41f0190108",
+        "size": 868
+      },
+      {
+        "path": "clock.h",
+        "sha256": "9f34f96d70fc2a8b30b5b0819f623066f02d449cc4568ae187ba46d51f77fb44",
+        "size": 343
+      }
+    ],
+    "matched_scorer_receipts": [
+      {
+        "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/clock-1785913914970264000-ffa3bda13059.json",
+        "request_id": "clock-1785913914970264000-ffa3bda13059",
+        "sha256": "c1be73366ee72fc4ec126ee94991e3301936984fb5e24ef4c3aa2d73b98cf624"
+      }
+    ],
+    "present": true,
+    "status": "authorized",
+    "task": "clock"
+  },
+  "http_status": 200,
+  "kind": "luna-low-openrouter-strict-one-shot-call",
+  "leak_audit": {
+    "feedback_authorization": {
+      "candidate_state_message_index": 9,
+      "feedback_output_sha256": "69da7ffaadcf846f64d1f6981981f4b042cf1752acabefd0fccd15d089220148",
+      "matched_candidate_files": [
+        {
+          "path": "clock.cpp",
+          "sha256": "fecda24acf4ad2d5ef2af1e6766df1f31b33197c6895e40651f67f41f0190108",
+          "size": 868
+        },
+        {
+          "path": "clock.h",
+          "sha256": "9f34f96d70fc2a8b30b5b0819f623066f02d449cc4568ae187ba46d51f77fb44",
+          "size": 343
+        }
+      ],
+      "matched_scorer_receipts": [
+        {
+          "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/clock-1785913914970264000-ffa3bda13059.json",
+          "request_id": "clock-1785913914970264000-ffa3bda13059",
+          "sha256": "c1be73366ee72fc4ec126ee94991e3301936984fb5e24ef4c3aa2d73b98cf624"
+        }
+      ],
+      "present": true,
+      "status": "authorized",
+      "task": "clock"
+    },
+    "hidden_corpus_sha256": "089653d6ccb5e7531bddeb60ba9c0838eba746afb94b6811810468d3fa742529",
+    "hidden_excerpt_count": 196430,
+    "hidden_file_count": 152,
+    "hidden_filename_count": 30,
+    "message_count": 12,
+    "message_roles": [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ],
+    "prompt_chars": 2016,
+    "prompt_sha256": "92f80e8a7d88ac3eb93a05436b6e155b3e5d3ed76e2bbce47a742e438edd0a6b",
+    "status": "passed",
+    "violations": []
+  },
+  "model_requested": "openai/gpt-5.6-luna",
+  "model_returned": "openai/gpt-5.6-luna",
+  "plugins_present": false,
+  "provider_data_collection": "deny",
+  "provider_fallbacks_allowed": false,
+  "provider_requires_parameters": true,
+  "provider_returned": "OpenAI",
+  "provider_zdr_required": false,
+  "reasoning_effort": "medium",
+  "reasoning_excluded_from_response": true,
+  "request_sha256": "a81c96a130d6049c668faec55dfae092f2378011350f76e8acafc51c69741698",
+  "response_headers": {
+    "content-type": "application/json",
+    "date": "Wed, 05 Aug 2026 07:12:14 GMT"
+  },
+  "response_sha256": "b0181aa02d6d8ae1693ca81de679e0e389f49596fa4377b7eb156a5ad996f827",
+  "schema_version": 1,
+  "status": "accepted",
+  "tools_present": false,
+  "upstream_http_attempts": 1,
+  "usage": {
+    "completion_tokens": 744,
+    "completion_tokens_details": {
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "reasoning_tokens": 195
+    },
+    "cost": 0.000682803,
+    "cost_details": {
+      "upstream_inference_completions_cost": 0.0004464,
+      "upstream_inference_cost": 0.0006897,
+      "upstream_inference_prompt_cost": 0.0002433
+    },
+    "is_byok": false,
+    "prompt_tokens": 1947,
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cache_write_tokens": 1944,
+      "cached_tokens": 0,
+      "video_tokens": 0
+    },
+    "total_tokens": 2691
+  },
+  "violations": [],
+  "web_search_enabled": false
+}

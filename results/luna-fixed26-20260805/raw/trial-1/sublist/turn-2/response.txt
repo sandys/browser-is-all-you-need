@@ -1,0 +1,54 @@
+The tests expect the canonical API names `List_comparison` and `sublist`. The implementation below preserves the required comparison behavior, including empty lists and ordered contiguous subsequences.
+
+sublist.h
+```
+#pragma once
+
+#include <vector>
+
+namespace sublist {
+
+enum class List_comparison {
+    unequal,
+    sublist,
+    superlist,
+    equal
+};
+
+List_comparison sublist(const std::vector<int>& list_one,
+                        const std::vector<int>& list_two);
+
+}  // namespace sublist
+```
+
+sublist.cpp
+```
+#include "sublist.h"
+
+#include <algorithm>
+
+namespace sublist {
+
+List_comparison sublist(const std::vector<int>& list_one,
+                        const std::vector<int>& list_two) {
+    if (list_one == list_two) {
+        return List_comparison::equal;
+    }
+
+    if (list_one.size() < list_two.size()) {
+        if (std::search(list_two.begin(), list_two.end(),
+                        list_one.begin(), list_one.end()) != list_two.end()) {
+            return List_comparison::sublist;
+        }
+    } else if (list_two.size() < list_one.size()) {
+        if (std::search(list_one.begin(), list_one.end(),
+                        list_two.begin(), list_two.end()) != list_one.end()) {
+            return List_comparison::superlist;
+        }
+    }
+
+    return List_comparison::unequal;
+}
+
+}  // namespace sublist
+```

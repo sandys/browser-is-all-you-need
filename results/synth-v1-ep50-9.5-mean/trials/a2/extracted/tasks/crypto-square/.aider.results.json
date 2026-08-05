@@ -1,0 +1,39 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-20-21-34--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a2-shard-0/cpp/exercises/practice/crypto-square",
+    "testcase": "crypto-square",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 181.94366598129272,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 1,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 7916,
+    "completion_tokens": 8839,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "4d75facd675c3ff3033649e9498ad2c7f0db251e"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "8683d9ee4a19156868dc0cf026671661f39e148f"
+        ]
+    ]
+}

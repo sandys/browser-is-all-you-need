@@ -1,0 +1,55 @@
+Implemented the diamond generator using the conventional `diamond::rows(char)` API. It returns a square, horizontally and vertically symmetric diamond with appropriate leading and trailing spaces.
+
+diamond.h
+```cpp
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter);
+
+}  // namespace diamond
+```
+
+diamond.cpp
+```cpp
+#include "diamond.h"
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter) {
+  if (letter < 'A' || letter > 'Z') {
+    return {};
+  }
+
+  const int letter_index = letter - 'A';
+  const int width = letter_index * 2 + 1;
+  std::vector<std::string> result;
+
+  for (int index = 0; index <= letter_index; ++index) {
+    const int outer_spaces = letter_index - index;
+    std::string row(outer_spaces, ' ');
+
+    row += static_cast<char>('A' + index);
+
+    if (index > 0) {
+      row += std::string(index * 2 - 1, ' ');
+      row += static_cast<char>('A' + index);
+    }
+
+    row += std::string(width - row.size(), ' ');
+    result.push_back(row);
+  }
+
+  for (int index = letter_index - 1; index >= 0; --index) {
+    result.push_back(result[index]);
+  }
+
+  return result;
+}
+
+}  // namespace diamond
+```

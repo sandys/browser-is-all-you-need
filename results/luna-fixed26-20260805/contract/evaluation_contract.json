@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "kind": "gpt56-luna-medium-openrouter-fixed26-pristine-feedback-at-2-4trial-contract",
+  "status": "prepared",
+  "model": {
+    "exact_openrouter_id": "openai/gpt-5.6-luna",
+    "permitted_dated_response_id": "openai/gpt-5.6-luna-20260709",
+    "provider": "OpenAI",
+    "reasoning_effort": "medium"
+  },
+  "suite": {
+    "eval_set_version": "pristine-original-v1",
+    "historical_reference": "base-fixed26-20260711",
+    "tasks_per_trial": 26,
+    "independent_trials": 4,
+    "maximum_tries_per_task": 2,
+    "turn_1_model_completions_per_task": 1,
+    "turn_2_model_completions_per_failed_task": 1,
+    "feedback_turns": 1,
+    "edit_format": "whole"
+  },
+  "comparison": {
+    "strict_single_turn_artifact": "gpt56-luna-medium-openrouter-fixed26-pristine-original-v1-stablefiles-strict1shot-4x-20260805",
+    "turn_1_prompt_messages_must_match": true,
+    "only_intended_model-interaction_delta": "one compiler/test-feedback repair completion after a failed first attempt",
+    "scorer_runtime_delta": "candidate compilation and tests run on the user's Mac instead of Modal at the user's instruction"
+  },
+  "prompt_policy": {
+    "source": "official Aider-AI/polyglot-benchmark at 7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "official_prompt_matches": 26,
+    "locally_authored_interface_addenda": 0,
+    "locally_authored_behavioral_addenda": 0,
+    "semantic_oracle_support_present_on_turn_1": false
+  },
+  "feedback_authorization": {
+    "source": "exact failed output from the task's immediately preceding isolated Mac scorer execution",
+    "required_bindings": [
+      "byte-identical scorer output",
+      "failed scorer receipt",
+      "pinned source-tree hash",
+      "network-blocked scorer process",
+      "exact candidate file paths, sizes, and SHA-256 hashes"
+    ],
+    "unbound_feedback_policy": "reject before any upstream model request"
+  },
+  "strict_interaction": {
+    "turn_1_task_calls": 104,
+    "turn_2_calls": "exactly one for each failed turn-1 task",
+    "task_retries_beyond_turn_2": 0,
+    "lint_repair_calls": 0,
+    "reflection_calls": 0,
+    "summarization_calls": 0,
+    "tools": false,
+    "web": false,
+    "plugins": false,
+    "filesystem_or_benchmark_access": false
+  },
+  "scoring": {
+    "host": "user Mac",
+    "network": "denied by sandbox-exec",
+    "compiler": "Apple Clang 21.0.0",
+    "cmake": "4.4.0",
+    "boost": "1.90.0_1",
+    "reference_smoke": "gigasecond 5/5 assertions"
+  },
+  "routing": {
+    "provider_only": ["openai"],
+    "provider_fallbacks": false,
+    "model_fallbacks": false,
+    "client_retries": 0,
+    "data_collection": "deny",
+    "max_output_tokens": 32768
+  },
+  "decoding": {"temperature": 0.7, "top_p": 1.0},
+  "runtime_determinism": {
+    "python_hash_seed": 0,
+    "editable_file_order": "task-relative path ascending",
+    "independent_sampling": true
+  },
+  "identity": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "source_tree_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "strict_benchmark_sha256": "d5a8900a834e22afa991948aa54dc2047073357e5f24dd58547fa078c052ad8f",
+    "transport_sha256": "0639c5ef2ac984f9739e05068cf83f384c06bfc1235c68e33cba680f473a9b0b",
+    "runner_sha256": "991e909fbefaf1a8cf9b97246f854b8b771c46eb748151ceefd1511223135e4a",
+    "verifier_sha256": "a5592fd129f02787247e292b3adbf523269dfb8e4d57c0bcd6c0cfb41f21574a",
+    "mac_scorer_sha256": "dac8cd1edf71d57b73703888413c21bdc04ba464ab2546cff19d2a09faca0b80"
+  },
+  "trial_labels": [
+    "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a1",
+    "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2",
+    "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a3",
+    "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a4"
+  ]
+}

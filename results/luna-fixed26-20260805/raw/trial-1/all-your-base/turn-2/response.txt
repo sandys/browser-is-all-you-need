@@ -1,0 +1,79 @@
+The compilation errors occur because the function declaration and definition use the arguments in a different order from the tests. The tests expect:
+
+```cpp
+convert(input_base, digits, output_base)
+```
+
+The tests also expect `std::invalid_argument` for invalid bases or digits, so invalid input should throw rather than return an empty vector.
+
+all_your_base.h
+```
+#if !defined(ALL_YOUR_BASE_H)
+#define ALL_YOUR_BASE_H
+
+#include <vector>
+
+namespace all_your_base {
+
+std::vector<unsigned> convert(unsigned input_base,
+                              const std::vector<unsigned>& digits,
+                              unsigned output_base);
+
+}  // namespace all_your_base
+
+#endif  // ALL_YOUR_BASE_H
+```
+
+all_your_base.cpp
+```
+#include "all_your_base.h"
+
+#include <cstdint>
+#include <stdexcept>
+
+namespace all_your_base {
+
+std::vector<unsigned> convert(unsigned input_base,
+                              const std::vector<unsigned>& digits,
+                              unsigned output_base) {
+    if (input_base < 2 || output_base < 2) {
+        throw std::invalid_argument("Bases must be at least 2");
+    }
+
+    for (unsigned digit : digits) {
+        if (digit >= input_base) {
+            throw std::invalid_argument("Digit is invalid for input base");
+        }
+    }
+
+    std::vector<unsigned> result;
+
+    for (unsigned digit : digits) {
+        std::uint64_t carry = digit;
+
+        for (auto position = result.rbegin(); position != result.rend();
+             ++position) {
+            const std::uint64_t value =
+                static_cast<std::uint64_t>(*position) * input_base + carry;
+
+            *position = static_cast<unsigned>(value % output_base);
+            carry = value / output_base;
+        }
+
+        while (carry != 0) {
+            result.insert(
+                result.begin(),
+                static_cast<unsigned>(carry % output_base));
+            carry /= output_base;
+        }
+    }
+
+    if (result.empty()) {
+        result.push_back(0);
+    }
+
+    return result;
+}
+
+}  // namespace all_your_base
+```

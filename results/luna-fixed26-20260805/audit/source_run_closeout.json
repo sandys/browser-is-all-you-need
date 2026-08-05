@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "status": "complete_verified",
+  "model": "openai/gpt-5.6-luna",
+  "provider": "OpenAI via OpenRouter with fallbacks disabled",
+  "reasoning_effort": "medium",
+  "contract": "pristine-original-v1 / July 11 fixed26",
+  "trials": 4,
+  "turn_1_scores": [6, 5, 5, 9],
+  "turn_1_mean": 6.25,
+  "cumulative_feedback_at_2_scores": [18, 16, 15, 18],
+  "cumulative_feedback_at_2_mean": 16.75,
+  "failed_turn_1_tasks": 79,
+  "successful_turn_2_repairs": 42,
+  "conditional_repair_rate": 0.5316455696202531,
+  "model_calls": {
+    "identity_smoke": 1,
+    "turn_1": 104,
+    "authorized_turn_2": 79,
+    "total": 184,
+    "retries_or_extra_calls": 0
+  },
+  "scoring": {
+    "host": "user Mac",
+    "candidate_receipts": 183,
+    "network_denied": true,
+    "test_timeouts": 0
+  },
+  "integrity": {
+    "verification_status": "passed",
+    "transport_violations": 0,
+    "locally_rejected_calls_in_final_run": 0,
+    "tools": false,
+    "web": false,
+    "plugins": false,
+    "prompt_test_content_exposure": 0,
+    "exact_candidate_state_and_feedback_binding": true,
+    "source_tree_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "verification_summary_sha256": "95833895710fc06a0cc6a924a04cf7085e574f2c371995602e1caa7203fbbdeb",
+    "matrix_runner_receipt_sha256": "74a76f11a1932168be846ba25cb6a0864827181b1d2a8fda215ddce8751b8a0d",
+    "contract_sha256": "2df4d09e93edf7141bb4230a8cfbad2440f10aac7fad64df80ccaa79817f07cd",
+    "preflight_receipt_sha256": "2b61058f031c5518d5a344f9a2da9f29f1ecda1710e29ad2876804762c0d850d"
+  },
+  "cleanup": {
+    "local_proxy_stopped": true,
+    "modal_scorer_app": "ap-Vap2d9R7zUyTt5afZKEZS0",
+    "modal_scorer_stopped": true,
+    "active_paid_compute": false
+  }
+}

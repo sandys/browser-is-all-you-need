@@ -1,0 +1,64 @@
+The build errors occur because `maximum_value` is not declared or implemented. I added the expected function to the `knapsack` namespace and implemented a 0/1 knapsack dynamic-programming solution. Each item is considered at most once, and items heavier than the capacity are ignored.
+
+knapsack.h
+```
+#ifndef KNAPSACK_H
+#define KNAPSACK_H
+
+#include <vector>
+
+namespace knapsack
+{
+
+struct Item
+{
+    int weight;
+    int value;
+};
+
+int maximum_value(int maximum_weight, const std::vector<Item>& items);
+
+} // namespace knapsack
+
+#endif // KNAPSACK_H
+```
+
+knapsack.cpp
+```
+#include "knapsack.h"
+
+#include <algorithm>
+#include <vector>
+
+namespace knapsack
+{
+
+int maximum_value(int maximum_weight, const std::vector<Item>& items)
+{
+    if (maximum_weight <= 0)
+    {
+        return 0;
+    }
+
+    std::vector<int> best_values(maximum_weight + 1, 0);
+
+    for (const Item& item : items)
+    {
+        if (item.weight <= 0 || item.weight > maximum_weight)
+        {
+            continue;
+        }
+
+        for (int capacity = maximum_weight; capacity >= item.weight; --capacity)
+        {
+            best_values[capacity] = std::max(
+                best_values[capacity],
+                best_values[capacity - item.weight] + item.value);
+        }
+    }
+
+    return best_values[maximum_weight];
+}
+
+} // namespace knapsack
+```

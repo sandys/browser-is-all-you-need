@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "phone_number.cpp",
+      "sha256": "c0e907842cd78542537b6d2fbdc39b9f0c56022bcf77ec0da68488c310cedfa0",
+      "size": 1096
+    },
+    {
+      "path": "phone_number.h",
+      "sha256": "9fc97c06da837eeb7ab1a76ff1df30edc5cfa476e54a5820568aa7bdc621e457",
+      "size": 309
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 7.29480504989624,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.4s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatephone-number/build\n[ 25%] Building CXX object CMakeFiles/phone-number.dir/phone_number_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/phone-number.dir/phone_number.cpp.o\n[ 75%] Building CXX object CMakeFiles/phone-number.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable phone-number\n[100%] Built target phone-number\n===============================================================================\nAll tests passed (18 assertions in 18 test cases)\n\n[100%] Built target test_phone-number\n",
+  "output_sha256": "d2599c9d5b43b101ab047ef0889a69a4f5eb80ad111fdf054d6b5ee69fdd73c4",
+  "request_id": "phone-number-1785913936110497000-b7b94f507487",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "phone-number"
+}

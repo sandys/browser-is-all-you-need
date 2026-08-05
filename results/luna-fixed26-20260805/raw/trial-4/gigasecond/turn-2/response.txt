@@ -1,0 +1,30 @@
+The compilation errors occur because the tests pass `boost::posix_time::ptime`, while the current function accepts `std::chrono::system_clock::time_point`. The function signature must use Boost’s `ptime`, matching the tests. The CMake warnings are unrelated to these source errors.
+
+gigasecond.h
+```
+#if !defined(GIGASECOND_H)
+#define GIGASECOND_H
+
+#include <boost/date_time/posix_time/posix_time.hpp>
+
+namespace gigasecond {
+
+boost::posix_time::ptime advance(boost::posix_time::ptime time);
+
+}  // namespace gigasecond
+
+#endif  // GIGASECOND_H
+```
+
+gigasecond.cpp
+```
+#include "gigasecond.h"
+
+namespace gigasecond {
+
+boost::posix_time::ptime advance(boost::posix_time::ptime time) {
+    return time + boost::posix_time::seconds(1000000000);
+}
+
+}  // namespace gigasecond
+```

@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "meetup.cpp",
+      "sha256": "788f02c7cae1b4f76ea863afc5ed7355063355c51466de5706de5aca1da75684",
+      "size": 1830
+    },
+    {
+      "path": "meetup.h",
+      "sha256": "0c2e72a2ae7d339313e52597f7b3148d4723c608ed0e0a3a8fb36d5bc3be1bf8",
+      "size": 451
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 2.444658041000366,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\nCMake Warning (policy) at CMakeLists.txt:13 (find_package):\n  Policy CMP0167 is not set: The FindBoost module is removed.  Run \"cmake\n  --help-policy CMP0167\" for policy details.  Use the cmake_policy command to\n  set the policy and suppress this warning.\nThis warning is for project developers.  Use -Wno-author or -Wno-policy to\nsuppress it.\n\n-- Found Boost: /opt/homebrew/opt/boost/lib/cmake/Boost-1.90.0/BoostConfig.cmake (found suitable version \"1.90.0\", minimum required is \"1.58\") found components: date_time\n-- Configuring done (0.6s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatemeetup/build\n[ 25%] Building CXX object CMakeFiles/meetup.dir/meetup_test.cpp.o\nIn file included from /privatemeetup/meetup_test.cpp:1:\n/privatemeetup/meetup.h:13:9: error: no type named 'weekdays' in namespace 'boost::gregorian'; did you mean 'boost::date_time::weekdays'?\n   13 |         boost::gregorian::weekdays weekday,\n      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~\n      |         boost::date_time::weekdays\n/opt/homebrew/Cellar/boost/1.90.0_1/include/boost/date_time/date_defs.hpp:17:8: note: 'boost::date_time::weekdays' declared here\n   17 |   enum weekdays {Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday};\n      |        ^\nIn file included from /privatemeetup/meetup_test.cpp:1:\n/privatemeetup/meetup.h:14:27: error: no type named 'nth_week_of_month' in namespace 'boost::gregorian'; did you mean 'nth_kday_of_month'?\n   14 |         boost::gregorian::nth_week_of_month week) const;\n      |         ~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~\n      |                           nth_kday_of_month\n/opt/homebrew/Cellar/boost/1.90.0_1/include/boost/date_time/gregorian/gregorian_types.hpp:53:46: note: 'nth_kday_of_month' declared here\n   53 |   typedef date_time::nth_kday_of_month<date> nth_kday_of_month;\n      |                                              ^\n/privatemeetup/meetup_test.cpp:20:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   20 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:20:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   20 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:20:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   20 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:29:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   29 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:29:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   29 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:29:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   29 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:37:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   37 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:37:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   37 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:37:32: error: no member named 'monteenth' in 'meetup::scheduler'\n   37 |     REQUIRE(expected == meetup.monteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:45:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   45 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:45:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   45 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:45:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   45 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:53:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   53 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:53:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   53 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:53:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   53 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:61:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   61 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\n/privatemeetup/meetup_test.cpp:61:32: error: no member named 'tuesteenth' in 'meetup::scheduler'\n   61 |     REQUIRE(expected == meetup.tuesteenth());\n      |                         ~~~~~~ ^\nfatal error: too many errors emitted, stopping now [-ferror-limit=]\n20 errors generated.\nmake[2]: *** [CMakeFiles/meetup.dir/meetup_test.cpp.o] Error 1\nmake[1]: *** [CMakeFiles/meetup.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "fc0a26566943c267f68e8cbb7e05c4cbb5adcbe58b404326c3c12a2e3fe2fb6d",
+  "request_id": "meetup-1785913959456151000-41bab68f3f0b",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "meetup"
+}

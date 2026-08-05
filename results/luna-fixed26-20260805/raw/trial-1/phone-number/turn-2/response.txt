@@ -1,0 +1,76 @@
+The tests expect a `phone_number` class rather than the previously implemented free `clean` function. The class below:
+
+- Provides the expected `phone_number` constructor.
+- Provides `number()`.
+- Removes formatting characters.
+- Rejects alphabetic characters and invalid lengths.
+- Accepts an 11-digit number only when it starts with country code `1`.
+- Validates that the area code and exchange code start with digits `2–9`.
+- Throws `std::domain_error` for invalid numbers.
+
+phone_number.h
+```
+#if !defined(PHONE_NUMBER_H)
+#define PHONE_NUMBER_H
+
+#include <string>
+
+namespace phone_number {
+
+class phone_number {
+public:
+    explicit phone_number(const std::string& input);
+
+    std::string number() const;
+
+private:
+    std::string phone_number_;
+};
+
+}  // namespace phone_number
+
+#endif  // PHONE_NUMBER_H
+```
+
+phone_number.cpp
+```
+#include "phone_number.h"
+
+#include <cctype>
+#include <stdexcept>
+#include <string>
+
+namespace phone_number {
+
+phone_number::phone_number(const std::string& input) {
+    for (unsigned char character : input) {
+        if (std::isdigit(character)) {
+            phone_number_ += static_cast<char>(character);
+        } else if (std::isalpha(character)) {
+            throw std::domain_error("Phone number contains letters");
+        }
+    }
+
+    if (phone_number_.size() == 11) {
+        if (phone_number_[0] != '1') {
+            throw std::domain_error("Invalid country code");
+        }
+        phone_number_.erase(0, 1);
+    }
+
+    if (phone_number_.size() != 10) {
+        throw std::domain_error("Invalid phone number length");
+    }
+
+    if (phone_number_[0] < '2' || phone_number_[0] > '9' ||
+        phone_number_[3] < '2' || phone_number_[3] > '9') {
+        throw std::domain_error("Invalid area or exchange code");
+    }
+}
+
+std::string phone_number::number() const {
+    return phone_number_;
+}
+
+}  // namespace phone_number
+```
