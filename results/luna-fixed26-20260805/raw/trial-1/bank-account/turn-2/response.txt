@@ -1,0 +1,72 @@
+The failures are caused by:
+
+- `open()` reopening an already-open account instead of throwing.
+- Negative deposits and withdrawals throwing `std::invalid_argument` while the tests require `std::runtime_error`.
+
+The header does not need changes. The updated implementation remains thread-safe.
+
+bank_account.cpp
+```cpp
+#include "bank_account.h"
+
+#include <stdexcept>
+
+namespace Bankaccount {
+
+void Bankaccount::open() {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  if (is_open_) {
+    throw std::runtime_error("Bank account is already open");
+  }
+
+  balance_ = 0;
+  is_open_ = true;
+}
+
+void Bankaccount::close() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ensure_open();
+  is_open_ = false;
+}
+
+int Bankaccount::balance() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ensure_open();
+  return balance_;
+}
+
+void Bankaccount::deposit(int amount) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ensure_open();
+
+  if (amount < 0) {
+    throw std::runtime_error("Deposit amount cannot be negative");
+  }
+
+  balance_ += amount;
+}
+
+void Bankaccount::withdraw(int amount) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ensure_open();
+
+  if (amount < 0) {
+    throw std::runtime_error("Withdrawal amount cannot be negative");
+  }
+
+  if (amount > balance_) {
+    throw std::runtime_error("Insufficient funds");
+  }
+
+  balance_ -= amount;
+}
+
+void Bankaccount::ensure_open() const {
+  if (!is_open_) {
+    throw std::runtime_error("Bank account is closed");
+  }
+}
+
+}  // namespace Bankaccount
+```

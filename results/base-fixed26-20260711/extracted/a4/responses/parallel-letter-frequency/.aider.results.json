@@ -1,0 +1,43 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-19-19-25-51--glm47-aider-signal-v3-sft-eval-20260719-full/cpp/exercises/practice/parallel-letter-frequency",
+    "testcase": "parallel-letter-frequency",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 168.51870846748352,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 2,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 13577,
+    "completion_tokens": 8974,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "e6454e3c42c1c2891cf83401f9f0cb1b3c47d393"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "76da4dd8e0a81b6992a7ab7992e4802193777cf0"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "4ea1296d1aae507cf7e2004cb221638a4c60b939"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c5e841f3db541b1a5d18a3d0d46e88d7fadcf024"
+        ]
+    ]
+}

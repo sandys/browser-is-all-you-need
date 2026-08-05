@@ -1,0 +1,85 @@
+The build fails because the tests call `dnd_character::modifier(score)` as a namespace-level function, while the current code only defines `Character::modifier(score)` as a member function. I added the required namespace-level function and made the existing member function delegate to it.
+
+The CMake deprecation warning is unrelated to the compilation failure.
+
+dnd_character.h
+```
+#pragma once
+
+namespace dnd_character {
+
+int modifier(int score);
+
+class Character {
+public:
+    Character();
+
+    int ability();
+    int modifier(int score);
+    int hitpoints();
+
+private:
+    int constitution_;
+};
+
+}  // namespace dnd_character
+```
+
+dnd_character.cpp
+```
+#include "dnd_character.h"
+
+#include <algorithm>
+#include <cmath>
+#include <random>
+
+namespace dnd_character {
+namespace {
+
+int roll_ability() {
+    static std::random_device device;
+    static std::mt19937 generator(device());
+    static std::uniform_int_distribution<int> die(1, 6);
+
+    int rolls[4];
+    for (int& roll : rolls) {
+        roll = die(generator);
+    }
+
+    const int lowest = *std::min_element(std::begin(rolls), std::end(rolls));
+
+    int total = 0;
+    bool discarded = false;
+    for (const int roll : rolls) {
+        if (roll == lowest && !discarded) {
+            discarded = true;
+        } else {
+            total += roll;
+        }
+    }
+
+    return total;
+}
+
+}  // namespace
+
+Character::Character() : constitution_(roll_ability()) {}
+
+int Character::ability() {
+    return roll_ability();
+}
+
+int modifier(int score) {
+    return static_cast<int>(std::floor((score - 10) / 2.0));
+}
+
+int Character::modifier(int score) {
+    return dnd_character::modifier(score);
+}
+
+int Character::hitpoints() {
+    return 10 + dnd_character::modifier(constitution_);
+}
+
+}  // namespace dnd_character
+```

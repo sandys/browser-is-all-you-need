@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "sublist.cpp",
+      "sha256": "df8318a68011b9412a2515536decdf6578c6b42b43029a3b083b2e0d5d568051",
+      "size": 815
+    },
+    {
+      "path": "sublist.h",
+      "sha256": "00568589e409593f2fcfea19de259c54bd01d95fba392470cbca3726614a469b",
+      "size": 280
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 6.658529043197632,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.5s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatesublist/build\n[ 25%] Building CXX object CMakeFiles/sublist.dir/sublist_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/sublist.dir/sublist.cpp.o\n[ 75%] Building CXX object CMakeFiles/sublist.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable sublist\n[100%] Built target sublist\n===============================================================================\nAll tests passed (18 assertions in 18 test cases)\n\n[100%] Built target test_sublist\n",
+  "output_sha256": "ea5d14143e42457d67ecf76e5c32c0402f8405967073dd75ef9f850de999b355",
+  "request_id": "sublist-1785913829788265000-621dbcbe5cdf",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "sublist"
+}

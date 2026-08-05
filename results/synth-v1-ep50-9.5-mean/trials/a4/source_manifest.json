@@ -1,0 +1,34 @@
+{
+  "adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+  "checkpoint_iteration": 649,
+  "epochs": 50,
+  "eval_set_version": "fixed26-contract-v2",
+  "exclusions": [
+    "benchmark source trees",
+    "test fixtures",
+    "hidden tests",
+    "grader/oracle material"
+  ],
+  "files": {
+    "responses.tar.gz": {
+      "sha256": "84d477be81f9ba9983f3aec3845527f17a56f46cd3264cad14ed4b5bda35866b",
+      "size_bytes": 180122
+    },
+    "run_receipt.json": {
+      "sha256": "3f18f4a9cb2ae87cb782aba08ad9cae6983fc619e70bce0bcb3b4eed0e88856c",
+      "size_bytes": 89865
+    }
+  },
+  "group": "epoch-50-turn-2-error-feedback",
+  "kind": "fixed26-synth-memorization-eval-attempt",
+  "multi_turn_with_error_feedback_at_2": 12,
+  "pass_at_1": 9,
+  "response_history_files": 26,
+  "response_result_files": 26,
+  "run_id": "glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a4",
+  "schema_version": 1,
+  "status": "complete",
+  "task_count": 26,
+  "training_data_manifest_sha256": "afec0d05d5c1f9460ac9b2ed4e65aea69775b49639c7ae727f3660308ae1b8b8",
+  "tries": 2
+}

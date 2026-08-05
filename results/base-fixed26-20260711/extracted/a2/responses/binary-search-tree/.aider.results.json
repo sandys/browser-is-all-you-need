@@ -1,0 +1,59 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-07-59-39--glm47-aider-v1-sft-eval-20260718-full/cpp/exercises/practice/binary-search-tree",
+    "testcase": "binary-search-tree",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 622.4783365726471,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 8,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 66402,
+    "completion_tokens": 39631,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "14a68bcfb62d4b00dcc377e5db46c23925ccd951"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "14a68bcfb62d4b00dcc377e5db46c23925ccd951"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "14a68bcfb62d4b00dcc377e5db46c23925ccd951"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "14a68bcfb62d4b00dcc377e5db46c23925ccd951"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "416a8067ed7c9579484d0b963477948f38d08143"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c37812648b0436387707db6166a854c11fcad115"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "7b952be1c41e2601248146fb38861ecabff819a2"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "f081da32abb64768ca803e77f70283bb32d39f86"
+        ]
+    ]
+}

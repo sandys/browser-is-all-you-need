@@ -1,0 +1,72 @@
+The files need to define the `grade_school::school` class with methods to add students, retrieve a grade, and retrieve the complete sorted roster. Duplicate student names are rejected, and students are kept alphabetically sorted within each grade.
+
+grade_school.h
+```
+#if !defined(GRADE_SCHOOL_H)
+#define GRADE_SCHOOL_H
+
+#include <map>
+#include <string>
+#include <vector>
+
+namespace grade_school {
+
+class school {
+public:
+    using roster_t = std::map<int, std::vector<std::string>>;
+
+    bool add(const std::string& name, int grade);
+    std::vector<std::string> grade(int grade) const;
+    roster_t roster() const;
+
+private:
+    roster_t students_;
+};
+
+}  // namespace grade_school
+
+#endif  // GRADE_SCHOOL_H
+```
+
+grade_school.cpp
+```
+#include "grade_school.h"
+
+#include <algorithm>
+
+namespace grade_school {
+
+bool school::add(const std::string& name, int grade_number)
+{
+    for (const auto& [existing_grade, students] : students_) {
+        if (std::find(students.begin(), students.end(), name) != students.end()) {
+            return false;
+        }
+    }
+
+    auto& students_in_grade = students_[grade_number];
+    auto position = std::lower_bound(
+        students_in_grade.begin(), students_in_grade.end(), name);
+    students_in_grade.insert(position, name);
+
+    return true;
+}
+
+std::vector<std::string> school::grade(int grade_number) const
+{
+    const auto iterator = students_.find(grade_number);
+
+    if (iterator == students_.end()) {
+        return {};
+    }
+
+    return iterator->second;
+}
+
+school::roster_t school::roster() const
+{
+    return students_;
+}
+
+}  // namespace grade_school
+```

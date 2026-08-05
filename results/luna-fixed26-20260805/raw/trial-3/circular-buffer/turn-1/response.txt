@@ -1,0 +1,98 @@
+Implemented a templated circular buffer with:
+
+- Fixed capacity
+- FIFO reads
+- Errors when reading empty or writing to a full buffer
+- Forced overwrites that replace the oldest values
+- Proper reuse of freed slots
+- A `clear()` operation
+- Standard-library-only dependencies
+
+The implementation is header-only for template compatibility; the `.cpp` file remains as the namespace translation unit.
+
+circular_buffer.h
+```
+#if !defined(CIRCULAR_BUFFER_H)
+#define CIRCULAR_BUFFER_H
+
+#include <cstddef>
+#include <stdexcept>
+#include <vector>
+
+namespace circular_buffer {
+
+template <typename T>
+class circular_buffer {
+public:
+    explicit circular_buffer(std::size_t capacity)
+        : buffer_(capacity),
+          read_index_(0),
+          write_index_(0),
+          size_(0) {}
+
+    T read() {
+        if (size_ == 0) {
+            throw std::domain_error("Circular buffer is empty");
+        }
+
+        T value = buffer_[read_index_];
+        read_index_ = next_index(read_index_);
+        --size_;
+        return value;
+    }
+
+    void write(T value) {
+        if (size_ == buffer_.size()) {
+            throw std::domain_error("Circular buffer is full");
+        }
+
+        buffer_[write_index_] = value;
+        write_index_ = next_index(write_index_);
+        ++size_;
+    }
+
+    void overwrite(T value) {
+        if (buffer_.empty()) {
+            throw std::domain_error("Circular buffer has no capacity");
+        }
+
+        buffer_[write_index_] = value;
+        write_index_ = next_index(write_index_);
+
+        if (size_ == buffer_.size()) {
+            read_index_ = next_index(read_index_);
+        } else {
+            ++size_;
+        }
+    }
+
+    void clear() {
+        read_index_ = 0;
+        write_index_ = 0;
+        size_ = 0;
+    }
+
+private:
+    std::size_t next_index(std::size_t index) const {
+        return (index + 1) % buffer_.size();
+    }
+
+    std::vector<T> buffer_;
+    std::size_t read_index_;
+    std::size_t write_index_;
+    std::size_t size_;
+};
+
+}  // namespace circular_buffer
+
+#endif // CIRCULAR_BUFFER_H
+```
+
+circular_buffer.cpp
+```
+#include "circular_buffer.h"
+
+namespace circular_buffer {
+
+}  // namespace circular_buffer
+```

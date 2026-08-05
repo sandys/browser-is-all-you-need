@@ -1,0 +1,128 @@
+{
+  "call_id": "call-000040-4ff809e7e638",
+  "duration_seconds": 29.473117,
+  "feedback_authorization": {
+    "candidate_state_message_index": 9,
+    "feedback_output_sha256": "82f8e7bf0fcbacf54170c6e1683e323884d061c98fd99fd2e190dc6f320f39b0",
+    "matched_candidate_files": [
+      {
+        "path": "diamond.cpp",
+        "sha256": "e1c9ba8d0f5684d57b9a21944764f97cb14f15a77ac8ae33c7b44867d8c78485",
+        "size": 713
+      },
+      {
+        "path": "diamond.h",
+        "sha256": "598f4b10072417d03e1edc8c523b4856f12802b294f16e82537a6e58205fadd1",
+        "size": 149
+      }
+    ],
+    "matched_scorer_receipts": [
+      {
+        "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a3/diamond-1785913779247656000-d2363d0ee0d0.json",
+        "request_id": "diamond-1785913779247656000-d2363d0ee0d0",
+        "sha256": "ca303a8712a49263404bdd1748f3c9031ddaf3761efd0e6f84b783c8c3677be0"
+      }
+    ],
+    "present": true,
+    "status": "authorized",
+    "task": "diamond"
+  },
+  "http_status": 200,
+  "kind": "luna-low-openrouter-strict-one-shot-call",
+  "leak_audit": {
+    "feedback_authorization": {
+      "candidate_state_message_index": 9,
+      "feedback_output_sha256": "82f8e7bf0fcbacf54170c6e1683e323884d061c98fd99fd2e190dc6f320f39b0",
+      "matched_candidate_files": [
+        {
+          "path": "diamond.cpp",
+          "sha256": "e1c9ba8d0f5684d57b9a21944764f97cb14f15a77ac8ae33c7b44867d8c78485",
+          "size": 713
+        },
+        {
+          "path": "diamond.h",
+          "sha256": "598f4b10072417d03e1edc8c523b4856f12802b294f16e82537a6e58205fadd1",
+          "size": 149
+        }
+      ],
+      "matched_scorer_receipts": [
+        {
+          "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a3/diamond-1785913779247656000-d2363d0ee0d0.json",
+          "request_id": "diamond-1785913779247656000-d2363d0ee0d0",
+          "sha256": "ca303a8712a49263404bdd1748f3c9031ddaf3761efd0e6f84b783c8c3677be0"
+        }
+      ],
+      "present": true,
+      "status": "authorized",
+      "task": "diamond"
+    },
+    "hidden_corpus_sha256": "089653d6ccb5e7531bddeb60ba9c0838eba746afb94b6811810468d3fa742529",
+    "hidden_excerpt_count": 196430,
+    "hidden_file_count": 152,
+    "hidden_filename_count": 30,
+    "message_count": 12,
+    "message_roles": [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ],
+    "prompt_chars": 2914,
+    "prompt_sha256": "a52ad59a4716743e5e3777d9f0a7f9b8364e8c18a72a6330f97af596f5c7cd1a",
+    "status": "passed",
+    "violations": []
+  },
+  "model_requested": "openai/gpt-5.6-luna",
+  "model_returned": "openai/gpt-5.6-luna",
+  "plugins_present": false,
+  "provider_data_collection": "deny",
+  "provider_fallbacks_allowed": false,
+  "provider_requires_parameters": true,
+  "provider_returned": "OpenAI",
+  "provider_zdr_required": false,
+  "reasoning_effort": "medium",
+  "reasoning_excluded_from_response": true,
+  "request_sha256": "4ff809e7e63807718b074ec2009a15ed36f7e1dafbfded7925b7b1605aaec06c",
+  "response_headers": {
+    "content-type": "application/json",
+    "date": "Wed, 05 Aug 2026 07:10:07 GMT"
+  },
+  "response_sha256": "c9d552de4b765dc7effdf3e7fc0648a2948add6e02ceda3d5326c005be9a3c13",
+  "schema_version": 1,
+  "status": "accepted",
+  "tools_present": false,
+  "upstream_http_attempts": 1,
+  "usage": {
+    "completion_tokens": 440,
+    "completion_tokens_details": {
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "reasoning_tokens": 101
+    },
+    "cost": 0.0005846445,
+    "cost_details": {
+      "upstream_inference_completions_cost": 0.000264,
+      "upstream_inference_cost": 0.00059055,
+      "upstream_inference_prompt_cost": 0.00032655
+    },
+    "is_byok": false,
+    "prompt_tokens": 2613,
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cache_write_tokens": 2610,
+      "cached_tokens": 0,
+      "video_tokens": 0
+    },
+    "total_tokens": 3053
+  },
+  "violations": [],
+  "web_search_enabled": false
+}

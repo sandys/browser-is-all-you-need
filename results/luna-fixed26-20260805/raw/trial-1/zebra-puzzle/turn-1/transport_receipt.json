@@ -1,0 +1,78 @@
+{
+  "call_id": "call-000144-000ab4b1469e",
+  "duration_seconds": 28.036221,
+  "feedback_authorization": {
+    "present": false
+  },
+  "http_status": 200,
+  "kind": "luna-low-openrouter-strict-one-shot-call",
+  "leak_audit": {
+    "feedback_authorization": {
+      "present": false
+    },
+    "hidden_corpus_sha256": "089653d6ccb5e7531bddeb60ba9c0838eba746afb94b6811810468d3fa742529",
+    "hidden_excerpt_count": 196430,
+    "hidden_file_count": 152,
+    "hidden_filename_count": 30,
+    "message_count": 8,
+    "message_roles": [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ],
+    "prompt_chars": 5366,
+    "prompt_sha256": "ce2a3e3211f0dce417f17ed30fec4fb27c49cd1c68ce0097c58bf10275467a1f",
+    "status": "passed",
+    "violations": []
+  },
+  "model_requested": "openai/gpt-5.6-luna",
+  "model_returned": "openai/gpt-5.6-luna",
+  "plugins_present": false,
+  "provider_data_collection": "deny",
+  "provider_fallbacks_allowed": false,
+  "provider_requires_parameters": true,
+  "provider_returned": "OpenAI",
+  "provider_zdr_required": false,
+  "reasoning_effort": "medium",
+  "reasoning_excluded_from_response": true,
+  "request_sha256": "000ab4b1469eac066aac6b00407b0a322bb247c065d4aeab6747ff7836e54289",
+  "response_headers": {
+    "content-type": "application/json",
+    "date": "Wed, 05 Aug 2026 07:11:57 GMT"
+  },
+  "response_sha256": "0cefd15fa5bf78cdd177e9066d4bb44065143a1afc55aa58fe3faf67fbc0854c",
+  "schema_version": 1,
+  "status": "accepted",
+  "tools_present": false,
+  "upstream_http_attempts": 1,
+  "usage": {
+    "completion_tokens": 428,
+    "completion_tokens_details": {
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "reasoning_tokens": 255
+    },
+    "cost": 0.0002668842,
+    "cost_details": {
+      "upstream_inference_completions_cost": 0.0002568,
+      "upstream_inference_cost": 0.00026958,
+      "upstream_inference_prompt_cost": 1.278e-05
+    },
+    "is_byok": false,
+    "prompt_tokens": 1251,
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cache_write_tokens": 0,
+      "cached_tokens": 1248,
+      "video_tokens": 0
+    },
+    "total_tokens": 1679
+  },
+  "violations": [],
+  "web_search_enabled": false
+}

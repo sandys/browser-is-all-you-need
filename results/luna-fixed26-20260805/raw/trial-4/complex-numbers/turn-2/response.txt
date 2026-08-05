@@ -1,0 +1,141 @@
+The build fails because the tests expect a class named `complex_numbers::Complex` with methods such as `real()`, `imag()`, `norm()`, and `exponent()`. The current implementation instead defines `complex_number` and uses different accessor names.
+
+The files below provide the expected `Complex` API while retaining `complex_number` as an alias for compatibility.
+
+complex_numbers.h
+```
+#if !defined(COMPLEX_NUMBERS_H)
+#define COMPLEX_NUMBERS_H
+
+namespace complex_numbers {
+
+class Complex {
+public:
+    Complex(double real, double imaginary);
+
+    double real() const;
+    double imag() const;
+
+    Complex conjugate() const;
+    double abs() const;
+    double norm() const;
+    Complex exponent() const;
+
+    Complex operator+(const Complex& other) const;
+    Complex operator-(const Complex& other) const;
+    Complex operator*(const Complex& other) const;
+    Complex operator/(const Complex& other) const;
+
+    double real_part() const;
+    double imaginary_part() const;
+    double absolute_value() const;
+    Complex exp() const;
+    Complex exponential() const;
+
+private:
+    double real_;
+    double imaginary_;
+};
+
+using complex_number = Complex;
+
+bool operator==(const Complex& lhs, const Complex& rhs);
+bool operator!=(const Complex& lhs, const Complex& rhs);
+
+}  // namespace complex_numbers
+
+#endif  // COMPLEX_NUMBERS_H
+```
+
+complex_numbers.cpp
+```
+#include "complex_numbers.h"
+
+#include <cmath>
+
+namespace complex_numbers {
+
+Complex::Complex(double real, double imaginary)
+    : real_(real), imaginary_(imaginary) {
+}
+
+double Complex::real() const {
+    return real_;
+}
+
+double Complex::imag() const {
+    return imaginary_;
+}
+
+Complex Complex::conjugate() const {
+    return Complex(real_, -imaginary_);
+}
+
+double Complex::abs() const {
+    return std::hypot(real_, imaginary_);
+}
+
+double Complex::norm() const {
+    return real_ * real_ + imaginary_ * imaginary_;
+}
+
+Complex Complex::exponent() const {
+    const double real_exponential = std::exp(real_);
+
+    return Complex(
+        real_exponential * std::cos(imaginary_),
+        real_exponential * std::sin(imaginary_));
+}
+
+Complex Complex::operator+(const Complex& other) const {
+    return Complex(real_ + other.real_, imaginary_ + other.imaginary_);
+}
+
+Complex Complex::operator-(const Complex& other) const {
+    return Complex(real_ - other.real_, imaginary_ - other.imaginary_);
+}
+
+Complex Complex::operator*(const Complex& other) const {
+    return Complex(
+        real_ * other.real_ - imaginary_ * other.imaginary_,
+        real_ * other.imaginary_ + imaginary_ * other.real_);
+}
+
+Complex Complex::operator/(const Complex& other) const {
+    const double denominator = other.norm();
+
+    return Complex(
+        (real_ * other.real_ + imaginary_ * other.imaginary_) / denominator,
+        (imaginary_ * other.real_ - real_ * other.imaginary_) / denominator);
+}
+
+double Complex::real_part() const {
+    return real();
+}
+
+double Complex::imaginary_part() const {
+    return imag();
+}
+
+double Complex::absolute_value() const {
+    return abs();
+}
+
+Complex Complex::exp() const {
+    return exponent();
+}
+
+Complex Complex::exponential() const {
+    return exponent();
+}
+
+bool operator==(const Complex& lhs, const Complex& rhs) {
+    return lhs.real() == rhs.real() && lhs.imag() == rhs.imag();
+}
+
+bool operator!=(const Complex& lhs, const Complex& rhs) {
+    return !(lhs == rhs);
+}
+
+}  // namespace complex_numbers
+```

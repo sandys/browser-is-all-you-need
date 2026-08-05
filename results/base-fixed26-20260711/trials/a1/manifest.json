@@ -1,0 +1,36 @@
+{
+  "benchmark": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "name": "Aider Polyglot C++ fixed-26",
+    "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "tasks": 26,
+    "tries": 2
+  },
+  "checkpoint": "zai-org/GLM-4.7-Flash@7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+  "eval_id": "base-fixed26-20260711",
+  "exclusions": [
+    "benchmark source trees",
+    "test fixtures",
+    "hidden tests",
+    "grader/oracle material"
+  ],
+  "files": {
+    "responses.tar.gz": {
+      "sha256": "dd26f2ef196084dbee03e8495f952bcba1f32fadf576c26533c86a7607123e43",
+      "size_bytes": 323191
+    },
+    "run_receipt.json": {
+      "sha256": "9e91376a9f71824018fb056d6df7790f791b12c066af69eb54ae8a2b2b2238fa",
+      "size_bytes": 3328
+    }
+  },
+  "history_files": 26,
+  "kind": "glm47-aider-fixed26-response-corpus",
+  "pass_at_1": 0,
+  "pass_at_2": 4,
+  "result_files": 26,
+  "schema_version": 1,
+  "source": "glm47-flash-aider-cpp-20260711192046",
+  "source_kind": "modal",
+  "task_count": 26
+}

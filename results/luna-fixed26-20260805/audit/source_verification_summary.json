@@ -1,0 +1,103 @@
+{
+  "accepted_transport_calls": 184,
+  "attempt_count": 4,
+  "attempts": [
+    {
+      "label": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a1",
+      "malformed_responses": 1,
+      "modal_score_receipts": 46,
+      "model_calls": 46,
+      "model_error_outputs": 1,
+      "pass_cumulative": 18,
+      "pass_turn_1": 6,
+      "tasks": 26,
+      "tries": 2
+    },
+    {
+      "label": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2",
+      "malformed_responses": 4,
+      "modal_score_receipts": 47,
+      "model_calls": 47,
+      "model_error_outputs": 4,
+      "pass_cumulative": 16,
+      "pass_turn_1": 5,
+      "tasks": 26,
+      "tries": 2
+    },
+    {
+      "label": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a3",
+      "malformed_responses": 1,
+      "modal_score_receipts": 47,
+      "model_calls": 47,
+      "model_error_outputs": 1,
+      "pass_cumulative": 15,
+      "pass_turn_1": 5,
+      "tasks": 26,
+      "tries": 2
+    },
+    {
+      "label": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a4",
+      "malformed_responses": 1,
+      "modal_score_receipts": 43,
+      "model_calls": 43,
+      "model_error_outputs": 1,
+      "pass_cumulative": 18,
+      "pass_turn_1": 9,
+      "tasks": 26,
+      "tries": 2
+    }
+  ],
+  "authorized_feedback_calls": 79,
+  "benchmark_transport_calls": 183,
+  "contract": "pristine-original-v1",
+  "feedback_only": true,
+  "feedback_turn_2": {
+    "cumulative_mean": 16.75,
+    "cumulative_scores": [
+      18,
+      16,
+      15,
+      18
+    ],
+    "turn_1_mean": 6.25,
+    "turn_1_scores": [
+      6,
+      5,
+      5,
+      9
+    ]
+  },
+  "identity_smoke_calls": 1,
+  "kind": "gpt56-luna-low-fixed26-verification-summary",
+  "local_rejected_preflight_calls": 0,
+  "local_rejected_preflight_receipts": [],
+  "malformed_responses": 7,
+  "modal_score_receipts": 183,
+  "model": "gpt-5.6-luna",
+  "model_error_outputs": 7,
+  "reasoning_effort": "medium",
+  "runner_receipt_sha256": "74a76f11a1932168be846ba25cb6a0864827181b1d2a8fda215ddce8751b8a0d",
+  "schema_version": 1,
+  "scored_candidate_attempts": 183,
+  "single_only": false,
+  "single_turn": {
+    "mean": null,
+    "scores": []
+  },
+  "source_tree_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+  "status": "passed",
+  "strict_one_shot": true,
+  "tasks_per_attempt": 26,
+  "test_timeouts": 0,
+  "total_usage": {
+    "completion_tokens": 173651,
+    "cost": 0.17041655070000006,
+    "prompt_tokens": 640677,
+    "total_tokens": 814328
+  },
+  "transport": "openrouter",
+  "transport_call_receipts": 184,
+  "transport_timeouts": 0,
+  "transport_violations": 0,
+  "verified_at_utc": "2026-08-05T07:13:12.004915+00:00"
+}

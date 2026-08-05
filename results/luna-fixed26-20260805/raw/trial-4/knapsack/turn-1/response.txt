@@ -1,0 +1,64 @@
+The supplied files do not currently declare a function for solving the problem. I’ll add the conventional `knapsack::maximum_value` API, using 0/1 dynamic programming so each item can be selected at most once.
+
+knapsack.h
+```
+#ifndef KNAPSACK_H
+#define KNAPSACK_H
+
+#include <vector>
+
+namespace knapsack
+{
+
+struct Item
+{
+    int weight;
+    int value;
+};
+
+int maximum_value(int maximum_weight, const std::vector<Item>& items);
+
+} // namespace knapsack
+
+#endif // KNAPSACK_H
+```
+
+knapsack.cpp
+```
+#include "knapsack.h"
+
+#include <algorithm>
+#include <vector>
+
+namespace knapsack
+{
+
+int maximum_value(int maximum_weight, const std::vector<Item>& items)
+{
+    if (maximum_weight <= 0)
+    {
+        return 0;
+    }
+
+    std::vector<int> best_value(maximum_weight + 1, 0);
+
+    for (const Item& item : items)
+    {
+        if (item.weight > maximum_weight)
+        {
+            continue;
+        }
+
+        for (int capacity = maximum_weight; capacity >= item.weight; --capacity)
+        {
+            best_value[capacity] = std::max(
+                best_value[capacity],
+                best_value[capacity - item.weight] + item.value);
+        }
+    }
+
+    return best_value[maximum_weight];
+}
+
+} // namespace knapsack
+```

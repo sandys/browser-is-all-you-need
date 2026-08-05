@@ -1,0 +1,81 @@
+The errors occur because the tests expect `binary_tree` to be a class template, support generic comparable values such as `uint32_t` and `std::string`, expose `left` and `right` as `std::unique_ptr` members, and provide a `sort()` method.
+
+The CMake deprecation warning is unrelated to these compilation errors and does not require changes to the requested files.
+
+binary_search_tree.h
+```
+#if !defined(BINARY_SEARCH_TREE_H)
+#define BINARY_SEARCH_TREE_H
+
+#include <memory>
+#include <vector>
+
+namespace binary_search_tree {
+
+template <typename T>
+class binary_tree {
+public:
+    explicit binary_tree(T data)
+        : data(data), left(nullptr), right(nullptr) {}
+
+    ~binary_tree() = default;
+
+    void insert(T value) {
+        if (value <= data) {
+            if (left == nullptr) {
+                left = std::make_unique<binary_tree<T>>(value);
+            } else {
+                left->insert(value);
+            }
+        } else {
+            if (right == nullptr) {
+                right = std::make_unique<binary_tree<T>>(value);
+            } else {
+                right->insert(value);
+            }
+        }
+    }
+
+    bool exists(T value) const {
+        if (value == data) {
+            return true;
+        }
+
+        if (value <= data) {
+            return left != nullptr && left->exists(value);
+        }
+
+        return right != nullptr && right->exists(value);
+    }
+
+    std::vector<T> sort() const {
+        std::vector<T> result;
+
+        if (left != nullptr) {
+            result = left->sort();
+        }
+
+        result.push_back(data);
+
+        if (right != nullptr) {
+            const std::vector<T> right_values = right->sort();
+            result.insert(result.end(), right_values.begin(), right_values.end());
+        }
+
+        return result;
+    }
+
+    T data;
+    std::unique_ptr<binary_tree<T>> left;
+    std::unique_ptr<binary_tree<T>> right;
+};
+
+}  // namespace binary_search_tree
+
+#endif  // BINARY_SEARCH_TREE_H
+```
+
+binary_search_tree.cpp
+```
+#include "binary_search_tree.h"
+```

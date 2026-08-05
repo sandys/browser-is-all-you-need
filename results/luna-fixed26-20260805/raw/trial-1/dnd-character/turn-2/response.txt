@@ -1,0 +1,88 @@
+The build error occurs because the tests expect `dnd_character::Character`, while the header currently defines only `DndCharacter`. The header should define `Character` and retain `DndCharacter` as an alias for compatibility. The implementation must use `Character` accordingly.
+
+dnd_character.h
+```
+#pragma once
+
+namespace dnd_character {
+
+class Character {
+public:
+    Character();
+
+    int strength;
+    int dexterity;
+    int constitution;
+    int intelligence;
+    int wisdom;
+    int charisma;
+    int hitpoints;
+
+    static int ability();
+    static int modifier(int score);
+};
+
+using DndCharacter = Character;
+
+int ability();
+int modifier(int score);
+
+}  // namespace dnd_character
+```
+
+dnd_character.cpp
+```
+#include "dnd_character.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <random>
+
+namespace dnd_character {
+namespace {
+
+int roll_ability() {
+    static std::random_device device;
+    static std::mt19937 generator(device());
+    static std::uniform_int_distribution<int> die(1, 6);
+
+    std::array<int, 4> rolls{};
+    for (int& roll : rolls) {
+        roll = die(generator);
+    }
+
+    std::sort(rolls.begin(), rolls.end());
+
+    return rolls[1] + rolls[2] + rolls[3];
+}
+
+}  // namespace
+
+int ability() {
+    return roll_ability();
+}
+
+int modifier(int score) {
+    return static_cast<int>(std::floor((score - 10) / 2.0));
+}
+
+Character::Character()
+    : strength(ability()),
+      dexterity(ability()),
+      constitution(ability()),
+      intelligence(ability()),
+      wisdom(ability()),
+      charisma(ability()),
+      hitpoints(10 + modifier(constitution)) {}
+
+int Character::ability() {
+    return dnd_character::ability();
+}
+
+int Character::modifier(int score) {
+    return dnd_character::modifier(score);
+}
+
+}  // namespace dnd_character
+```

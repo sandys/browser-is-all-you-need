@@ -1,0 +1,38 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-20-22-03--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a2-shard-1/cpp/exercises/practice/queen-attack",
+    "testcase": "queen-attack",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        true
+    ],
+    "cost": 0.0,
+    "duration": 556.79656457901,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 3,
+    "num_exhausted_context_windows": 1,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 3941,
+    "completion_tokens": 3938,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "a2654644ac20c3052b5c979723e4ff89a2a40465"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "8800825f7a94797df8ef09f7c043a1210551c4ff"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

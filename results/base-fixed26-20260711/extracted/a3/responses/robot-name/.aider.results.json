@@ -1,0 +1,51 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-19-47-05--glm47-aider-1211-sft-eval-20260719-full/cpp/exercises/practice/robot-name",
+    "testcase": "robot-name",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 653.0343589782715,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 6,
+    "num_exhausted_context_windows": 1,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 17046,
+    "completion_tokens": 11960,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "8cdfada0a428e070535527946317744b261588e4"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "b93343ea832e017446967d27cba33ed824ce4fca"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "b93343ea832e017446967d27cba33ed824ce4fca"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "b93343ea832e017446967d27cba33ed824ce4fca"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "fa4885db03534968b6af7dacb2210e0d049e39f4"
+        ]
+    ]
+}

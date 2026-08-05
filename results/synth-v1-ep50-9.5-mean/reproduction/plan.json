@@ -1,0 +1,15 @@
+[
+  {
+    "checkpoint_label": "synth-v1-50ep-iter649-mt2",
+    "adapter_path": "/runs/glm47-synth-memorization-v1-100ep-20260731T071000Z/checkpoints/sft_lora_r16/iter_0000649/adapter",
+    "expected_adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+    "expected_data_manifest_sha256": "afec0d05d5c1f9460ac9b2ed4e65aea69775b49639c7ae727f3660308ae1b8b8",
+    "expected_training_phase": "sft",
+    "expected_training_task_count": 260,
+    "suite_run_id": "glm47-synth-v1-50ep-fixed26-mt2-suite-20260731T194217Z-repro",
+    "single_turn_run_id": "glm47-synth-v1-50ep-fixed26-st-unused-20260731T194217Z-repro",
+    "two_turn_run_id": "glm47-synth-v1-50ep-fixed26-mt2-20260731T194217Z-repro",
+    "single_turn_samples": 0,
+    "two_turn_samples": 4
+  }
+]

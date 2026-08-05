@@ -1,0 +1,69 @@
+The build errors are caused by an API mismatch: the tests expect `List_comparison` and `sublist(...)`, while the current implementation provides `Comparison` and `classify(...)`. The implementation below matches the expected test interface and preserves the required empty-list and contiguous-sublist behavior. The CMake deprecation warning is unrelated to these compilation errors.
+
+sublist.h
+```
+#pragma once
+
+#include <vector>
+
+namespace sublist {
+
+enum class List_comparison {
+    unequal,
+    sublist,
+    superlist,
+    equal
+};
+
+List_comparison sublist(const std::vector<int>& a,
+                        const std::vector<int>& b);
+
+}  // namespace sublist
+```
+
+sublist.cpp
+```
+#include "sublist.h"
+
+#include <algorithm>
+
+namespace sublist {
+namespace {
+
+bool contains(const std::vector<int>& list,
+              const std::vector<int>& sequence)
+{
+    if (sequence.empty()) {
+        return true;
+    }
+
+    if (sequence.size() > list.size()) {
+        return false;
+    }
+
+    return std::search(list.begin(), list.end(),
+                       sequence.begin(), sequence.end()) != list.end();
+}
+
+}  // namespace
+
+List_comparison sublist(const std::vector<int>& a,
+                        const std::vector<int>& b)
+{
+    if (a == b) {
+        return List_comparison::equal;
+    }
+
+    if (contains(a, b)) {
+        return List_comparison::superlist;
+    }
+
+    if (contains(b, a)) {
+        return List_comparison::sublist;
+    }
+
+    return List_comparison::unequal;
+}
+
+}  // namespace sublist
+```

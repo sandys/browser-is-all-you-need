@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "crypto_square.cpp",
+      "sha256": "667eec823f5955db9bcc7181c502008f7abf78266e1c245e48beaae7f4354edb",
+      "size": 1951
+    },
+    {
+      "path": "crypto_square.h",
+      "sha256": "e9b638f929e97e83bfc250a74f85a155a03751657bd054f23af4e1f5c626a637",
+      "size": 396
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 4.483350038528442,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.3s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatecrypto-square/build\n[ 25%] Building CXX object CMakeFiles/crypto-square.dir/crypto_square_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/crypto-square.dir/crypto_square.cpp.o\n[ 75%] Building CXX object CMakeFiles/crypto-square.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable crypto-square\n[100%] Built target crypto-square\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\ncrypto-square is a Catch v2.13.6 host application.\nRun with -? for options\n\n-------------------------------------------------------------------------------\n9 character plaintext results in 3 chunks of 3 characters\n-------------------------------------------------------------------------------\n/privatecrypto-square/crypto_square_test.cpp:33\n...............................................................................\n\n/privatecrypto-square/crypto_square_test.cpp:35: FAILED:\n  REQUIRE( \"tsf hiu isn\" == crypto_square::cipher(\"This is fun!\").normalized_cipher_text() )\nwith expansion:\n  \"tsf hiu isn\" == \"thisisfun\"\n\n-------------------------------------------------------------------------------\n8 character plaintext results in 3 chunks, the last one with a trailing space\n-------------------------------------------------------------------------------\n/privatecrypto-square/crypto_square_test.cpp:42\n...............................................................................\n\n/privatecrypto-square/crypto_square_test.cpp:44: FAILED:\n  REQUIRE( \"clu hlt io \" == crypto_square::cipher(\"Chill out.\").normalized_cipher_text() )\nwith expansion:\n  \"clu hlt io \" == \"chillout\"\n\n-------------------------------------------------------------------------------\n54 character plaintext results in 7 chunks, the last two with trailing spaces\n-------------------------------------------------------------------------------\n/privatecrypto-square/crypto_square_test.cpp:51\n...............................................................................\n\n/privatecrypto-square/crypto_square_test.cpp:55: FAILED:\n  REQUIRE( \"imtgdvs fearwer mayoogo anouuio ntnnlvt wttddes aohghn  sseoau \" == crypto_square::cipher(\"If man was meant to stay on the ground, god \" \"would have given us roots.\") .normalized_cipher_text() )\nwith expansion:\n  \"imtgdvs fearwer mayoogo anouuio ntnnlvt wttddes aohghn  sseoau \"\n  ==\n  \"ifmanwasmeanttostayonthegroundgodwouldhavegivenusroots\"\n\n===============================================================================\ntest cases: 8 | 5 passed | 3 failed\nassertions: 8 | 5 passed | 3 failed\n\nmake[2]: *** [CMakeFiles/test_crypto-square] Error 3\nmake[1]: *** [CMakeFiles/test_crypto-square.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "ddb2423025fb21876230f1d9106d728da571fcbca5ddb099be5806e4742e5d54",
+  "request_id": "crypto-square-1785913967351936000-7cb503dc43d0",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "crypto-square"
+}

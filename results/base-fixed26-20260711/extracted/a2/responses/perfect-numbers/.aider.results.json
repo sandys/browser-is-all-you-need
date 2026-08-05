@@ -1,0 +1,59 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-07-59-39--glm47-aider-v1-sft-eval-20260718-full/cpp/exercises/practice/perfect-numbers",
+    "testcase": "perfect-numbers",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 292.26704597473145,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 7,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 28126,
+    "completion_tokens": 13961,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "4038512694c2b9cf0547b943e1c5e202a901344a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "749d0d8d87bf41ac1e0087a99800973d7d1cfe0e"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c72bedaffae1a730225196f1c3faa1e04243e617"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "9f08f8c58aa2ef29e29b5eb02c409fbf4e99b91a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "886851e33544f572cd2148e936f8c7ea6fe3c311"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "e74f80b20d56bd6595dc734cebef72a8e5f109f1"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "f941e45ca6eb545504f3aabc7fb7a1beb133c3fc"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c6592a5693b44f4176571c35c1b1079a35315f6d"
+        ]
+    ]
+}

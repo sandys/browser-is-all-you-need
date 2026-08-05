@@ -1,0 +1,51 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-19-19-25-51--glm47-aider-signal-v3-sft-eval-20260719-full/cpp/exercises/practice/gigasecond",
+    "testcase": "gigasecond",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 600.6449406147003,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 5,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 16411,
+    "completion_tokens": 39349,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "7477e739ccd5dba8cf8a977ecc6efb2ab570b4fd"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "940b0e99bf8984c3a42535e25892e4777459cb6d"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "2408e33361f86ff0f405423f97bb6827ef1b4c10"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "7d5ccc5cb1bd35035a37e85cc3c50d16f6fc9ab8"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "691cc3e8d2534d44765051ac0cc27d45bb2194dc"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

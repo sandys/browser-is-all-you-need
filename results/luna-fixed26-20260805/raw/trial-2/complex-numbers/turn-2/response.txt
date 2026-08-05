@@ -1,0 +1,94 @@
+The tests expect `complex_numbers::Complex`, while the supplied implementation defines only `complex`. The header now defines the expected `Complex` class and retains `complex` as an alias for compatibility. The implementation is updated to use `Complex`.
+
+complex_numbers.h
+```
+#if !defined(COMPLEX_NUMBERS_H)
+#define COMPLEX_NUMBERS_H
+
+namespace complex_numbers {
+
+class Complex {
+public:
+    Complex(double real, double imaginary);
+
+    double real_part() const;
+    double imaginary_part() const;
+
+    Complex conjugate() const;
+    double abs() const;
+    Complex exp() const;
+
+    Complex operator+(const Complex& other) const;
+    Complex operator-(const Complex& other) const;
+    Complex operator*(const Complex& other) const;
+    Complex operator/(const Complex& other) const;
+
+private:
+    double real_;
+    double imaginary_;
+};
+
+using complex = Complex;
+
+}  // namespace complex_numbers
+
+#endif  // COMPLEX_NUMBERS_H
+```
+
+complex_numbers.cpp
+```
+#include "complex_numbers.h"
+
+#include <cmath>
+
+namespace complex_numbers {
+
+Complex::Complex(double real, double imaginary)
+    : real_(real), imaginary_(imaginary) {}
+
+double Complex::real_part() const {
+    return real_;
+}
+
+double Complex::imaginary_part() const {
+    return imaginary_;
+}
+
+Complex Complex::conjugate() const {
+    return Complex(real_, -imaginary_);
+}
+
+double Complex::abs() const {
+    return std::sqrt(real_ * real_ + imaginary_ * imaginary_);
+}
+
+Complex Complex::exp() const {
+    const double magnitude = std::exp(real_);
+    return Complex(magnitude * std::cos(imaginary_),
+                   magnitude * std::sin(imaginary_));
+}
+
+Complex Complex::operator+(const Complex& other) const {
+    return Complex(real_ + other.real_, imaginary_ + other.imaginary_);
+}
+
+Complex Complex::operator-(const Complex& other) const {
+    return Complex(real_ - other.real_, imaginary_ - other.imaginary_);
+}
+
+Complex Complex::operator*(const Complex& other) const {
+    return Complex(real_ * other.real_ - imaginary_ * other.imaginary_,
+                   imaginary_ * other.real_ + real_ * other.imaginary_);
+}
+
+Complex Complex::operator/(const Complex& other) const {
+    const double denominator =
+        other.real_ * other.real_ + other.imaginary_ * other.imaginary_;
+
+    return Complex(
+        (real_ * other.real_ + imaginary_ * other.imaginary_) / denominator,
+        (imaginary_ * other.real_ - real_ * other.imaginary_) / denominator);
+}
+
+}  // namespace complex_numbers
+```

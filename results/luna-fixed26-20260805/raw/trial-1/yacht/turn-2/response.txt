@@ -1,0 +1,162 @@
+The build errors occur because the tests pass category names as string literals, while `score` currently accepts `yacht_category`. The code below adds a string-based overload and preserves the existing enum-based function for compatibility. The CMake deprecation warning is unrelated to these compilation errors.
+
+yacht.h
+```
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace yacht {
+
+enum class yacht_category {
+    ones,
+    twos,
+    threes,
+    fours,
+    fives,
+    sixes,
+    full_house,
+    four_of_a_kind,
+    little_straight,
+    big_straight,
+    choice,
+    yacht
+};
+
+int score(std::vector<int> dice, yacht_category category);
+int score(std::vector<int> dice, const std::string& category);
+
+}  // namespace yacht
+```
+
+yacht.cpp
+```
+#include "yacht.h"
+
+#include <array>
+#include <numeric>
+#include <string>
+
+namespace yacht {
+namespace {
+
+int score_by_category(const std::vector<int>& dice, yacht_category category) {
+    std::array<int, 7> counts{};
+
+    for (int die : dice) {
+        ++counts[die];
+    }
+
+    const int total = std::accumulate(dice.begin(), dice.end(), 0);
+
+    switch (category) {
+    case yacht_category::ones:
+        return counts[1];
+    case yacht_category::twos:
+        return counts[2] * 2;
+    case yacht_category::threes:
+        return counts[3] * 3;
+    case yacht_category::fours:
+        return counts[4] * 4;
+    case yacht_category::fives:
+        return counts[5] * 5;
+    case yacht_category::sixes:
+        return counts[6] * 6;
+
+    case yacht_category::full_house: {
+        bool has_two = false;
+        bool has_three = false;
+
+        for (int count : counts) {
+            has_two |= count == 2;
+            has_three |= count == 3;
+        }
+
+        return has_two && has_three ? total : 0;
+    }
+
+    case yacht_category::four_of_a_kind:
+        for (int face = 1; face <= 6; ++face) {
+            if (counts[face] >= 4) {
+                return face * 4;
+            }
+        }
+        return 0;
+
+    case yacht_category::little_straight:
+        return counts[1] == 1 && counts[2] == 1 && counts[3] == 1 &&
+                       counts[4] == 1 && counts[5] == 1
+                   ? 30
+                   : 0;
+
+    case yacht_category::big_straight:
+        return counts[2] == 1 && counts[3] == 1 && counts[4] == 1 &&
+                       counts[5] == 1 && counts[6] == 1
+                   ? 30
+                   : 0;
+
+    case yacht_category::choice:
+        return total;
+
+    case yacht_category::yacht:
+        for (int face = 1; face <= 6; ++face) {
+            if (counts[face] == 5) {
+                return 50;
+            }
+        }
+        return 0;
+    }
+
+    return 0;
+}
+
+}  // namespace
+
+int score(std::vector<int> dice, yacht_category category) {
+    return score_by_category(dice, category);
+}
+
+int score(std::vector<int> dice, const std::string& category) {
+    if (category == "ones") {
+        return score_by_category(dice, yacht_category::ones);
+    }
+    if (category == "twos") {
+        return score_by_category(dice, yacht_category::twos);
+    }
+    if (category == "threes") {
+        return score_by_category(dice, yacht_category::threes);
+    }
+    if (category == "fours") {
+        return score_by_category(dice, yacht_category::fours);
+    }
+    if (category == "fives") {
+        return score_by_category(dice, yacht_category::fives);
+    }
+    if (category == "sixes") {
+        return score_by_category(dice, yacht_category::sixes);
+    }
+    if (category == "full house") {
+        return score_by_category(dice, yacht_category::full_house);
+    }
+    if (category == "four of a kind") {
+        return score_by_category(dice, yacht_category::four_of_a_kind);
+    }
+    if (category == "little straight") {
+        return score_by_category(dice, yacht_category::little_straight);
+    }
+    if (category == "big straight") {
+        return score_by_category(dice, yacht_category::big_straight);
+    }
+    if (category == "choice") {
+        return score_by_category(dice, yacht_category::choice);
+    }
+    if (category == "yacht") {
+        return score_by_category(dice, yacht_category::yacht);
+    }
+
+    return 0;
+}
+
+}  // namespace yacht
+```

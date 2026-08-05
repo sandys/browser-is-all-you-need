@@ -1,0 +1,144 @@
+The supplied files contain no existing class or function declarations, so I added the standard `robot_name::robot` interface expected for this task.
+
+The implementation:
+- Generates two uppercase letters and three digits.
+- Uses `std::random_device` to seed a random engine.
+- Tracks all active names to prevent collisions.
+- Releases names when robots are destroyed.
+- Ensures `reset()` cannot immediately reuse the robot’s previous name.
+- Protects shared state with a mutex.
+
+robot_name.h
+```
+#if !defined(ROBOT_NAME_H)
+#define ROBOT_NAME_H
+
+#include <string>
+
+namespace robot_name {
+
+class robot {
+public:
+    robot();
+    ~robot();
+
+    robot(const robot&) = delete;
+    robot& operator=(const robot&) = delete;
+    robot(robot&&) = delete;
+    robot& operator=(robot&&) = delete;
+
+    std::string name() const;
+    void reset();
+
+private:
+    std::string name_;
+};
+
+}  // namespace robot_name
+
+#endif  // ROBOT_NAME_H
+```
+
+robot_name.cpp
+```
+#include "robot_name.h"
+
+#include <array>
+#include <mutex>
+#include <random>
+#include <set>
+#include <stdexcept>
+#include <string>
+
+namespace robot_name {
+namespace {
+
+constexpr int letter_count = 26;
+constexpr int digit_count = 10;
+constexpr std::size_t maximum_names =
+    static_cast<std::size_t>(letter_count) * letter_count *
+    digit_count * digit_count * digit_count;
+
+std::mutex names_mutex;
+std::set<std::string> active_names;
+
+std::mt19937_64& random_generator()
+{
+    static std::mt19937_64 generator = [] {
+        std::random_device device;
+        std::array<std::random_device::result_type, 8> seed_data{};
+
+        for (auto& value : seed_data) {
+            value = device();
+        }
+
+        std::seed_seq seed(seed_data.begin(), seed_data.end());
+        return std::mt19937_64(seed);
+    }();
+
+    return generator;
+}
+
+std::string generate_name()
+{
+    static std::uniform_int_distribution<int> letter_distribution(0, 25);
+    static std::uniform_int_distribution<int> digit_distribution(0, 9);
+
+    std::string result;
+    result.reserve(5);
+
+    result += static_cast<char>('A' + letter_distribution(random_generator()));
+    result += static_cast<char>('A' + letter_distribution(random_generator()));
+    result += static_cast<char>('0' + digit_distribution(random_generator()));
+    result += static_cast<char>('0' + digit_distribution(random_generator()));
+    result += static_cast<char>('0' + digit_distribution(random_generator()));
+
+    return result;
+}
+
+std::string acquire_name()
+{
+    if (active_names.size() >= maximum_names) {
+        throw std::runtime_error("No unique robot names remain");
+    }
+
+    for (;;) {
+        std::string candidate = generate_name();
+        if (active_names.insert(candidate).second) {
+            return candidate;
+        }
+    }
+}
+
+}  // namespace
+
+robot::robot()
+{
+    std::lock_guard<std::mutex> lock(names_mutex);
+    name_ = acquire_name();
+}
+
+robot::~robot()
+{
+    std::lock_guard<std::mutex> lock(names_mutex);
+    active_names.erase(name_);
+}
+
+std::string robot::name() const
+{
+    return name_;
+}
+
+void robot::reset()
+{
+    std::lock_guard<std::mutex> lock(names_mutex);
+
+    const std::string old_name = name_;
+    const std::string new_name = acquire_name();
+
+    active_names.erase(old_name);
+    name_ = new_name;
+}
+
+}  // namespace robot_name
+```

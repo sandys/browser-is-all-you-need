@@ -1,0 +1,59 @@
+{
+    "testdir": "/results/runs/glm47-flash-aider-cpp-20260711192046/full/2026-07-11-19-30-09--glm47-flash-aider-cpp-20260711192046-full/cpp/exercises/practice/complex-numbers",
+    "testcase": "complex-numbers",
+    "model": "openai/glm-4.7-flash",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 309.6983206272125,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 8,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 167698,
+    "completion_tokens": 23408,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "8577cf7edebbd0314012b09591ec3881594ebeee"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "64e2ac95a8cee0ea1fd5977d9aa8c59d84b3f1b8"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "64e2ac95a8cee0ea1fd5977d9aa8c59d84b3f1b8"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "64e2ac95a8cee0ea1fd5977d9aa8c59d84b3f1b8"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "144446ec2ab5d38c28f5b4a5331e064b884ef072"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "30ae25e04c7dbe5b369a27a8a01d03e3d515e54f"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "f0d881a39688b1349dbad548914b9767e69d3040"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "1a2db91aed7bc35c418096db7bfc03ff11257e49"
+        ]
+    ]
+}

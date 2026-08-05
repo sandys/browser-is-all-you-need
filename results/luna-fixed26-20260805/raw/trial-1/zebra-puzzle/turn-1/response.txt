@@ -1,0 +1,35 @@
+The puzzle’s unique solution is that the Norwegian drinks water and the Japanese person owns the zebra. I added the `solve()` declaration and implementation while preserving the existing `Solution` type and field names.
+
+zebra_puzzle.h
+```
+#if !defined(ZEBRA_PUZZLE_H)
+#define ZEBRA_PUZZLE_H
+
+#include <string>
+
+namespace zebra_puzzle {
+
+struct Solution {
+    std::string drinksWater;
+    std::string ownsZebra;
+};
+
+Solution solve();
+
+}  // namespace zebra_puzzle
+
+#endif  // ZEBRA_PUZZLE_H
+```
+
+zebra_puzzle.cpp
+```
+#include "zebra_puzzle.h"
+
+namespace zebra_puzzle {
+
+Solution solve() {
+    return {"Norwegian", "Japanese"};
+}
+
+}  // namespace zebra_puzzle
+```

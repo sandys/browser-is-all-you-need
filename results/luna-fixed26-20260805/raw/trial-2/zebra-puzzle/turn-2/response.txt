@@ -1,0 +1,145 @@
+The CMake warning is unrelated to the build failure. The errors occur because `orangeJuice` and `snail` are declared but never used. Their declarations have been removed; the existing constraints already use the corresponding values directly.
+
+zebra_puzzle.h
+```
+#if !defined(ZEBRA_PUZZLE_H)
+#define ZEBRA_PUZZLE_H
+
+#include <string>
+
+namespace zebra_puzzle {
+
+struct Solution {
+    std::string drinksWater;
+    std::string ownsZebra;
+};
+
+Solution solve();
+
+}  // namespace zebra_puzzle
+
+#endif  // ZEBRA_PUZZLE_H
+```
+
+zebra_puzzle.cpp
+```
+#include "zebra_puzzle.h"
+
+#include <algorithm>
+#include <array>
+#include <string>
+
+namespace zebra_puzzle {
+namespace {
+
+using Arrangement = std::array<std::string, 5>;
+
+std::size_t position(const Arrangement& arrangement, const std::string& value)
+{
+    return static_cast<std::size_t>(
+        std::find(arrangement.begin(), arrangement.end(), value) -
+        arrangement.begin());
+}
+
+bool next_arrangement(Arrangement& arrangement)
+{
+    return std::next_permutation(arrangement.begin(), arrangement.end());
+}
+
+}  // namespace
+
+Solution solve()
+{
+    Arrangement colors{"red", "green", "ivory", "yellow", "blue"};
+
+    do {
+        const auto ivory = position(colors, "ivory");
+        const auto green = position(colors, "green");
+        const auto blue = position(colors, "blue");
+
+        if (green != ivory + 1 || blue != 1) {
+            continue;
+        }
+
+        Arrangement nationalities{
+            "Englishman", "Spaniard", "Ukrainian", "Norwegian", "Japanese"};
+
+        do {
+            const auto norwegian = position(nationalities, "Norwegian");
+            const auto englishman = position(nationalities, "Englishman");
+
+            if (norwegian != 0 ||
+                colors[englishman] != "red") {
+                continue;
+            }
+
+            Arrangement drinks{
+                "coffee", "tea", "milk", "orange juice", "water"};
+
+            do {
+                const auto ukrainian =
+                    position(nationalities, "Ukrainian");
+
+                if (drinks[green] != "coffee" ||
+                    drinks[2] != "milk" ||
+                    drinks[ukrainian] != "tea") {
+                    continue;
+                }
+
+                Arrangement pets{"dog", "fox", "horse", "snail", "zebra"};
+
+                do {
+                    const auto spaniard =
+                        position(nationalities, "Spaniard");
+
+                    if (pets[spaniard] != "dog") {
+                        continue;
+                    }
+
+                    Arrangement hobbies{
+                        "dancing", "reading", "painter",
+                        "football", "chess"};
+
+                    do {
+                        const auto japanese =
+                            position(nationalities, "Japanese");
+                        const auto yellow = position(colors, "yellow");
+                        const auto football =
+                            position(hobbies, "football");
+                        const auto dancing =
+                            position(hobbies, "dancing");
+                        const auto painter =
+                            position(hobbies, "painter");
+                        const auto horse = position(pets, "horse");
+                        const auto reading =
+                            position(hobbies, "reading");
+                        const auto fox = position(pets, "fox");
+
+                        if (hobbies[japanese] != "chess" ||
+                            hobbies[yellow] != "painter" ||
+                            drinks[football] != "orange juice" ||
+                            pets[dancing] != "snail" ||
+                            (painter + 1 != horse &&
+                             horse + 1 != painter) ||
+                            (reading + 1 != fox &&
+                             fox + 1 != reading)) {
+                            continue;
+                        }
+
+                        Solution solution;
+                        solution.drinksWater =
+                            nationalities[position(drinks, "water")];
+                        solution.ownsZebra =
+                            nationalities[position(pets, "zebra")];
+                        return solution;
+                    } while (next_arrangement(hobbies));
+                } while (next_arrangement(pets));
+            } while (next_arrangement(drinks));
+        } while (next_arrangement(nationalities));
+    } while (next_arrangement(colors));
+
+    return {};
+}
+
+}  // namespace zebra_puzzle
+```

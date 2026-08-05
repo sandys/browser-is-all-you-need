@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "all_your_base.cpp",
+      "sha256": "4817bd49ff1a4c4d465b62da51f2ef8cea6d4965400bdd1903a6bad604081fb7",
+      "size": 1487
+    },
+    {
+      "path": "all_your_base.h",
+      "sha256": "bb44a81d35a379cf63489da736faba6ccfdce502b0c63a78e6aed5a06c8195f2",
+      "size": 361
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 5.582066059112549,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.6s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privateall-your-base/build\n[ 25%] Building CXX object CMakeFiles/all-your-base.dir/all_your_base_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/all-your-base.dir/all_your_base.cpp.o\n[ 75%] Building CXX object CMakeFiles/all-your-base.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable all-your-base\n[100%] Built target all-your-base\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nall-your-base is a Catch v2.13.6 host application.\nRun with -? for options\n\n-------------------------------------------------------------------------------\nsingle_zero\n-------------------------------------------------------------------------------\n/privateall-your-base/all_your_base_test.cpp:85\n...............................................................................\n\n/privateall-your-base/all_your_base_test.cpp:90: FAILED:\n  REQUIRE( expected == out_digits )\nwith expansion:\n  {  } == { 0 }\n\n-------------------------------------------------------------------------------\nmultiple_zeros\n-------------------------------------------------------------------------------\n/privateall-your-base/all_your_base_test.cpp:93\n...............................................................................\n\n/privateall-your-base/all_your_base_test.cpp:98: FAILED:\n  REQUIRE( expected == out_digits )\nwith expansion:\n  {  } == { 0 }\n\n===============================================================================\ntest cases: 17 | 15 passed | 2 failed\nassertions: 17 | 15 passed | 2 failed\n\nmake[2]: *** [CMakeFiles/test_all-your-base] Error 2\nmake[1]: *** [CMakeFiles/test_all-your-base.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "9e4278a71f6743fae6a93c6027daa2e680451e2c7c44122bb4864583ce9e2689",
+  "request_id": "all-your-base-1785913957875244000-9769eb54f76a",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "all-your-base"
+}

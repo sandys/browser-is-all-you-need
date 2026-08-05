@@ -1,0 +1,79 @@
+The tests pass allergen names as strings, but the current implementation expects the `allergen` enum. Update the public API and implementation to use `std::string`, while checking only the eight recognized allergens so unknown score bits are ignored.
+
+allergies.h
+```
+#if !defined(ALLERGIES_H)
+#define ALLERGIES_H
+
+#include <string>
+#include <unordered_set>
+
+namespace allergies {
+
+class allergy_test {
+public:
+    explicit allergy_test(unsigned score);
+
+    bool is_allergic_to(const std::string& item) const;
+    std::unordered_set<std::string> get_allergies() const;
+
+private:
+    unsigned score_;
+};
+
+}  // namespace allergies
+
+#endif  // ALLERGIES_H
+```
+
+allergies.cpp
+```
+#include "allergies.h"
+
+namespace allergies {
+
+namespace {
+
+const char* const allergens[] = {
+    "eggs",
+    "peanuts",
+    "shellfish",
+    "strawberries",
+    "tomatoes",
+    "chocolate",
+    "pollen",
+    "cats"
+};
+
+}  // namespace
+
+allergy_test::allergy_test(unsigned score) : score_(score)
+{
+}
+
+bool allergy_test::is_allergic_to(const std::string& item) const
+{
+    for (unsigned index = 0; index < 8; ++index) {
+        if (item == allergens[index]) {
+            return (score_ & (1u << index)) != 0;
+        }
+    }
+
+    return false;
+}
+
+std::unordered_set<std::string> allergy_test::get_allergies() const
+{
+    std::unordered_set<std::string> result;
+
+    for (unsigned index = 0; index < 8; ++index) {
+        if ((score_ & (1u << index)) != 0) {
+            result.emplace(allergens[index]);
+        }
+    }
+
+    return result;
+}
+
+}  // namespace allergies
+```

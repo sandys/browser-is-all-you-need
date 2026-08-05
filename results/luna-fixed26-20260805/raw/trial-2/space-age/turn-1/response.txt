@@ -1,0 +1,84 @@
+Implemented the `space_age` class with storage for the input age in seconds and planet-specific conversion methods. Each method returns the age in planetary years using the specified orbital periods and 31,557,600 seconds per Earth year.
+
+space_age.h
+```
+#if !defined(SPACE_AGE_H)
+#define SPACE_AGE_H
+
+namespace space_age {
+
+class space_age {
+public:
+    explicit space_age(long long seconds);
+
+    long long seconds() const;
+
+    double on_mercury() const;
+    double on_venus() const;
+    double on_earth() const;
+    double on_mars() const;
+    double on_jupiter() const;
+    double on_saturn() const;
+    double on_uranus() const;
+    double on_neptune() const;
+
+private:
+    long long seconds_;
+};
+
+}  // namespace space_age
+
+#endif  // SPACE_AGE_H
+```
+
+space_age.cpp
+```
+#include "space_age.h"
+
+namespace space_age {
+namespace {
+
+constexpr double seconds_per_earth_year = 31557600.0;
+
+}  // namespace
+
+space_age::space_age(long long seconds) : seconds_(seconds) {}
+
+long long space_age::seconds() const {
+    return seconds_;
+}
+
+double space_age::on_mercury() const {
+    return seconds_ / (seconds_per_earth_year * 0.2408467);
+}
+
+double space_age::on_venus() const {
+    return seconds_ / (seconds_per_earth_year * 0.61519726);
+}
+
+double space_age::on_earth() const {
+    return seconds_ / seconds_per_earth_year;
+}
+
+double space_age::on_mars() const {
+    return seconds_ / (seconds_per_earth_year * 1.8808158);
+}
+
+double space_age::on_jupiter() const {
+    return seconds_ / (seconds_per_earth_year * 11.862615);
+}
+
+double space_age::on_saturn() const {
+    return seconds_ / (seconds_per_earth_year * 29.447498);
+}
+
+double space_age::on_uranus() const {
+    return seconds_ / (seconds_per_earth_year * 84.016846);
+}
+
+double space_age::on_neptune() const {
+    return seconds_ / (seconds_per_earth_year * 164.79132);
+}
+
+}  // namespace space_age
+```

@@ -1,0 +1,47 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-20-21-34--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a2-shard-0/cpp/exercises/practice/kindergarten-garden",
+    "testcase": "kindergarten-garden",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 1356.2240025997162,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 2,
+    "num_user_asks": 5,
+    "num_exhausted_context_windows": 2,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 6210,
+    "completion_tokens": 5762,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "64a14c88e617b254f10a3658dfc16f8a79432e00"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "49650b5c918ccd34126a6dd538c5d592f2308a31"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "49650b5c918ccd34126a6dd538c5d592f2308a31"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

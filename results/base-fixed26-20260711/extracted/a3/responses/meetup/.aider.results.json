@@ -1,0 +1,55 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-19-47-05--glm47-aider-1211-sft-eval-20260719-full/cpp/exercises/practice/meetup",
+    "testcase": "meetup",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 1064.7171993255615,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 7,
+    "num_exhausted_context_windows": 1,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 121725,
+    "completion_tokens": 49935,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "357b1632eac0b09443f8a1aaf59d7c9b03b484c0"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "8a48b66084a56bcd056fb4e61ca2d57b5479b0b9"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "cac446b26db7c01e0ca12544f91f24398f2d09b7"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "de7f1096a1440346bc84a28e429886ffe19a9fe7"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "045256ed274eb4c124f8d9904c01acb91c1dea89"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "f403d0189b2b86ecfd04bcc0a8324e3c9cbe6454"
+        ]
+    ]
+}

@@ -1,0 +1,65 @@
+The CMake warning is unrelated to the test failures. The code needs to:
+
+- Throw `std::invalid_argument` for bases below 2.
+- Throw `std::invalid_argument` when an input digit is not valid for the input base.
+- Preserve zero as `{0}` rather than returning an empty result.
+
+all_your_base.cpp
+```cpp
+#include "all_your_base.h"
+
+#include <stdexcept>
+#include <vector>
+
+namespace all_your_base {
+
+std::vector<unsigned int> convert(
+    unsigned int input_base,
+    const std::vector<unsigned int>& input_digits,
+    unsigned int output_base) {
+    if (input_base < 2 || output_base < 2) {
+        throw std::invalid_argument("Bases must be at least 2");
+    }
+
+    for (const auto digit : input_digits) {
+        if (digit >= input_base) {
+            throw std::invalid_argument("Input digit is invalid for the input base");
+        }
+    }
+
+    if (input_digits.empty()) {
+        return {};
+    }
+
+    std::vector<unsigned int> output_digits{0};
+
+    for (const auto digit : input_digits) {
+        unsigned long long carry = digit;
+
+        for (auto it = output_digits.rbegin();
+             it != output_digits.rend();
+             ++it) {
+            const unsigned long long value =
+                static_cast<unsigned long long>(*it) * input_base + carry;
+
+            *it = static_cast<unsigned int>(value % output_base);
+            carry = value / output_base;
+        }
+
+        while (carry > 0) {
+            output_digits.insert(
+                output_digits.begin(),
+                static_cast<unsigned int>(carry % output_base));
+            carry /= output_base;
+        }
+    }
+
+    while (output_digits.size() > 1 && output_digits.front() == 0) {
+        output_digits.erase(output_digits.begin());
+    }
+
+    return output_digits;
+}
+
+}  // namespace all_your_base
+```

@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "kindergarten_garden.cpp",
+      "sha256": "ceb6515910eab4a282ab66fcabed44422c78c1c8cd3052ea107e5fd7ced66ff4",
+      "size": 1130
+    },
+    {
+      "path": "kindergarten_garden.h",
+      "sha256": "2553df9d55a39ef73ae9f3967dc5f08605241e9f95d4a93a54d643072d4ed8bf",
+      "size": 265
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 5.545689105987549,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.3s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatekindergarten-garden/build\n[ 25%] Building CXX object CMakeFiles/kindergarten-garden.dir/kindergarten_garden_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/kindergarten-garden.dir/kindergarten_garden.cpp.o\n[ 75%] Building CXX object CMakeFiles/kindergarten-garden.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable kindergarten-garden\n[100%] Built target kindergarten-garden\n===============================================================================\nAll tests passed (17 assertions in 17 test cases)\n\n[100%] Built target test_kindergarten-garden\n",
+  "output_sha256": "c86ab27dcf96020cb7b20172a47c0d8590fea97bc420c74a92b830901972f831",
+  "request_id": "kindergarten-garden-1785913907208905000-bbf16c6c07cb",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "kindergarten-garden"
+}

@@ -1,0 +1,51 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-19-19-25-51--glm47-aider-signal-v3-sft-eval-20260719-full/cpp/exercises/practice/complex-numbers",
+    "testcase": "complex-numbers",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 812.473215341568,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 6,
+    "num_exhausted_context_windows": 1,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 34846,
+    "completion_tokens": 23110,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "83f1c34d84b863e47c06c8e9afa94fa1278b22a4"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "9aa6507d61927829313b5f033c919c259e731bf7"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c101b34e9426b5b2da45bee05de57d97a28844a0"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c101b34e9426b5b2da45bee05de57d97a28844a0"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "f70e3c2ea3acc5fa229dacd094d087c28d5b50cb"
+        ]
+    ]
+}

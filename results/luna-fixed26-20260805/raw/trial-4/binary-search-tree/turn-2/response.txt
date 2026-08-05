@@ -1,0 +1,95 @@
+The build errors occur because the tests expect a templated `binary_search_tree::binary_tree<T>` class, while the supplied code defines only a non-templated `tree` class. The implementation below provides the expected API:
+
+- `binary_tree<T>`
+- Public `data`, `left`, and `right` members
+- `insert`
+- `find`
+- `contains`
+- `sorted_data`
+- Duplicate values inserted into the left subtree
+- Automatic memory management with `std::unique_ptr`
+
+The CMake deprecation warning is unrelated to these compilation errors.
+
+binary_search_tree.h
+```
+#if !defined(BINARY_SEARCH_TREE_H)
+#define BINARY_SEARCH_TREE_H
+
+#include <memory>
+#include <vector>
+
+namespace binary_search_tree {
+
+template <typename T>
+class binary_tree {
+public:
+    explicit binary_tree(const T& value)
+        : data(value), left(nullptr), right(nullptr) {}
+
+    void insert(const T& value) {
+        if (value <= data) {
+            if (left) {
+                left->insert(value);
+            } else {
+                left = std::make_unique<binary_tree<T>>(value);
+            }
+        } else {
+            if (right) {
+                right->insert(value);
+            } else {
+                right = std::make_unique<binary_tree<T>>(value);
+            }
+        }
+    }
+
+    bool find(const T& value) const {
+        if (value == data) {
+            return true;
+        }
+
+        if (value <= data) {
+            return left && left->find(value);
+        }
+
+        return right && right->find(value);
+    }
+
+    bool contains(const T& value) const {
+        return find(value);
+    }
+
+    std::vector<T> sorted_data() const {
+        std::vector<T> result;
+
+        if (left) {
+            const auto left_data = left->sorted_data();
+            result.insert(result.end(), left_data.begin(), left_data.end());
+        }
+
+        result.push_back(data);
+
+        if (right) {
+            const auto right_data = right->sorted_data();
+            result.insert(result.end(), right_data.begin(), right_data.end());
+        }
+
+        return result;
+    }
+
+    T data;
+    std::unique_ptr<binary_tree<T>> left;
+    std::unique_ptr<binary_tree<T>> right;
+};
+
+using tree = binary_tree<int>;
+
+}  // namespace binary_search_tree
+
+#endif  // BINARY_SEARCH_TREE_H
+```
+
+binary_search_tree.cpp
+```
+#include "binary_search_tree.h"
+```

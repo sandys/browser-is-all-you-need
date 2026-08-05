@@ -1,0 +1,30 @@
+The build errors occur because `gigasecond::advance` is missing. The tests use Boost.Date_Time, so the implementation should expose that expected API and add exactly one billion seconds.
+
+gigasecond.h
+```cpp
+#if !defined(GIGASECOND_H)
+#define GIGASECOND_H
+
+#include <boost/date_time/posix_time/posix_time.hpp>
+
+namespace gigasecond {
+
+boost::posix_time::ptime advance(boost::posix_time::ptime date);
+
+}  // namespace gigasecond
+
+#endif  // GIGASECOND_H
+```
+
+gigasecond.cpp
+```cpp
+#include "gigasecond.h"
+
+namespace gigasecond {
+
+boost::posix_time::ptime advance(boost::posix_time::ptime date) {
+    return date + boost::posix_time::seconds(1000000000);
+}
+
+}  // namespace gigasecond
+```

@@ -1,0 +1,59 @@
+{
+    "testdir": "/results/runs/glm47-flash-aider-cpp-20260711192046/full/2026-07-11-19-30-09--glm47-flash-aider-cpp-20260711192046-full/cpp/exercises/practice/spiral-matrix",
+    "testcase": "spiral-matrix",
+    "model": "openai/glm-4.7-flash",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 321.17825508117676,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 8,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 45317,
+    "completion_tokens": 27092,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "41cb2fda6949c08b45f09d829393dd514c21957d"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "ed29d52a920a3592c9dc870dc4b8c140b5c17ce2"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "e33751022657514a2473ac74bbd3da803e751e20"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "40ba90e663ecda11c71ddb699e8d7485a3b94bb3"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "7c376610cf2894b9b9be1539b5bab0b51181d546"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "fec4889c27adfd825afa9f908fcfa4e7dad3a21b"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "f7cc2c147c05df769b861619ae0fd6396da89a22"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "7d9922b848dc16d2e94f3995a7a1842f1cc50f88"
+        ]
+    ]
+}

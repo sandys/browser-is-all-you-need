@@ -1,0 +1,128 @@
+{
+  "call_id": "call-000052-27d10853cad6",
+  "duration_seconds": 32.492483,
+  "feedback_authorization": {
+    "candidate_state_message_index": 9,
+    "feedback_output_sha256": "bf7dbc72411e846ecbc1f7e162da891796ee2f812016bca964fb657af86b87c0",
+    "matched_candidate_files": [
+      {
+        "path": "parallel_letter_frequency.cpp",
+        "sha256": "8e73e9d7f85478a7696e9d9eca91b38c01e7900ceaf029a2feccb1ec2ed1f431",
+        "size": 1982
+      },
+      {
+        "path": "parallel_letter_frequency.h",
+        "sha256": "8944c5cba7aa47c6c32561df49bb6081abb4ace39c42c7cff0d8a01262500e2f",
+        "size": 299
+      }
+    ],
+    "matched_scorer_receipts": [
+      {
+        "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/parallel-letter-frequency-1785913795288463000-2c742694d16a.json",
+        "request_id": "parallel-letter-frequency-1785913795288463000-2c742694d16a",
+        "sha256": "5cb184d9a3499cde13194552224698fd94204a8fc79ebb6f0fc8088d277d48d2"
+      }
+    ],
+    "present": true,
+    "status": "authorized",
+    "task": "parallel-letter-frequency"
+  },
+  "http_status": 200,
+  "kind": "luna-low-openrouter-strict-one-shot-call",
+  "leak_audit": {
+    "feedback_authorization": {
+      "candidate_state_message_index": 9,
+      "feedback_output_sha256": "bf7dbc72411e846ecbc1f7e162da891796ee2f812016bca964fb657af86b87c0",
+      "matched_candidate_files": [
+        {
+          "path": "parallel_letter_frequency.cpp",
+          "sha256": "8e73e9d7f85478a7696e9d9eca91b38c01e7900ceaf029a2feccb1ec2ed1f431",
+          "size": 1982
+        },
+        {
+          "path": "parallel_letter_frequency.h",
+          "sha256": "8944c5cba7aa47c6c32561df49bb6081abb4ace39c42c7cff0d8a01262500e2f",
+          "size": 299
+        }
+      ],
+      "matched_scorer_receipts": [
+        {
+          "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/parallel-letter-frequency-1785913795288463000-2c742694d16a.json",
+          "request_id": "parallel-letter-frequency-1785913795288463000-2c742694d16a",
+          "sha256": "5cb184d9a3499cde13194552224698fd94204a8fc79ebb6f0fc8088d277d48d2"
+        }
+      ],
+      "present": true,
+      "status": "authorized",
+      "task": "parallel-letter-frequency"
+    },
+    "hidden_corpus_sha256": "089653d6ccb5e7531bddeb60ba9c0838eba746afb94b6811810468d3fa742529",
+    "hidden_excerpt_count": 196430,
+    "hidden_file_count": 152,
+    "hidden_filename_count": 30,
+    "message_count": 12,
+    "message_roles": [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ],
+    "prompt_chars": 4176,
+    "prompt_sha256": "e6a8cd0c29710ea8758fd4dd710ec8de6d2b846bd454544a48c1aad3d0bb1047",
+    "status": "passed",
+    "violations": []
+  },
+  "model_requested": "openai/gpt-5.6-luna",
+  "model_returned": "openai/gpt-5.6-luna",
+  "plugins_present": false,
+  "provider_data_collection": "deny",
+  "provider_fallbacks_allowed": false,
+  "provider_requires_parameters": true,
+  "provider_returned": "OpenAI",
+  "provider_zdr_required": false,
+  "reasoning_effort": "medium",
+  "reasoning_excluded_from_response": true,
+  "request_sha256": "27d10853cad6111b5b9cbce25ffb1a93b08945ffd48db55292eb736c734e7aed",
+  "response_headers": {
+    "content-type": "application/json",
+    "date": "Wed, 05 Aug 2026 07:10:20 GMT"
+  },
+  "response_sha256": "297f71950d165abf2a1c64085ceffdaa49354d9544245b24e320e902da7b4470",
+  "schema_version": 1,
+  "status": "accepted",
+  "tools_present": false,
+  "upstream_http_attempts": 1,
+  "usage": {
+    "completion_tokens": 1248,
+    "completion_tokens_details": {
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "reasoning_tokens": 516
+    },
+    "cost": 0.003312639,
+    "cost_details": {
+      "upstream_inference_completions_cost": 0.0007488,
+      "upstream_inference_cost": 0.0033461,
+      "upstream_inference_prompt_cost": 0.0025973
+    },
+    "is_byok": false,
+    "prompt_tokens": 20779,
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cache_write_tokens": 20776,
+      "cached_tokens": 0,
+      "video_tokens": 0
+    },
+    "total_tokens": 22027
+  },
+  "violations": [],
+  "web_search_enabled": false
+}

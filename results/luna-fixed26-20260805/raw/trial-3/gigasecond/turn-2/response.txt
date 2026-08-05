@@ -1,0 +1,43 @@
+The build errors occur because the tests call `gigasecond::advance` with a Boost `ptime`, while the current code only defines `gigasecond::from` for `std::chrono::system_clock::time_point`.
+
+The CMake warnings are unrelated to the compilation failure. The implementation below adds the expected `advance` function and preserves the existing `from` function.
+
+gigasecond.h
+```
+#if !defined(GIGASECOND_H)
+#define GIGASECOND_H
+
+#include <chrono>
+#include <boost/date_time/posix_time/posix_time.hpp>
+
+namespace gigasecond {
+
+std::chrono::system_clock::time_point from(
+    std::chrono::system_clock::time_point start);
+
+boost::posix_time::ptime advance(
+    const boost::posix_time::ptime& start);
+
+}  // namespace gigasecond
+
+#endif  // GIGASECOND_H
+```
+
+gigasecond.cpp
+```
+#include "gigasecond.h"
+
+namespace gigasecond {
+
+std::chrono::system_clock::time_point from(
+    std::chrono::system_clock::time_point start) {
+    return start + std::chrono::seconds(1000000000);
+}
+
+boost::posix_time::ptime advance(
+    const boost::posix_time::ptime& start) {
+    return start + boost::posix_time::seconds(1000000000);
+}
+
+}  // namespace gigasecond
+```

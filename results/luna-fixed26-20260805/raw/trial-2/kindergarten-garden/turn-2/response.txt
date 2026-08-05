@@ -1,0 +1,95 @@
+The tests expect a namespace-level `plants(diagram, student)` function, but the current code only provides `Garden::plants`. The class-based API has been replaced with the expected free function while preserving the existing `Plants` enum.
+
+kindergarten_garden.h
+```
+#pragma once
+
+#include <array>
+#include <string>
+
+namespace kindergarten_garden {
+
+enum class Plants {
+    grass,
+    clover,
+    radishes,
+    violets
+};
+
+std::array<Plants, 4> plants(const std::string& diagram,
+                             const std::string& student);
+
+}  // namespace kindergarten_garden
+```
+
+kindergarten_garden.cpp
+```
+#include "kindergarten_garden.h"
+
+#include <algorithm>
+#include <stdexcept>
+#include <string>
+
+namespace kindergarten_garden {
+
+namespace {
+
+Plants to_plant(char code) {
+    switch (code) {
+        case 'G':
+            return Plants::grass;
+        case 'C':
+            return Plants::clover;
+        case 'R':
+            return Plants::radishes;
+        case 'V':
+            return Plants::violets;
+        default:
+            throw std::invalid_argument("Invalid plant code");
+    }
+}
+
+}  // namespace
+
+std::array<Plants, 4> plants(const std::string& diagram,
+                             const std::string& student) {
+    static const std::array<std::string, 12> students{
+        "Alice", "Bob", "Charlie", "David",
+        "Eve", "Fred", "Ginny", "Harriet",
+        "Ileana", "Joseph", "Kincaid", "Larry"
+    };
+
+    const auto student_position =
+        std::find(students.begin(), students.end(), student);
+
+    if (student_position == students.end()) {
+        throw std::invalid_argument("Unknown student");
+    }
+
+    const auto separator = diagram.find('\n');
+
+    if (separator == std::string::npos) {
+        throw std::invalid_argument("Diagram must contain two rows");
+    }
+
+    const std::string first_row = diagram.substr(0, separator);
+    const std::string second_row = diagram.substr(separator + 1);
+
+    const auto column = static_cast<std::size_t>(
+        std::distance(students.begin(), student_position) * 2);
+
+    if (column + 1 >= first_row.size() ||
+        column + 1 >= second_row.size()) {
+        throw std::invalid_argument("Diagram is too short");
+    }
+
+    return {
+        to_plant(first_row[column]),
+        to_plant(first_row[column + 1]),
+        to_plant(second_row[column]),
+        to_plant(second_row[column + 1])
+    };
+}
+
+}  // namespace kindergarten_garden
+```

@@ -1,0 +1,34 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-19-46-41--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a1-shard-1/cpp/exercises/practice/perfect-numbers",
+    "testcase": "perfect-numbers",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        true
+    ],
+    "cost": 0.0,
+    "duration": 474.9954402446747,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 2,
+    "num_exhausted_context_windows": 1,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 1409,
+    "completion_tokens": 1398,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "752ece4d8626c850ced4399629dbd83c43917417"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

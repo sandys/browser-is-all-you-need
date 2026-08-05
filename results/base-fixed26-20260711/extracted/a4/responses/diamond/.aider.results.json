@@ -1,0 +1,51 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-19-19-25-51--glm47-aider-signal-v3-sft-eval-20260719-full/cpp/exercises/practice/diamond",
+    "testcase": "diamond",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 269.3323063850403,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 4,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 18598,
+    "completion_tokens": 15001,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "b3c90b2fc5fc2a003aae914975c916435f33977a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "372e36d2eee88e8d9551646b4e92fff2ebda7e3f"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "76786b2eed114e1c0d037613350c7c767eda6320"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "f06be4a940a8ee3002936d6bded6dd6ba5d5e69b"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "86867d4bbb6836104cff6c4025b5fa308487d48f"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "907c6b747efe55b7dac08f47e91917a1215b9739"
+        ]
+    ]
+}

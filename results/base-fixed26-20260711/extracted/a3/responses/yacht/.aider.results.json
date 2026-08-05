@@ -1,0 +1,59 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-19-47-05--glm47-aider-1211-sft-eval-20260719-full/cpp/exercises/practice/yacht",
+    "testcase": "yacht",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 558.2201392650604,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 8,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 36412,
+    "completion_tokens": 34980,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "50a77475917ace8f7941ad935785a31410c0ccb3"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "bb2d18113847059845b5699d3c3fcceec370401a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "cbe87f0070e1ffc47a4f6c2d2b4e70abacd124a4"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "bb2d18113847059845b5699d3c3fcceec370401a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "8a7cb838bc16e39b09735175af4139c5936a6a4a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "bb2d18113847059845b5699d3c3fcceec370401a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "bb2d18113847059845b5699d3c3fcceec370401a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "bb2d18113847059845b5699d3c3fcceec370401a"
+        ]
+    ]
+}

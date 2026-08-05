@@ -1,0 +1,91 @@
+The build errors are caused by two API mismatches:
+
+- `frequency` is declared both as a type alias and as a function, which is illegal in the same namespace.
+- The tests expect `frequency(const std::vector<std::string_view>&)` with no `workers` argument.
+
+The type alias is renamed to `frequency_map`, and the implementation now accepts `std::string_view` inputs while selecting a worker count internally. The CMake/TBB warnings are unrelated to these compilation errors.
+
+parallel_letter_frequency.h
+```
+#if !defined(PARALLEL_LETTER_FREQUENCY_H)
+#define PARALLEL_LETTER_FREQUENCY_H
+
+#include <map>
+#include <string_view>
+#include <vector>
+
+namespace parallel_letter_frequency {
+
+using frequency_map = std::map<char, unsigned int>;
+
+frequency_map frequency(const std::vector<std::string_view>& texts);
+
+}
+
+#endif
+```
+
+parallel_letter_frequency.cpp
+```
+#include "parallel_letter_frequency.h"
+
+#include <algorithm>
+#include <cctype>
+#include <thread>
+
+namespace parallel_letter_frequency {
+
+frequency_map frequency(const std::vector<std::string_view>& texts)
+{
+    if (texts.empty()) {
+        return {};
+    }
+
+    const auto available_workers = std::thread::hardware_concurrency();
+    const auto worker_count = std::min(
+        texts.size(),
+        static_cast<std::size_t>(available_workers == 0 ? 1 : available_workers));
+
+    std::vector<frequency_map> partial_frequencies(worker_count);
+    std::vector<std::thread> threads;
+    threads.reserve(worker_count);
+
+    for (std::size_t worker = 0; worker < worker_count; ++worker) {
+        const auto begin = worker * texts.size() / worker_count;
+        const auto end = (worker + 1) * texts.size() / worker_count;
+
+        threads.emplace_back([&, worker, begin, end] {
+            auto& partial = partial_frequencies[worker];
+
+            for (std::size_t text_index = begin; text_index < end; ++text_index) {
+                for (const auto character : texts[text_index]) {
+                    const auto unsigned_character =
+                        static_cast<unsigned char>(character);
+
+                    if (std::isalpha(unsigned_character)) {
+                        const auto lowercase = static_cast<char>(
+                            std::tolower(unsigned_character));
+                        ++partial[lowercase];
+                    }
+                }
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    frequency_map result;
+
+    for (const auto& partial : partial_frequencies) {
+        for (const auto& [character, count] : partial) {
+            result[character] += count;
+        }
+    }
+
+    return result;
+}
+
+}
+```

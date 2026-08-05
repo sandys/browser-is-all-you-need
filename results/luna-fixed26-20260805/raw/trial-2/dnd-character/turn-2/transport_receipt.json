@@ -1,0 +1,128 @@
+{
+  "call_id": "call-000054-5ad10adb7cd6",
+  "duration_seconds": 25.007218,
+  "feedback_authorization": {
+    "candidate_state_message_index": 9,
+    "feedback_output_sha256": "6c7f4a24680bc3af19a4437bf44ba8b6ed3270e855106f3835907f50d807b97e",
+    "matched_candidate_files": [
+      {
+        "path": "dnd_character.cpp",
+        "sha256": "2852df9a8197f1c56b8dddecea84ad801a388e1899a2b730a6b08bcb9bc81772",
+        "size": 1391
+      },
+      {
+        "path": "dnd_character.h",
+        "sha256": "81ea1c91c92ba2475a252cd73dcd92406992c60fccc40389dda6bb7785c17042",
+        "size": 513
+      }
+    ],
+    "matched_scorer_receipts": [
+      {
+        "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/dnd-character-1785913799868264000-e422373287f9.json",
+        "request_id": "dnd-character-1785913799868264000-e422373287f9",
+        "sha256": "e365d532daebacddd529c21f56098617f28052e469b29b0a48fe4d515217b99b"
+      }
+    ],
+    "present": true,
+    "status": "authorized",
+    "task": "dnd-character"
+  },
+  "http_status": 200,
+  "kind": "luna-low-openrouter-strict-one-shot-call",
+  "leak_audit": {
+    "feedback_authorization": {
+      "candidate_state_message_index": 9,
+      "feedback_output_sha256": "6c7f4a24680bc3af19a4437bf44ba8b6ed3270e855106f3835907f50d807b97e",
+      "matched_candidate_files": [
+        {
+          "path": "dnd_character.cpp",
+          "sha256": "2852df9a8197f1c56b8dddecea84ad801a388e1899a2b730a6b08bcb9bc81772",
+          "size": 1391
+        },
+        {
+          "path": "dnd_character.h",
+          "sha256": "81ea1c91c92ba2475a252cd73dcd92406992c60fccc40389dda6bb7785c17042",
+          "size": 513
+        }
+      ],
+      "matched_scorer_receipts": [
+        {
+          "path": "gpt56-luna-medium-openrouter-fixed26-pristine-v1-stablefiles-feedback2x4-macos-r3-feedback-a2/dnd-character-1785913799868264000-e422373287f9.json",
+          "request_id": "dnd-character-1785913799868264000-e422373287f9",
+          "sha256": "e365d532daebacddd529c21f56098617f28052e469b29b0a48fe4d515217b99b"
+        }
+      ],
+      "present": true,
+      "status": "authorized",
+      "task": "dnd-character"
+    },
+    "hidden_corpus_sha256": "089653d6ccb5e7531bddeb60ba9c0838eba746afb94b6811810468d3fa742529",
+    "hidden_excerpt_count": 196430,
+    "hidden_file_count": 152,
+    "hidden_filename_count": 30,
+    "message_count": 12,
+    "message_roles": [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ],
+    "prompt_chars": 4345,
+    "prompt_sha256": "8db9c975f60afcce597db8ec5d53719e1e26b485f985ccf541b8c780101aa321",
+    "status": "passed",
+    "violations": []
+  },
+  "model_requested": "openai/gpt-5.6-luna",
+  "model_returned": "openai/gpt-5.6-luna",
+  "plugins_present": false,
+  "provider_data_collection": "deny",
+  "provider_fallbacks_allowed": false,
+  "provider_requires_parameters": true,
+  "provider_returned": "OpenAI",
+  "provider_zdr_required": false,
+  "reasoning_effort": "medium",
+  "reasoning_excluded_from_response": true,
+  "request_sha256": "5ad10adb7cd64691b087f908137660779c403628711fd4730c5f563497a5517d",
+  "response_headers": {
+    "content-type": "application/json",
+    "date": "Wed, 05 Aug 2026 07:10:22 GMT"
+  },
+  "response_sha256": "def4da791f9319446da5fd716fe6cdb8299e9156bfb5446de774ada95d4b4f3d",
+  "schema_version": 1,
+  "status": "accepted",
+  "tools_present": false,
+  "upstream_http_attempts": 1,
+  "usage": {
+    "completion_tokens": 700,
+    "completion_tokens_details": {
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "reasoning_tokens": 182
+    },
+    "cost": 0.00088374825,
+    "cost_details": {
+      "upstream_inference_completions_cost": 0.00042,
+      "upstream_inference_cost": 0.000892675,
+      "upstream_inference_prompt_cost": 0.000472675
+    },
+    "is_byok": false,
+    "prompt_tokens": 3782,
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cache_write_tokens": 3779,
+      "cached_tokens": 0,
+      "video_tokens": 0
+    },
+    "total_tokens": 4482
+  },
+  "violations": [],
+  "web_search_enabled": false
+}

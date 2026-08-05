@@ -1,0 +1,56 @@
+The build errors occur because the tests expect `diamond::rows` to return `std::vector<std::string>`, while the current implementation returns a single `std::string`.
+
+I changed the function signature and implementation to return one complete row per vector element, including the required leading and trailing spaces. The CMake deprecation warning is unrelated to these compilation errors.
+
+diamond.h
+```
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter);
+
+}  // namespace diamond
+```
+
+diamond.cpp
+```
+#include "diamond.h"
+
+#include <string>
+#include <vector>
+
+namespace diamond {
+
+std::vector<std::string> rows(char letter) {
+  const int maximum_offset = letter - 'A';
+  const int width = maximum_offset * 2 + 1;
+  const int height = width;
+
+  std::vector<std::string> result;
+  result.reserve(height);
+
+  for (int row = 0; row < height; ++row) {
+    const int offset = row <= maximum_offset
+                           ? row
+                           : height - 1 - row;
+    const char current_letter =
+        static_cast<char>('A' + offset);
+    const int left_position = maximum_offset - offset;
+    const int right_position = maximum_offset + offset;
+
+    std::string current_row(width, ' ');
+    current_row[left_position] = current_letter;
+    current_row[right_position] = current_letter;
+
+    result.push_back(current_row);
+  }
+
+  return result;
+}
+
+}  // namespace diamond
+```

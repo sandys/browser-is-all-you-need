@@ -1,0 +1,75 @@
+The implementation adds a `school` class that:
+
+- Adds students to grades.
+- Rejects duplicate student names by returning `false`.
+- Returns students in a grade alphabetically.
+- Returns the complete roster ordered by grade and then alphabetically by student name.
+
+grade_school.h
+```
+#if !defined(GRADE_SCHOOL_H)
+#define GRADE_SCHOOL_H
+
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace grade_school {
+
+class school {
+public:
+    bool add(const std::string& name, int grade);
+    std::vector<std::string> grade(int grade) const;
+    std::map<int, std::vector<std::string>> roster() const;
+
+private:
+    std::map<int, std::vector<std::string>> students_by_grade;
+    std::set<std::string> students;
+};
+
+}  // namespace grade_school
+
+#endif  // GRADE_SCHOOL_H
+```
+
+grade_school.cpp
+```
+#include "grade_school.h"
+
+#include <algorithm>
+
+namespace grade_school {
+
+bool school::add(const std::string& name, int grade_number)
+{
+    if (students.find(name) != students.end()) {
+        return false;
+    }
+
+    students.insert(name);
+    students_by_grade[grade_number].push_back(name);
+    std::sort(students_by_grade[grade_number].begin(),
+              students_by_grade[grade_number].end());
+
+    return true;
+}
+
+std::vector<std::string> school::grade(int grade_number) const
+{
+    const auto found_grade = students_by_grade.find(grade_number);
+
+    if (found_grade == students_by_grade.end()) {
+        return {};
+    }
+
+    return found_grade->second;
+}
+
+std::map<int, std::vector<std::string>> school::roster() const
+{
+    return students_by_grade;
+}
+
+}  // namespace grade_school
+```

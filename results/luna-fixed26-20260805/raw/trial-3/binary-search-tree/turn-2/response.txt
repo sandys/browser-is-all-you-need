@@ -1,0 +1,87 @@
+The build errors occur because the tests expect `binary_tree` to be a class template, while the supplied implementation defines it only for `int`. The tests also expect publicly accessible `data`, `left`, and `right` members, plus an `as_sorted_list()` method.
+
+The tree implementation is now generic, supports values such as `uint32_t` and `std::string`, places duplicate values in the left subtree, supports searching, and returns an in-order sorted list. The CMake warning is unrelated to these compilation errors.
+
+binary_search_tree.h
+```
+#if !defined(BINARY_SEARCH_TREE_H)
+#define BINARY_SEARCH_TREE_H
+
+#include <memory>
+#include <vector>
+
+namespace binary_search_tree {
+
+template <typename T>
+class binary_tree {
+public:
+    explicit binary_tree(T value)
+        : data(value), left(nullptr), right(nullptr)
+    {
+    }
+
+    void insert(T value)
+    {
+        if (value <= data) {
+            if (left == nullptr) {
+                left.reset(new binary_tree<T>(value));
+            } else {
+                left->insert(value);
+            }
+        } else {
+            if (right == nullptr) {
+                right.reset(new binary_tree<T>(value));
+            } else {
+                right->insert(value);
+            }
+        }
+    }
+
+    bool contains(const T& value) const
+    {
+        if (value == data) {
+            return true;
+        }
+
+        if (value < data) {
+            return left != nullptr && left->contains(value);
+        }
+
+        return right != nullptr && right->contains(value);
+    }
+
+    std::vector<T> as_sorted_list() const
+    {
+        std::vector<T> result;
+        append_sorted(result);
+        return result;
+    }
+
+    T data;
+    std::unique_ptr<binary_tree<T>> left;
+    std::unique_ptr<binary_tree<T>> right;
+
+private:
+    void append_sorted(std::vector<T>& result) const
+    {
+        if (left != nullptr) {
+            left->append_sorted(result);
+        }
+
+        result.push_back(data);
+
+        if (right != nullptr) {
+            right->append_sorted(result);
+        }
+    }
+};
+
+}  // namespace binary_search_tree
+
+#endif // BINARY_SEARCH_TREE_H
+```
+
+binary_search_tree.cpp
+```
+#include "binary_search_tree.h"
+```

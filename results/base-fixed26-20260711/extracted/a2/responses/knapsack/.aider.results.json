@@ -1,0 +1,47 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-07-59-39--glm47-aider-v1-sft-eval-20260718-full/cpp/exercises/practice/knapsack",
+    "testcase": "knapsack",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 922.4193806648254,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 2,
+    "num_user_asks": 5,
+    "num_exhausted_context_windows": 2,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 9360,
+    "completion_tokens": 8125,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c7f3ee676f714f1ffa4962908b17c84a722af4ad"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "4aa8dafbe0348e9740deaef0d2e38fe4e5bde83a"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "1babe5fd78951d144ab6f4db38136517f88cd0c5"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

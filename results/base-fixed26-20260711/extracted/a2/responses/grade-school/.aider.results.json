@@ -1,0 +1,51 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-07-59-39--glm47-aider-v1-sft-eval-20260718-full/cpp/exercises/practice/grade-school",
+    "testcase": "grade-school",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 364.1657133102417,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 5,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 323503,
+    "completion_tokens": 23637,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "16126eec8b3e10f3560eb29ee7b0b5b283b6e824"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "59fcaa353f2c413b61a915a9b6e971e600ddb95b"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "011896fef1e2000f17c2e186ad3fb0d71b5d5178"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "5fd504777cddb8fa9a15ae8920f1968edafcadb0"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "cbcbd2fcf3a6eb44a9e444f217e87e35f976a67b"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "c535e8531e2ab0c23b89159d03c50ddb1db5c3f2"
+        ]
+    ]
+}

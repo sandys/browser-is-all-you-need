@@ -1,0 +1,91 @@
+The CMake warning is unrelated to the test failure. The failure occurs because `reset()` removes the old name from `existing_names`, allowing a later reset to generate the same name again.
+
+The fix keeps a registry of every generated name for the lifetime of the process. Reset still clears the robot’s current name, but generated names are never reused. I also replaced `const_cast` with a `mutable` member.
+
+robot_name.cpp
+```cpp
+#include "robot_name.h"
+
+#include <mutex>
+#include <random>
+#include <set>
+#include <string>
+
+namespace robot_name {
+namespace {
+
+std::mutex names_mutex;
+std::set<std::string> generated_names;
+std::random_device random_source;
+
+std::string generate_unique_name()
+{
+    std::uniform_int_distribution<int> letter_distribution('A', 'Z');
+    std::uniform_int_distribution<int> digit_distribution('0', '9');
+
+    std::string candidate(5, '0');
+
+    do {
+        candidate[0] = static_cast<char>(letter_distribution(random_source));
+        candidate[1] = static_cast<char>(letter_distribution(random_source));
+        candidate[2] = static_cast<char>(digit_distribution(random_source));
+        candidate[3] = static_cast<char>(digit_distribution(random_source));
+        candidate[4] = static_cast<char>(digit_distribution(random_source));
+    } while (!generated_names.insert(candidate).second);
+
+    return candidate;
+}
+
+}  // namespace
+
+std::string robot::name() const
+{
+    std::lock_guard<std::mutex> lock(names_mutex);
+
+    if (robot_name_.empty()) {
+        robot_name_ = generate_unique_name();
+    }
+
+    return robot_name_;
+}
+
+void robot::reset()
+{
+    std::lock_guard<std::mutex> lock(names_mutex);
+    robot_name_.clear();
+}
+
+robot::~robot() = default;
+
+}  // namespace robot_name
+```
+
+robot_name.h
+```cpp
+#if !defined(ROBOT_NAME_H)
+#define ROBOT_NAME_H
+
+#include <string>
+
+namespace robot_name {
+
+class robot {
+public:
+    robot() = default;
+    robot(const robot&) = delete;
+    robot& operator=(const robot&) = delete;
+    robot(robot&&) = delete;
+    robot& operator=(robot&&) = delete;
+    ~robot();
+
+    std::string name() const;
+    void reset();
+
+private:
+    mutable std::string robot_name_;
+};
+
+}  // namespace robot_name
+
+#endif  // ROBOT_NAME_H
+```

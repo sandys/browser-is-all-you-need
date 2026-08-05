@@ -1,0 +1,68 @@
+The compilation errors occur because the tests expect a `queen_attack::chess_board` class rather than the standalone `can_attack` function. The class should:
+
+- Accept two coordinate pairs in its constructor.
+- Reject coordinates outside the 8×8 board with `std::domain_error`.
+- Reject both queens occupying the same square.
+- Provide a `can_attack()` member function.
+
+The CMake deprecation warning is unrelated to the test failure and does not require changes to these files.
+
+queen_attack.h
+```
+#if !defined(QUEEN_ATTACK_H)
+#define QUEEN_ATTACK_H
+
+#include <utility>
+
+namespace queen_attack {
+
+class chess_board {
+public:
+    chess_board(std::pair<int, int> white, std::pair<int, int> black);
+
+    bool can_attack() const;
+
+private:
+    std::pair<int, int> white_;
+    std::pair<int, int> black_;
+};
+
+}  // namespace queen_attack
+
+#endif  // QUEEN_ATTACK_H
+```
+
+queen_attack.cpp
+```
+#include "queen_attack.h"
+
+#include <cstdlib>
+#include <stdexcept>
+
+namespace queen_attack {
+
+chess_board::chess_board(std::pair<int, int> white,
+                         std::pair<int, int> black)
+    : white_(white), black_(black) {
+    const auto is_valid_position = [](const std::pair<int, int>& position) {
+        return position.first >= 0 && position.first < 8 &&
+               position.second >= 0 && position.second < 8;
+    };
+
+    if (!is_valid_position(white_) || !is_valid_position(black_) ||
+        white_ == black_) {
+        throw std::domain_error("Invalid queen position");
+    }
+}
+
+bool chess_board::can_attack() const {
+    const int row_difference = std::abs(white_.first - black_.first);
+    const int column_difference = std::abs(white_.second - black_.second);
+
+    return white_.first == black_.first ||
+           white_.second == black_.second ||
+           row_difference == column_difference;
+}
+
+}  // namespace queen_attack
+```

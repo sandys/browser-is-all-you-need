@@ -1,0 +1,105 @@
+The build failure is caused by an API mismatch: the tests expect `complex_numbers::Complex` and an `imag()` accessor, while the current implementation provides `complex_number` and `imaginary()`.
+
+The CMake deprecation warning is unrelated to the compilation failure. The following changes provide the expected `Complex` API while retaining `complex_number` as an alias for compatibility.
+
+complex_numbers.h
+```
+#if !defined(COMPLEX_NUMBERS_H)
+#define COMPLEX_NUMBERS_H
+
+namespace complex_numbers {
+
+class Complex {
+public:
+    Complex(double real, double imaginary);
+
+    double real() const;
+    double imag() const;
+
+    Complex conjugate() const;
+    double abs() const;
+    Complex exp() const;
+
+    Complex operator+(const Complex& other) const;
+    Complex operator-(const Complex& other) const;
+    Complex operator*(const Complex& other) const;
+    Complex operator/(const Complex& other) const;
+
+private:
+    double real_;
+    double imaginary_;
+};
+
+using complex_number = Complex;
+
+}  // namespace complex_numbers
+
+#endif  // COMPLEX_NUMBERS_H
+```
+
+complex_numbers.cpp
+```
+#include "complex_numbers.h"
+
+#include <cmath>
+
+namespace complex_numbers {
+
+Complex::Complex(double real, double imaginary)
+    : real_(real), imaginary_(imaginary) {
+}
+
+double Complex::real() const {
+    return real_;
+}
+
+double Complex::imag() const {
+    return imaginary_;
+}
+
+Complex Complex::conjugate() const {
+    return Complex(real_, -imaginary_);
+}
+
+double Complex::abs() const {
+    return std::sqrt(real_ * real_ + imaginary_ * imaginary_);
+}
+
+Complex Complex::exp() const {
+    const double magnitude = std::exp(real_);
+
+    return Complex(
+        magnitude * std::cos(imaginary_),
+        magnitude * std::sin(imaginary_));
+}
+
+Complex Complex::operator+(const Complex& other) const {
+    return Complex(
+        real_ + other.real_,
+        imaginary_ + other.imaginary_);
+}
+
+Complex Complex::operator-(const Complex& other) const {
+    return Complex(
+        real_ - other.real_,
+        imaginary_ - other.imaginary_);
+}
+
+Complex Complex::operator*(const Complex& other) const {
+    return Complex(
+        real_ * other.real_ - imaginary_ * other.imaginary_,
+        real_ * other.imaginary_ + imaginary_ * other.real_);
+}
+
+Complex Complex::operator/(const Complex& other) const {
+    const double denominator =
+        other.real_ * other.real_ +
+        other.imaginary_ * other.imaginary_;
+
+    return Complex(
+        (real_ * other.real_ + imaginary_ * other.imaginary_) / denominator,
+        (imaginary_ * other.real_ - real_ * other.imaginary_) / denominator);
+}
+
+}  // namespace complex_numbers
+```

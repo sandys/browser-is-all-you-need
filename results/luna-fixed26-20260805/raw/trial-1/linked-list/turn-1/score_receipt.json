@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "linked_list.cpp",
+      "sha256": "177a389c4d9adaeeba281bfe3fa7265b8aee4ce9576246a0b29d8063e88ba7f6",
+      "size": 79
+    },
+    {
+      "path": "linked_list.h",
+      "sha256": "6c2e683c88053d68f327428c728b74cd600a87dcdb795674c89488959328585e",
+      "size": 2835
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 4.666172027587891,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.3s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatelinked-list/build\n[ 25%] Building CXX object CMakeFiles/linked-list.dir/linked_list_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/linked-list.dir/linked_list.cpp.o\n[ 75%] Building CXX object CMakeFiles/linked-list.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable linked-list\n[100%] Built target linked-list\n===============================================================================\nAll tests passed (42 assertions in 19 test cases)\n\n[100%] Built target test_linked-list\n",
+  "output_sha256": "63dba1e826f56c5b2b0e6861df09d7a1a2c10b6cf420e70916ff273c3d1822f7",
+  "request_id": "linked-list-1785913798058881000-9cfe8b6170e1",
+  "returncode": 0,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "passed",
+  "task": "linked-list"
+}

@@ -1,0 +1,59 @@
+{
+    "testdir": "/results/runs/glm47-flash-aider-cpp-20260711192046/full/2026-07-11-19-30-09--glm47-flash-aider-cpp-20260711192046-full/cpp/exercises/practice/crypto-square",
+    "testcase": "crypto-square",
+    "model": "openai/glm-4.7-flash",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 650.3085789680481,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 8,
+    "num_exhausted_context_windows": 1,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 38015,
+    "completion_tokens": 35423,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "f6197fdfe31abae6b8970c9af045bd1479721776"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "d30e06c7d255f5d4e32bdd98cdb265ddca1003ff"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "d30e06c7d255f5d4e32bdd98cdb265ddca1003ff"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "3387621713e98344b58281b58fa63c17f6a55d99"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "1a9a0e398ce26d51d712f9c56777bd3223346068"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "4c0bb9edc8cdfddcada2b22fa449c38d74c48c51"
+        ],
+        [
+            "508089ddd0a4f3920a7bc236ec30fe127f39982c",
+            "c7d6ffbad5eef797186bf37b397e81c3ad6c3525"
+        ]
+    ]
+}

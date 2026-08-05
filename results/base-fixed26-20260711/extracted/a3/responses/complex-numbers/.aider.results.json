@@ -1,0 +1,43 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-18-19-47-05--glm47-aider-1211-sft-eval-20260719-full/cpp/exercises/practice/complex-numbers",
+    "testcase": "complex-numbers",
+    "model": "openai/glm-4.7-flash-sft",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 346.81088614463806,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 2,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 53407,
+    "completion_tokens": 23490,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "b5568bd24e285b4fe82de0b05431c472a69e22c6"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "00a87435f45d5de0fb896d283b7f27438fad1f20"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "f26098e0d31c629406a4f1b97a60a99feddac5e3"
+        ],
+        [
+            "4ad169c69e9b8ce6265b166511ce860e1b8cb5aa",
+            "fc4b880ae3c1360544bcee1de025dcb9da8f25d2"
+        ]
+    ]
+}

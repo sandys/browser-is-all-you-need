@@ -1,0 +1,47 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-20-51-02--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a3-shard-0/cpp/exercises/practice/dnd-character",
+    "testcase": "dnd-character",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 412.60036873817444,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 3,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 14500,
+    "completion_tokens": 21452,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "b613159b829be3469a5e505f7f8f13a9da607b04"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "c4248c699c9ceebe32d3d32ce02a30310749ae81"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "f3e6bb339179d389e35fe0a2442d72661b292edc"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ]
+    ]
+}

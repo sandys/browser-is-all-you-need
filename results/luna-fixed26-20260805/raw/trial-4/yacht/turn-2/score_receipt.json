@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "yacht.cpp",
+      "sha256": "197053064e0e3cc51f6480cbefaad617176aeaf724ba44f80b84ee9195458324",
+      "size": 2046
+    },
+    {
+      "path": "yacht.h",
+      "sha256": "c5b0b7aec2dc37ea18a91faab09a89f51b3277f0da85b7b6c5a019121d205346",
+      "size": 157
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 6.017514944076538,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.5s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privateyacht/build\n[ 25%] Building CXX object CMakeFiles/yacht.dir/yacht_test.cpp.o\n[ 50%] Building CXX object CMakeFiles/yacht.dir/yacht.cpp.o\n[ 75%] Building CXX object CMakeFiles/yacht.dir/test/tests-main.cpp.o\n[100%] Linking CXX executable yacht\n[100%] Built target yacht\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nyacht is a Catch v2.13.6 host application.\nRun with -? for options\n\n-------------------------------------------------------------------------------\nFull house two small, three big\n-------------------------------------------------------------------------------\n/privateyacht/yacht_test.cpp:67\n...............................................................................\n\n/privateyacht/yacht_test.cpp:68: FAILED:\n  REQUIRE( 16 == yacht::score({2, 2, 4, 4, 4}, \"full house\") )\nwith expansion:\n  16 == 0\n\n-------------------------------------------------------------------------------\nFull house three small, two big\n-------------------------------------------------------------------------------\n/privateyacht/yacht_test.cpp:71\n...............................................................................\n\n/privateyacht/yacht_test.cpp:72: FAILED:\n  REQUIRE( 19 == yacht::score({5, 3, 3, 5, 3}, \"full house\") )\nwith expansion:\n  19 == 0\n\n-------------------------------------------------------------------------------\nFour of a Kind\n-------------------------------------------------------------------------------\n/privateyacht/yacht_test.cpp:87\n...............................................................................\n\n/privateyacht/yacht_test.cpp:88: FAILED:\n  REQUIRE( 24 == yacht::score({6, 6, 4, 6, 6}, \"four of a kind\") )\nwith expansion:\n  24 == 0\n\n-------------------------------------------------------------------------------\nYacht can be scored{s Four of a Kind\n-------------------------------------------------------------------------------\n/privateyacht/yacht_test.cpp:91\n...............................................................................\n\n/privateyacht/yacht_test.cpp:92: FAILED:\n  REQUIRE( 12 == yacht::score({3, 3, 3, 3, 3}, \"four of a kind\") )\nwith expansion:\n  12 == 0\n\n-------------------------------------------------------------------------------\nLittle Straight\n-------------------------------------------------------------------------------\n/privateyacht/yacht_test.cpp:99\n...............................................................................\n\n/privateyacht/yacht_test.cpp:100: FAILED:\n  REQUIRE( 30 == yacht::score({3, 5, 4, 1, 2}, \"little straight\") )\nwith expansion:\n  30 == 0\n\n-------------------------------------------------------------------------------\nBig Straight\n-------------------------------------------------------------------------------\n/privateyacht/yacht_test.cpp:119\n...............................................................................\n\n/privateyacht/yacht_test.cpp:120: FAILED:\n  REQUIRE( 30 == yacht::score({4, 6, 2, 5, 3}, \"big straight\") )\nwith expansion:\n  30 == 0\n\n===============================================================================\ntest cases: 29 | 23 passed | 6 failed\nassertions: 29 | 23 passed | 6 failed\n\nmake[2]: *** [CMakeFiles/test_yacht] Error 6\nmake[1]: *** [CMakeFiles/test_yacht.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "c7c34b9790a9df1e26111f347799e623c4b871adac466d47da3e5157c0bb896b",
+  "request_id": "yacht-1785913836410945000-7ee89f98cef7",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "yacht"
+}

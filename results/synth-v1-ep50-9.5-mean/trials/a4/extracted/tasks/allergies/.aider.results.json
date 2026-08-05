@@ -1,0 +1,43 @@
+{
+    "testdir": "tmp.benchmarks/2026-07-31-21-22-26--glm47-synthmem-50ep-fixed26-mt2-20260731T194217Z-a4-shard-0/cpp/exercises/practice/allergies",
+    "testcase": "allergies",
+    "model": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 168.47705173492432,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 2,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 10861,
+    "completion_tokens": 7534,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "4c1043ffd4c527d594576d897d44584ce500648a"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "51603b79833e86f49b4c86fd34db901c4bc2ecb5"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "188dde15be4eb3d95d55f398b8735ff4a7af010b"
+        ],
+        [
+            "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+            "8efecf4e43970a755757d2f2bcf34278b1f9448f"
+        ]
+    ]
+}

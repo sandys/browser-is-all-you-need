@@ -1,0 +1,128 @@
+The tests call `normalized_cipher_text()`, while the header currently defines `normalized_ciphertext()`. I added the expected method name and retained the existing method as a compatibility alias. The CMake deprecation warning is unrelated to these compilation errors.
+
+crypto_square.h
+```
+#if !defined(CRYPTO_SQUARE_H)
+#define CRYPTO_SQUARE_H
+
+#include <string>
+#include <vector>
+
+namespace crypto_square {
+
+class cipher {
+public:
+    explicit cipher(const std::string& text);
+
+    std::string normalize_plain_text();
+    std::vector<std::string> plaintext_segments();
+    std::string ciphertext();
+    std::string normalized_cipher_text();
+    std::string normalized_ciphertext();
+
+private:
+    std::string plaintext;
+};
+
+}  // namespace crypto_square
+
+#endif  // CRYPTO_SQUARE_H
+```
+
+crypto_square.cpp
+```
+#include "crypto_square.h"
+
+#include <cctype>
+#include <cmath>
+#include <sstream>
+
+namespace crypto_square {
+
+cipher::cipher(const std::string& text) : plaintext(text) {}
+
+std::string cipher::normalize_plain_text()
+{
+    std::string normalized;
+
+    for (const unsigned char character : plaintext) {
+        if (std::isalnum(character)) {
+            normalized += static_cast<char>(std::tolower(character));
+        }
+    }
+
+    return normalized;
+}
+
+std::vector<std::string> cipher::plaintext_segments()
+{
+    const std::string normalized = normalize_plain_text();
+
+    if (normalized.empty()) {
+        return {};
+    }
+
+    const std::size_t columns = static_cast<std::size_t>(
+        std::ceil(std::sqrt(static_cast<double>(normalized.length()))));
+
+    std::vector<std::string> segments;
+
+    for (std::size_t start = 0; start < normalized.length(); start += columns) {
+        segments.push_back(normalized.substr(start, columns));
+    }
+
+    return segments;
+}
+
+std::string cipher::ciphertext()
+{
+    const std::vector<std::string> segments = plaintext_segments();
+
+    if (segments.empty()) {
+        return {};
+    }
+
+    const std::size_t rows = segments.size();
+    const std::size_t columns = segments.front().length();
+    std::ostringstream encoded;
+
+    bool first_segment = true;
+
+    for (std::size_t column = 0; column < columns; ++column) {
+        if (!first_segment) {
+            encoded << ' ';
+        }
+        first_segment = false;
+
+        for (std::size_t row = 0; row < rows; ++row) {
+            if (column < segments[row].length()) {
+                encoded << segments[row][column];
+            } else {
+                encoded << ' ';
+            }
+        }
+    }
+
+    return encoded.str();
+}
+
+std::string cipher::normalized_cipher_text()
+{
+    std::string normalized;
+
+    for (const unsigned char character : ciphertext()) {
+        if (character != ' ') {
+            normalized += static_cast<char>(character);
+        }
+    }
+
+    return normalized;
+}
+
+std::string cipher::normalized_ciphertext()
+{
+    return normalized_cipher_text();
+}
+
+}  // namespace crypto_square
+```

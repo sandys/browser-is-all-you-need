@@ -1,0 +1,94 @@
+The build errors are caused by the header requiring `workers`, while the tests correctly call `frequency(texts)` with one argument. Add a default value for `workers`; existing two-argument calls remain supported. The CMake and TBB warnings are unrelated to these compilation errors.
+
+parallel_letter_frequency.h
+```
+#if !defined(PARALLEL_LETTER_FREQUENCY_H)
+#define PARALLEL_LETTER_FREQUENCY_H
+
+#include <map>
+#include <string>
+#include <vector>
+
+namespace parallel_letter_frequency {
+
+std::map<char, int> frequency(const std::vector<std::string>& texts,
+                              unsigned int workers = 1);
+
+}
+
+#endif
+```
+
+parallel_letter_frequency.cpp
+```
+#include "parallel_letter_frequency.h"
+
+#include <algorithm>
+#include <cctype>
+#include <future>
+#include <utility>
+
+namespace parallel_letter_frequency {
+
+namespace {
+
+std::map<char, int> count_range(const std::vector<std::string>& texts,
+                                std::size_t begin,
+                                std::size_t end)
+{
+    std::map<char, int> result;
+
+    for (std::size_t index = begin; index < end; ++index) {
+        for (const char character : texts[index]) {
+            const unsigned char value = static_cast<unsigned char>(character);
+
+            if (std::isalpha(value)) {
+                const char lowercase =
+                    static_cast<char>(std::tolower(value));
+                ++result[lowercase];
+            }
+        }
+    }
+
+    return result;
+}
+
+}  // namespace
+
+std::map<char, int> frequency(const std::vector<std::string>& texts,
+                              unsigned int workers)
+{
+    std::map<char, int> result;
+
+    if (texts.empty()) {
+        return result;
+    }
+
+    const std::size_t worker_count =
+        std::max<std::size_t>(1, std::min<std::size_t>(workers, texts.size()));
+    const std::size_t chunk_size =
+        (texts.size() + worker_count - 1) / worker_count;
+
+    std::vector<std::future<std::map<char, int>>> futures;
+    futures.reserve(worker_count);
+
+    for (std::size_t begin = 0; begin < texts.size(); begin += chunk_size) {
+        const std::size_t end = std::min(begin + chunk_size, texts.size());
+
+        futures.emplace_back(std::async(
+            std::launch::async, count_range, std::cref(texts), begin, end));
+    }
+
+    for (auto& future : futures) {
+        const auto partial_result = future.get();
+
+        for (const auto& [character, count] : partial_result) {
+            result[character] += count;
+        }
+    }
+
+    return result;
+}
+
+}
+```

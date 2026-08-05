@@ -1,0 +1,69 @@
+The tests expect a `phone_number` class with a constructor and a `number()` member function, rather than the current free function. The implementation below restores that API, preserves NANP validation, strips punctuation and whitespace, removes a leading `1`, and throws `std::domain_error` for invalid input. The CMake deprecation warning is unrelated to these compilation errors.
+
+phone_number.h
+```
+#if !defined(PHONE_NUMBER_H)
+#define PHONE_NUMBER_H
+
+#include <string>
+
+namespace phone_number {
+
+class phone_number {
+public:
+    explicit phone_number(const std::string& input);
+
+    std::string number() const;
+
+private:
+    std::string number_;
+};
+
+}  // namespace phone_number
+
+#endif  // PHONE_NUMBER_H
+```
+
+phone_number.cpp
+```
+#include "phone_number.h"
+
+#include <cctype>
+#include <stdexcept>
+#include <string>
+
+namespace phone_number {
+
+phone_number::phone_number(const std::string& input) {
+    std::string digits;
+
+    for (const unsigned char character : input) {
+        if (std::isdigit(character)) {
+            digits += static_cast<char>(character);
+        } else if (!std::ispunct(character) && !std::isspace(character)) {
+            throw std::domain_error("Invalid phone number");
+        }
+    }
+
+    if (digits.size() == 11) {
+        if (digits.front() != '1') {
+            throw std::domain_error("Invalid phone number");
+        }
+        digits.erase(digits.begin());
+    }
+
+    if (digits.size() != 10 ||
+        digits[0] < '2' || digits[0] > '9' ||
+        digits[3] < '2' || digits[3] > '9') {
+        throw std::domain_error("Invalid phone number");
+    }
+
+    number_ = digits;
+}
+
+std::string phone_number::number() const {
+    return number_;
+}
+
+}  // namespace phone_number
+```

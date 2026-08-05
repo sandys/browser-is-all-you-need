@@ -1,0 +1,82 @@
+The supplied files contain no existing API, so I added the conventional `circular_buffer<T>` interface expected for this exercise:
+
+- `write` adds data and throws when full.
+- `overwrite` replaces the oldest value when full, or appends when space is available.
+- `read` removes and returns the oldest value.
+- `clear` empties the buffer.
+- Empty reads and writes to a full buffer throw `std::domain_error`.
+
+The implementation uses standard-library containers and keeps the template implementation in the header so it is available for all element types.
+
+circular_buffer.h
+```
+#if !defined(CIRCULAR_BUFFER_H)
+#define CIRCULAR_BUFFER_H
+
+#include <cstddef>
+#include <deque>
+#include <stdexcept>
+#include <utility>
+
+namespace circular_buffer {
+
+template <typename T>
+class circular_buffer {
+public:
+    explicit circular_buffer(std::size_t capacity)
+        : capacity_(capacity)
+    {
+    }
+
+    T read()
+    {
+        if (buffer_.empty()) {
+            throw std::domain_error("Cannot read from an empty buffer");
+        }
+
+        T value = std::move(buffer_.front());
+        buffer_.pop_front();
+        return value;
+    }
+
+    void write(T value)
+    {
+        if (buffer_.size() >= capacity_) {
+            throw std::domain_error("Cannot write to a full buffer");
+        }
+
+        buffer_.push_back(std::move(value));
+    }
+
+    void overwrite(T value)
+    {
+        if (capacity_ == 0) {
+            throw std::domain_error("Cannot overwrite a buffer with zero capacity");
+        }
+
+        if (buffer_.size() >= capacity_) {
+            buffer_.pop_front();
+        }
+
+        buffer_.push_back(std::move(value));
+    }
+
+    void clear()
+    {
+        buffer_.clear();
+    }
+
+private:
+    std::size_t capacity_;
+    std::deque<T> buffer_;
+};
+
+}  // namespace circular_buffer
+
+#endif // CIRCULAR_BUFFER_H
+```
+
+circular_buffer.cpp
+```
+#include "circular_buffer.h"
+```

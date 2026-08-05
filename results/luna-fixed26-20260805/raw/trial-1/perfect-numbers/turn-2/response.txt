@@ -1,0 +1,41 @@
+The failures occur because `classify` currently treats non-positive inputs as deficient instead of rejecting them. The implementation should throw `std::domain_error` for zero and negative values. The header does not require changes.
+
+perfect_numbers.cpp
+```
+#include "perfect_numbers.h"
+
+#include <stdexcept>
+
+namespace perfect_numbers {
+
+classification classify(int number) {
+  if (number <= 0) {
+    throw std::domain_error("number must be positive");
+  }
+
+  long long aliquot_sum = 0;
+
+  for (int divisor = 1; divisor <= number / divisor; ++divisor) {
+    if (number % divisor == 0) {
+      aliquot_sum += divisor;
+
+      const int paired_divisor = number / divisor;
+      if (paired_divisor != divisor && paired_divisor != number) {
+        aliquot_sum += paired_divisor;
+      }
+    }
+  }
+
+  if (aliquot_sum == number) {
+    return classification::perfect;
+  }
+
+  if (aliquot_sum > number) {
+    return classification::abundant;
+  }
+
+  return classification::deficient;
+}
+
+}  // namespace perfect_numbers
+```

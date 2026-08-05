@@ -1,0 +1,109 @@
+The CMake message is only a deprecation warning and is unrelated to the build failure. The tests require a public `dnd_character::modifier(int)` function, so it must be declared in the header and defined in the source file.
+
+dnd_character.h
+```
+#pragma once
+
+namespace dnd_character {
+
+int modifier(int ability);
+
+class character {
+public:
+    character();
+
+    int strength() const;
+    int dexterity() const;
+    int constitution() const;
+    int intelligence() const;
+    int wisdom() const;
+    int charisma() const;
+    int hitpoints() const;
+
+private:
+    int strength_;
+    int dexterity_;
+    int constitution_;
+    int intelligence_;
+    int wisdom_;
+    int charisma_;
+};
+
+}  // namespace dnd_character
+```
+
+dnd_character.cpp
+```
+#include "dnd_character.h"
+
+#include <algorithm>
+#include <array>
+#include <random>
+
+namespace dnd_character {
+namespace {
+
+int roll_ability() {
+    static std::random_device random_device;
+    static std::mt19937 generator(random_device());
+    static std::uniform_int_distribution<int> die(1, 6);
+
+    std::array<int, 4> rolls{};
+    for (int& roll : rolls) {
+        roll = die(generator);
+    }
+
+    return rolls[0] + rolls[1] + rolls[2] + rolls[3] -
+           *std::min_element(rolls.begin(), rolls.end());
+}
+
+}  // namespace
+
+int modifier(int ability) {
+    const int difference = ability - 10;
+
+    if (difference >= 0) {
+        return difference / 2;
+    }
+
+    return -((-difference + 1) / 2);
+}
+
+character::character()
+    : strength_(roll_ability()),
+      dexterity_(roll_ability()),
+      constitution_(roll_ability()),
+      intelligence_(roll_ability()),
+      wisdom_(roll_ability()),
+      charisma_(roll_ability()) {}
+
+int character::strength() const {
+    return strength_;
+}
+
+int character::dexterity() const {
+    return dexterity_;
+}
+
+int character::constitution() const {
+    return constitution_;
+}
+
+int character::intelligence() const {
+    return intelligence_;
+}
+
+int character::wisdom() const {
+    return wisdom_;
+}
+
+int character::charisma() const {
+    return charisma_;
+}
+
+int character::hitpoints() const {
+    return 10 + modifier(constitution_);
+}
+
+}  // namespace dnd_character
+```

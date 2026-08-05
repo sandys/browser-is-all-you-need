@@ -1,0 +1,90 @@
+The supplied files need a circular buffer class implementation. The buffer will:
+
+- Store a fixed capacity.
+- Throw `std::domain_error` when reading empty or writing to a full buffer.
+- Overwrite the oldest value when `overwrite` is used on a full buffer.
+- Reuse freed slots in FIFO order.
+- Support clearing all stored values.
+
+Since this is a template, its implementation must be in the header. The `.cpp` file remains as the translation unit that includes the header.
+
+circular_buffer.h
+```
+#if !defined(CIRCULAR_BUFFER_H)
+#define CIRCULAR_BUFFER_H
+
+#include <cstddef>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
+namespace circular_buffer {
+
+template <typename T>
+class circular_buffer {
+public:
+    explicit circular_buffer(std::size_t capacity)
+        : buffer_(capacity), capacity_(capacity), read_index_(0), size_(0)
+    {
+    }
+
+    T read()
+    {
+        if (size_ == 0) {
+            throw std::domain_error("Circular buffer is empty");
+        }
+
+        T value = std::move(buffer_[read_index_]);
+        read_index_ = (read_index_ + 1) % capacity_;
+        --size_;
+        return value;
+    }
+
+    void write(T value)
+    {
+        if (size_ == capacity_) {
+            throw std::domain_error("Circular buffer is full");
+        }
+
+        const std::size_t write_index = (read_index_ + size_) % capacity_;
+        buffer_[write_index] = std::move(value);
+        ++size_;
+    }
+
+    void overwrite(T value)
+    {
+        if (capacity_ == 0) {
+            throw std::domain_error("Cannot write to a zero-capacity buffer");
+        }
+
+        if (size_ < capacity_) {
+            write(std::move(value));
+            return;
+        }
+
+        buffer_[read_index_] = std::move(value);
+        read_index_ = (read_index_ + 1) % capacity_;
+    }
+
+    void clear()
+    {
+        read_index_ = 0;
+        size_ = 0;
+    }
+
+private:
+    std::vector<T> buffer_;
+    std::size_t capacity_;
+    std::size_t read_index_;
+    std::size_t size_;
+};
+
+}  // namespace circular_buffer
+
+#endif // CIRCULAR_BUFFER_H
+```
+
+circular_buffer.cpp
+```
+#include "circular_buffer.h"
+```

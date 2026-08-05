@@ -1,0 +1,15 @@
+{
+  "authorized_feedback_calls": 79,
+  "expected_samples": 183,
+  "identity_smokes_excluded": 1,
+  "observed_samples": 183,
+  "schema_version": 1,
+  "source_verification_status": "passed",
+  "status": "passed",
+  "test_timeouts": 0,
+  "transport_violations": 0,
+  "trials": 4,
+  "unique_sample_ids": 183,
+  "unique_tasks": 26,
+  "verdict": "valid-eval-only-sample-snapshot"
+}

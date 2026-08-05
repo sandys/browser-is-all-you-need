@@ -1,0 +1,43 @@
+{
+  "composition": {
+    "terminal_failures": 37,
+    "terminal_passes": 67,
+    "terminal_turn_1_samples": 25,
+    "terminal_turn_2_samples": 79
+  },
+  "created_at_utc": "2026-08-05T09:22:30.120452+00:00",
+  "dataset_id": "luna-final-samples-20260805",
+  "dataset_sha256": "43b2b59dc575b94b743e9b385dde819cce1de0e73ba5474a11cf61668ad0342d",
+  "dataset_version": "2026-08-05.final-table-terminal-samples.v1",
+  "disposition": "eval-only",
+  "limitations": [
+    "This package contains held-out fixed26 evaluation trajectories and is eval-only.",
+    "The selected turn-2 request contains its preceding turn-1 response and real oracle feedback as conversation context.",
+    "Earlier Luna runs and invalid partial runs are excluded."
+  ],
+  "row_count": 104,
+  "schema_version": 1,
+  "score_table": {
+    "cumulative_feedback_at_2_mean": 16.75,
+    "cumulative_feedback_at_2_scores": [
+      18,
+      16,
+      15,
+      18
+    ],
+    "turn_1_mean": 6.25,
+    "turn_1_scores": [
+      6,
+      5,
+      5,
+      9
+    ]
+  },
+  "selected_row_ids_hash": "b6edc18d5dfda7833e6e9e06e1e815273aaccab0a809bc9a444fab8bd52efc6e",
+  "selection_policy": "For each of four trials and 26 tasks, retain turn 1 if it passed; otherwise retain the final turn-2 response.",
+  "source_all_turns_snapshot_sha256": "1bd34f3c0992814372cef9457a4bea9c61d9feeec8ca09f32152936dffd79c0b",
+  "source_run": "artifacts/gpt56-luna-medium-openrouter-fixed26-pristine-original-v1-stablefiles-feedback2x4-macos-r3-20260805",
+  "training_eligible": false,
+  "trial_count": 4,
+  "unique_task_count": 26
+}

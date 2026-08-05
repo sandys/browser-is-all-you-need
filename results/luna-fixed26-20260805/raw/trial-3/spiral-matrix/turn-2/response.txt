@@ -1,0 +1,50 @@
+The failure occurs because the existing implementation writes boundary cells more than once, including the bottom-right corner and the center cell. The header API is already correct, so only `spiral_matrix.cpp` needs to change.
+
+spiral_matrix.cpp
+```
+#include "spiral_matrix.h"
+
+namespace spiral_matrix {
+
+std::vector<std::vector<unsigned int>> spiral_matrix(std::size_t size) {
+    std::vector<std::vector<unsigned int>> matrix(
+        size, std::vector<unsigned int>(size));
+
+    unsigned int value = 1;
+
+    for (std::size_t layer = 0; layer < (size + 1) / 2; ++layer) {
+        const std::size_t top = layer;
+        const std::size_t left = layer;
+        const std::size_t bottom = size - 1 - layer;
+        const std::size_t right = size - 1 - layer;
+
+        for (std::size_t column = left; column <= right; ++column) {
+            matrix[top][column] = value++;
+        }
+
+        for (std::size_t row = top + 1; row <= bottom; ++row) {
+            matrix[row][right] = value++;
+        }
+
+        if (top < bottom) {
+            for (std::size_t column = right - 1; column >= left; --column) {
+                matrix[bottom][column] = value++;
+
+                if (column == left) {
+                    break;
+                }
+            }
+        }
+
+        if (left < right) {
+            for (std::size_t row = bottom - 1; row > top; --row) {
+                matrix[row][left] = value++;
+            }
+        }
+    }
+
+    return matrix;
+}
+
+}  // namespace spiral_matrix
+```

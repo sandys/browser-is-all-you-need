@@ -1,0 +1,42 @@
+{
+  "candidate_files": [
+    {
+      "path": "complex_numbers.cpp",
+      "sha256": "ea0bb492132da30cbcb64cb0bb16efd0586fde045c97a3bd369189b5a48415c3",
+      "size": 1498
+    },
+    {
+      "path": "complex_numbers.h",
+      "sha256": "a3ec4293c151dacae84bbf151f349c20f2e615cf177daa3c6f2cbab40e278be0",
+      "size": 651
+    }
+  ],
+  "contract_variant": "pristine-original-v1",
+  "duration_seconds": 1.9163100719451904,
+  "environment": {
+    "app": "luna-fixed26-pristine-original-v1-macos-scorer",
+    "boost_date_time_package": "boost 1.90.0_1",
+    "cmake": "cmake version 4.4.0",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "cpu": 10,
+    "gpu": null,
+    "network_block_profile": "(version 1) (allow default) (deny network*)",
+    "network_blocked": true,
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "provider": "Local Mac",
+    "python": "3.9.6"
+  },
+  "kind": "luna-fixed26-macos-score-v1",
+  "output": "CMake Warning (deprecated) at CMakeLists.txt:5 (cmake_minimum_required):\n  Compatibility with CMake < 3.10 will be removed from a future version of\n  CMake.\n\n  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax\n  to tell CMake that the project requires at least <min> but has been updated\n  to work with policies introduced by <max> or earlier.\nThis warning is for project developers.  Use -Wno-author or -Wno-deprecated\nto suppress it.\n\n-- The CXX compiler identification is AppleClang 21.0.0.21000099\n-- Detecting CXX compiler ABI info\n-- Detecting CXX compiler ABI info - done\n-- Check for working CXX compiler: /usr/bin/c++ - skipped\n-- Detecting CXX compile features\n-- Detecting CXX compile features - done\n-- Configuring done (0.5s)\n-- Generating done (0.0s)\n-- Build files have been written to: /privatecomplex-numbers/build\n[ 25%] Building CXX object CMakeFiles/complex-numbers.dir/complex_numbers_test.cpp.o\n/privatecomplex-numbers/complex_numbers_test.cpp:29:22: error: no member named 'real' in 'complex_numbers::Complex'\n   29 |     REQUIRE_THAT(lhs.real(),\n      |                  ~~~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:30:49: error: no member named 'real' in 'complex_numbers::Complex'\n   30 |                  Catch::Matchers::WithinAbs(rhs.real(), eps));\n      |                                             ~~~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:31:22: error: no member named 'imag' in 'complex_numbers::Complex'\n   31 |     REQUIRE_THAT(lhs.imag(),\n      |                  ~~~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:32:49: error: no member named 'imag' in 'complex_numbers::Complex'\n   32 |                  Catch::Matchers::WithinAbs(rhs.imag(), eps));\n      |                                             ~~~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:38:20: error: no member named 'real' in 'complex_numbers::Complex'\n   38 |     REQUIRE_THAT(c.real(), Catch::Matchers::WithinAbs(1.0, eps));\n      |                  ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:45:20: error: no member named 'real' in 'complex_numbers::Complex'\n   45 |     REQUIRE_THAT(c.real(), Catch::Matchers::WithinAbs(0.0, eps));\n      |                  ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:51:20: error: no member named 'real' in 'complex_numbers::Complex'\n   51 |     REQUIRE_THAT(c.real(), Catch::Matchers::WithinAbs(1.0, eps));\n      |                  ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:57:20: error: no member named 'imag' in 'complex_numbers::Complex'\n   57 |     REQUIRE_THAT(c.imag(), Catch::Matchers::WithinAbs(0.0, eps));\n      |                  ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:63:20: error: no member named 'imag' in 'complex_numbers::Complex'\n   63 |     REQUIRE_THAT(c.imag(), Catch::Matchers::WithinAbs(1.0, eps));\n      |                  ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:69:21: error: no member named 'imag' in 'complex_numbers::Complex'\n   69 |     REQUIRE_THAT( c.imag(), Catch::Matchers::WithinAbs(2.0, eps));\n      |                   ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:198:47: error: no member named 'conj' in 'complex_numbers::Complex'\n  198 |     require_approx_equal(Complex(5.0, 0.0), c.conj());\n      |                                             ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:204:48: error: no member named 'conj' in 'complex_numbers::Complex'\n  204 |     require_approx_equal(Complex(0.0, -5.0), c.conj());\n      |                                              ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:210:48: error: no member named 'conj' in 'complex_numbers::Complex'\n  210 |     require_approx_equal(Complex(1.0, -1.0), c.conj());\n      |                                              ~ ^\n/privatecomplex-numbers/complex_numbers_test.cpp:247:46: error: invalid operands to binary expression ('const Complex' and 'double')\n  247 |     require_approx_equal(Complex(6.0,2.0), c + 5.0);\n      |                                            ~ ^ ~~~\n/privatecomplex-numbers/complex_numbers.h:17:13: note: candidate function not viable: no known conversion from 'double' to 'const Complex' for 1st argument\n   17 |     Complex operator+(const Complex& other) const;\n      |             ^         ~~~~~~~~~~~~~~~~~~~~\n/privatecomplex-numbers/complex_numbers_test.cpp:253:48: error: invalid operands to binary expression ('double' and 'const Complex')\n  253 |     require_approx_equal(Complex(6.0,2.0), 5.0 + c);\n      |                                            ~~~ ^ ~\n/privatecomplex-numbers/complex_numbers_test.cpp:259:46: error: invalid operands to binary expression ('const Complex' and 'double')\n  259 |     require_approx_equal(Complex(1.0,7.0), c - 4.0 );\n      |                                            ~ ^ ~~~\n/privatecomplex-numbers/complex_numbers.h:18:13: note: candidate function not viable: no known conversion from 'double' to 'const Complex' for 1st argument\n   18 |     Complex operator-(const Complex& other) const;\n      |             ^         ~~~~~~~~~~~~~~~~~~~~\n/privatecomplex-numbers/complex_numbers_test.cpp:265:50: error: invalid operands to binary expression ('double' and 'const Complex')\n  265 |     require_approx_equal(Complex(-1.0,-7.0), 4.0 - c);\n      |                                              ~~~ ^ ~\n/privatecomplex-numbers/complex_numbers_test.cpp:271:48: error: invalid operands to binary expression ('const Complex' and 'double')\n  271 |     require_approx_equal(Complex(10.0,25.0), c * 5.0);\n      |                                              ~ ^ ~~~\n/privatecomplex-numbers/complex_numbers.h:19:13: note: candidate function not viable: no known conversion from 'double' to 'const Complex' for 1st argument\n   19 |     Complex operator*(const Complex& other) const;\n      |             ^         ~~~~~~~~~~~~~~~~~~~~\n/privatecomplex-numbers/complex_numbers_test.cpp:277:50: error: invalid operands to binary expression ('double' and 'const Complex')\n  277 |     require_approx_equal(Complex(10.0,25.0), 5.0 * c);\n      |                                              ~~~ ^ ~\nfatal error: too many errors emitted, stopping now [-ferror-limit=]\n20 errors generated.\nmake[2]: *** [CMakeFiles/complex-numbers.dir/complex_numbers_test.cpp.o] Error 1\nmake[1]: *** [CMakeFiles/complex-numbers.dir/all] Error 2\nmake: *** [all] Error 2\n",
+  "output_sha256": "b12e08bf148dc332d28345566e47cbedadbbf5320f3448647754c2b37ed12b48",
+  "request_id": "complex-numbers-1785913930329141000-e5e2172088ed",
+  "returncode": 2,
+  "schema_version": 1,
+  "source_tree": {
+    "expected_sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3",
+    "file_count": 304,
+    "sha256": "f8fc8bcea4f17297f57c911912ac44118371c696f7f46b15b6969f1e7985e5b3"
+  },
+  "status": "failed",
+  "task": "complex-numbers"
+}

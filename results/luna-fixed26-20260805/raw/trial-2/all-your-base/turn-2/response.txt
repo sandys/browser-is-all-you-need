@@ -1,0 +1,78 @@
+The compilation errors are caused by the function using `std::vector<unsigned long>` while the tests use `std::vector<unsigned int>`. The tests also expect invalid inputs to throw `std::invalid_argument`, rather than return an empty vector.
+
+The CMake deprecation warning is unrelated to these errors and does not need to be addressed in the requested files.
+
+all_your_base.h
+```
+#if !defined(ALL_YOUR_BASE_H)
+#define ALL_YOUR_BASE_H
+
+#include <vector>
+
+namespace all_your_base {
+
+std::vector<unsigned int> convert(unsigned int input_base,
+                                  std::vector<unsigned int> input_digits,
+                                  unsigned int output_base);
+
+}  // namespace all_your_base
+
+#endif  // ALL_YOUR_BASE_H
+```
+
+all_your_base.cpp
+```
+#include "all_your_base.h"
+
+#include <stdexcept>
+#include <vector>
+
+namespace all_your_base {
+
+std::vector<unsigned int> convert(unsigned int input_base,
+                                  std::vector<unsigned int> input_digits,
+                                  unsigned int output_base) {
+    if (input_base < 2 || output_base < 2) {
+        throw std::invalid_argument("Bases must be at least 2");
+    }
+
+    for (const auto digit : input_digits) {
+        if (digit >= input_base) {
+            throw std::invalid_argument("Digit is invalid for the input base");
+        }
+    }
+
+    if (input_digits.empty()) {
+        return {};
+    }
+
+    std::vector<unsigned int> output_digits{0};
+
+    for (const auto digit : input_digits) {
+        unsigned long long carry = digit;
+
+        for (auto output_digit = output_digits.rbegin();
+             output_digit != output_digits.rend();
+             ++output_digit) {
+            const unsigned long long value =
+                static_cast<unsigned long long>(*output_digit) * input_base +
+                carry;
+
+            *output_digit =
+                static_cast<unsigned int>(value % output_base);
+            carry = value / output_base;
+        }
+
+        while (carry > 0) {
+            output_digits.insert(
+                output_digits.begin(),
+                static_cast<unsigned int>(carry % output_base));
+            carry /= output_base;
+        }
+    }
+
+    return output_digits;
+}
+
+}  // namespace all_your_base
+```

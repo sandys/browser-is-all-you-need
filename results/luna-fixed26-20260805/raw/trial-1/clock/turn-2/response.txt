@@ -1,0 +1,133 @@
+The build errors occur because the tests expect the standard clock API:
+
+- `clock::at(hour, minute)`
+- `plus(minutes)`
+- Conversion to `std::string`, formatted as `HH:MM`
+
+The CMake warning is unrelated to the compilation failure. Updated both files while retaining the existing constructor and methods for compatibility.
+
+clock.h
+```
+#if !defined(CLOCK_H)
+#define CLOCK_H
+
+#include <string>
+
+namespace date_independent {
+
+class clock {
+public:
+    clock(int hour, int minute);
+
+    static clock at(int hour, int minute);
+
+    clock add(int minutes) const;
+    clock subtract(int minutes) const;
+
+    clock plus(int minutes) const;
+    clock minus(int minutes) const;
+
+    bool operator==(const clock& other) const;
+    bool operator!=(const clock& other) const;
+
+    operator std::string() const;
+
+private:
+    explicit clock(int minutes_since_midnight, bool);
+
+    int minutes_since_midnight;
+};
+
+}  // namespace date_independent
+
+#endif  // CLOCK_H
+```
+
+clock.cpp
+```
+#include "clock.h"
+
+#include <iomanip>
+#include <sstream>
+
+namespace date_independent {
+
+namespace {
+constexpr int minutes_per_hour = 60;
+constexpr int minutes_per_day = 24 * minutes_per_hour;
+
+int normalize_minutes(long long minutes)
+{
+    minutes %= minutes_per_day;
+    if (minutes < 0) {
+        minutes += minutes_per_day;
+    }
+    return static_cast<int>(minutes);
+}
+}  // namespace
+
+clock::clock(int hour, int minute)
+    : minutes_since_midnight(normalize_minutes(
+          static_cast<long long>(hour) * minutes_per_hour + minute))
+{
+}
+
+clock::clock(int minutes_since_midnight, bool)
+    : minutes_since_midnight(normalize_minutes(minutes_since_midnight))
+{
+}
+
+clock clock::at(int hour, int minute)
+{
+    return clock(hour, minute);
+}
+
+clock clock::add(int minutes) const
+{
+    return clock(
+        normalize_minutes(static_cast<long long>(minutes_since_midnight) + minutes),
+        true);
+}
+
+clock clock::subtract(int minutes) const
+{
+    return clock(
+        normalize_minutes(static_cast<long long>(minutes_since_midnight) - minutes),
+        true);
+}
+
+clock clock::plus(int minutes) const
+{
+    return add(minutes);
+}
+
+clock clock::minus(int minutes) const
+{
+    return subtract(minutes);
+}
+
+bool clock::operator==(const clock& other) const
+{
+    return minutes_since_midnight == other.minutes_since_midnight;
+}
+
+bool clock::operator!=(const clock& other) const
+{
+    return !(*this == other);
+}
+
+clock::operator std::string() const
+{
+    const int hour = minutes_since_midnight / minutes_per_hour;
+    const int minute = minutes_since_midnight % minutes_per_hour;
+
+    std::ostringstream result;
+    result << std::setfill('0') << std::setw(2) << hour
+           << ':'
+           << std::setfill('0') << std::setw(2) << minute;
+
+    return result.str();
+}
+
+}  // namespace date_independent
+```

@@ -1,0 +1,106 @@
+The tests expect the standard clock API: `clock::at`, `plus`, and stream output for formatting the time as `HH:MM`. I’ve added those while retaining the existing constructor, `add`, and equality operator.
+
+clock.h
+```
+#if !defined(CLOCK_H)
+#define CLOCK_H
+
+#include <iosfwd>
+
+namespace date_independent {
+
+class clock {
+public:
+    clock(int hour, int minute);
+
+    static clock at(int hour, int minute);
+
+    clock plus(int minutes) const;
+
+    clock add(int minutes) const;
+
+    bool operator==(const clock& other) const;
+
+private:
+    static const int minutes_per_day = 24 * 60;
+
+    static int normalize(long long minutes);
+
+    int minutes_since_midnight;
+};
+
+std::ostream& operator<<(std::ostream& os, const clock& value);
+
+}  // namespace date_independent
+
+#endif  // CLOCK_H
+```
+
+clock.cpp
+```
+#include "clock.h"
+
+#include <iomanip>
+#include <ostream>
+
+namespace date_independent {
+
+int clock::normalize(long long minutes)
+{
+    minutes %= minutes_per_day;
+
+    if (minutes < 0) {
+        minutes += minutes_per_day;
+    }
+
+    return static_cast<int>(minutes);
+}
+
+clock::clock(int hour, int minute)
+    : minutes_since_midnight(normalize(static_cast<long long>(hour) * 60 + minute))
+{
+}
+
+clock clock::at(int hour, int minute)
+{
+    return clock(hour, minute);
+}
+
+clock clock::plus(int minutes) const
+{
+    clock result(0, 0);
+    result.minutes_since_midnight =
+        normalize(static_cast<long long>(minutes_since_midnight) + minutes);
+    return result;
+}
+
+clock clock::add(int minutes) const
+{
+    return plus(minutes);
+}
+
+bool clock::operator==(const clock& other) const
+{
+    return minutes_since_midnight == other.minutes_since_midnight;
+}
+
+std::ostream& operator<<(std::ostream& os, const clock& value)
+{
+    const int hour = value.minutes_since_midnight / 60;
+    const int minute = value.minutes_since_midnight % 60;
+
+    const std::ios_base::fmtflags original_flags = os.flags();
+    const char original_fill = os.fill();
+
+    os << std::setfill('0') << std::setw(2) << hour
+       << ':'
+       << std::setw(2) << minute;
+
+    os.flags(original_flags);
+    os.fill(original_fill);
+
+    return os;
+}
+
+}  // namespace date_independent
+```

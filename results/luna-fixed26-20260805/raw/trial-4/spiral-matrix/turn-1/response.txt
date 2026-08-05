@@ -1,0 +1,78 @@
+The supplied files contain no existing function declarations, so I added the standard `spiral_matrix(int size)` API expected for this exercise. The implementation returns an empty matrix for non-positive sizes and fills valid sizes in clockwise spiral order.
+
+spiral_matrix.h
+```
+#if !defined(SPIRAL_MATRIX_H)
+#define SPIRAL_MATRIX_H
+
+#include <cstdint>
+#include <vector>
+
+namespace spiral_matrix {
+
+std::vector<std::vector<uint32_t>> spiral_matrix(int size);
+
+}  // namespace spiral_matrix
+
+#endif  // SPIRAL_MATRIX_H
+```
+
+spiral_matrix.cpp
+```
+#include "spiral_matrix.h"
+
+namespace spiral_matrix {
+
+std::vector<std::vector<uint32_t>> spiral_matrix(int size)
+{
+    if (size <= 0) {
+        return {};
+    }
+
+    const auto dimension = static_cast<std::size_t>(size);
+    std::vector<std::vector<uint32_t>> matrix(
+        dimension, std::vector<uint32_t>(dimension));
+
+    std::size_t top = 0;
+    std::size_t bottom = dimension - 1;
+    std::size_t left = 0;
+    std::size_t right = dimension - 1;
+    uint32_t value = 1;
+
+    while (top <= bottom && left <= right) {
+        for (std::size_t column = left; column <= right; ++column) {
+            matrix[top][column] = value++;
+        }
+        ++top;
+
+        for (std::size_t row = top; row <= bottom; ++row) {
+            matrix[row][right] = value++;
+        }
+        if (right == 0) {
+            break;
+        }
+        --right;
+
+        if (top <= bottom) {
+            for (std::size_t column = right + 1; column-- > left;) {
+                matrix[bottom][column] = value++;
+            }
+            if (bottom == 0) {
+                break;
+            }
+            --bottom;
+        }
+
+        if (left <= right) {
+            for (std::size_t row = bottom + 1; row-- > top;) {
+                matrix[row][left] = value++;
+            }
+            ++left;
+        }
+    }
+
+    return matrix;
+}
+
+}  // namespace spiral_matrix
+```

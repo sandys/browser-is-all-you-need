@@ -1,0 +1,95 @@
+The build errors occur because the tests pass `std::vector<std::string_view>`, while the function currently accepts `std::vector<std::string>`. The implementation and declaration have been updated to use `std::string_view`. The CMake warnings are unrelated to these compilation errors and do not require changes to the supplied files.
+
+parallel_letter_frequency.cpp
+```
+#include "parallel_letter_frequency.h"
+
+#include <algorithm>
+#include <future>
+#include <thread>
+
+namespace parallel_letter_frequency {
+
+namespace {
+
+std::map<char, int> count_range(const std::vector<std::string_view>& texts,
+                                std::size_t begin,
+                                std::size_t end)
+{
+    std::map<char, int> counts;
+
+    for (std::size_t index = begin; index < end; ++index) {
+        for (const char character : texts[index]) {
+            if (character >= 'A' && character <= 'Z') {
+                ++counts[static_cast<char>(character - 'A' + 'a')];
+            } else if (character >= 'a' && character <= 'z') {
+                ++counts[character];
+            }
+        }
+    }
+
+    return counts;
+}
+
+} // namespace
+
+std::map<char, int> frequency(const std::vector<std::string_view>& texts)
+{
+    if (texts.empty()) {
+        return {};
+    }
+
+    const auto available_threads = std::thread::hardware_concurrency();
+    const std::size_t thread_count = std::min(
+        texts.size(),
+        static_cast<std::size_t>(available_threads == 0 ? 1 : available_threads));
+
+    const std::size_t chunk_size =
+        (texts.size() + thread_count - 1) / thread_count;
+
+    std::vector<std::future<std::map<char, int>>> tasks;
+    tasks.reserve(thread_count);
+
+    for (std::size_t begin = 0; begin < texts.size(); begin += chunk_size) {
+        const std::size_t end = std::min(begin + chunk_size, texts.size());
+
+        tasks.emplace_back(std::async(
+            std::launch::async,
+            [&texts, begin, end] {
+                return count_range(texts, begin, end);
+            }));
+    }
+
+    std::map<char, int> result;
+
+    for (auto& task : tasks) {
+        const auto partial_counts = task.get();
+
+        for (const auto& [character, count] : partial_counts) {
+            result[character] += count;
+        }
+    }
+
+    return result;
+}
+
+}
+```
+
+parallel_letter_frequency.h
+```
+#if !defined(PARALLEL_LETTER_FREQUENCY_H)
+#define PARALLEL_LETTER_FREQUENCY_H
+
+#include <map>
+#include <string_view>
+#include <vector>
+
+namespace parallel_letter_frequency {
+
+std::map<char, int> frequency(const std::vector<std::string_view>& texts);
+
+}
+
+#endif
+```

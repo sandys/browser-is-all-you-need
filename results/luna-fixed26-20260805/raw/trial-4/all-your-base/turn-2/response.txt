@@ -1,0 +1,171 @@
+The compilation errors show that the tests expect this interface:
+
+- `convert(input_base, digits, output_base)`
+- `std::vector<unsigned int>` for both input and output
+- `std::invalid_argument` for invalid bases or digits
+
+The CMake deprecation warning is unrelated to these failures and does not require changes to the requested files.
+
+all_your_base.h
+```
+#if !defined(ALL_YOUR_BASE_H)
+#define ALL_YOUR_BASE_H
+
+#include <vector>
+
+namespace all_your_base {
+
+std::vector<unsigned int> convert(unsigned int input_base,
+                                   const std::vector<unsigned int>& digits,
+                                   unsigned int output_base);
+
+}  // namespace all_your_base
+
+#endif  // ALL_YOUR_BASE_H
+```
+
+all_your_base.cpp
+```
+#include "all_your_base.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
+
+namespace all_your_base {
+namespace {
+
+class BigInteger {
+public:
+    BigInteger() : words_{0} {}
+
+    void multiply_and_add(std::uint64_t multiplier, std::uint64_t addend) {
+        const std::uint32_t multiplier_low =
+            static_cast<std::uint32_t>(multiplier);
+        const std::uint32_t multiplier_high =
+            static_cast<std::uint32_t>(multiplier >> 32);
+
+        const std::vector<std::uint32_t> original = words_;
+        words_.assign(original.size() + 2, 0);
+
+        std::uint64_t carry = 0;
+        for (std::size_t i = 0; i < original.size(); ++i) {
+            const std::uint64_t product =
+                static_cast<std::uint64_t>(original[i]) * multiplier_low +
+                carry;
+
+            words_[i] = static_cast<std::uint32_t>(product);
+            carry = product >> 32;
+        }
+        add_at(original.size(), carry);
+
+        carry = 0;
+        for (std::size_t i = 0; i < original.size(); ++i) {
+            const std::uint64_t product =
+                static_cast<std::uint64_t>(original[i]) * multiplier_high +
+                carry;
+
+            add_at(i + 1, product & 0xffffffffULL);
+            carry = product >> 32;
+        }
+        add_at(original.size() + 1, carry);
+
+        add_at(0, addend);
+        normalize();
+    }
+
+    bool is_zero() const {
+        return words_.size() == 1 && words_[0] == 0;
+    }
+
+    std::uint64_t divide_by(std::uint64_t divisor) {
+        std::vector<std::uint32_t> quotient(words_.size(), 0);
+        std::uint64_t remainder = 0;
+
+        for (std::size_t word = words_.size(); word-- > 0;) {
+            for (int bit = 31; bit >= 0; --bit) {
+                const std::uint64_t doubled =
+                    (remainder << 1) |
+                    static_cast<std::uint64_t>((words_[word] >> bit) & 1U);
+
+                if (doubled >= divisor) {
+                    remainder = doubled - divisor;
+                    quotient[word] |= (std::uint32_t{1} << bit);
+                } else {
+                    remainder = doubled;
+                }
+            }
+        }
+
+        words_ = quotient;
+        normalize();
+        return remainder;
+    }
+
+private:
+    void add_at(std::size_t index, std::uint64_t value) {
+        while (value != 0) {
+            if (index == words_.size()) {
+                words_.push_back(0);
+            }
+
+            const std::uint64_t sum =
+                static_cast<std::uint64_t>(words_[index]) +
+                (value & 0xffffffffULL);
+
+            words_[index] = static_cast<std::uint32_t>(sum);
+            value = (value >> 32) + (sum >> 32);
+            ++index;
+        }
+    }
+
+    void normalize() {
+        while (words_.size() > 1 && words_.back() == 0) {
+            words_.pop_back();
+        }
+    }
+
+    std::vector<std::uint32_t> words_;
+};
+
+}  // namespace
+
+std::vector<unsigned int> convert(unsigned int input_base,
+                                   const std::vector<unsigned int>& digits,
+                                   unsigned int output_base) {
+    if (input_base < 2 || output_base < 2) {
+        throw std::invalid_argument("Bases must be at least 2");
+    }
+
+    for (const unsigned int digit : digits) {
+        if (digit >= input_base) {
+            throw std::invalid_argument("Digit is invalid for the input base");
+        }
+    }
+
+    if (digits.empty()) {
+        return {};
+    }
+
+    BigInteger value;
+    for (const unsigned int digit : digits) {
+        value.multiply_and_add(input_base, digit);
+    }
+
+    if (value.is_zero()) {
+        return {0};
+    }
+
+    std::vector<unsigned int> result;
+    while (!value.is_zero()) {
+        const std::uint64_t digit = value.divide_by(output_base);
+        result.push_back(static_cast<unsigned int>(digit));
+    }
+
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
+}  // namespace all_your_base
+```
