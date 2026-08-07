@@ -1,0 +1,709 @@
+-- CMake version: 3.25.1
+-- The CXX compiler identification is GNU 14.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/local/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Version: 10.1.1
+-- Build type: Release
+-- Target 'doc' disabled (requires doxygen)
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Looking for strptime
+-- Looking for strptime - found
+-- FMT_PEDANTIC: OFF
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/fmt/build
+[  1%] Building CXX object CMakeFiles/fmt.dir/src/format.cc.o
+[  2%] Building CXX object CMakeFiles/fmt.dir/src/os.cc.o
+[  4%] Linking CXX static library libfmt.a
+[  4%] Built target fmt
+[  5%] Building CXX object test/gtest/CMakeFiles/gtest.dir/gmock-gtest-all.cc.o
+[  7%] Linking CXX static library libgtest.a
+[  7%] Built target gtest
+[  8%] Building CXX object test/CMakeFiles/test-main.dir/test-main.cc.o
+[ 10%] Building CXX object test/CMakeFiles/test-main.dir/gtest-extra.cc.o
+[ 11%] Building CXX object test/CMakeFiles/test-main.dir/util.cc.o
+[ 13%] Linking CXX static library libtest-main.a
+[ 13%] Built target test-main
+[ 14%] Building CXX object test/CMakeFiles/args-test.dir/args-test.cc.o
+[ 16%] Linking CXX executable ../bin/args-test
+[ 16%] Built target args-test
+[ 17%] Building CXX object test/CMakeFiles/assert-test.dir/assert-test.cc.o
+[ 19%] Linking CXX executable ../bin/assert-test
+[ 19%] Built target assert-test
+[ 20%] Building CXX object test/CMakeFiles/chrono-test.dir/chrono-test.cc.o
+In file included from /home/fmt/test/chrono-test.cc:8:
+/home/fmt/include/fmt/chrono.h: In function ‘tm fmt::v10::gmtime(std::chrono::time_point<std::chrono::_V2::system_clock, _Dur2>)’:
+/home/fmt/include/fmt/chrono.h:530:24: error: ‘duration_cast’ is not a member of ‘fmt’; did you mean ‘std::chrono::duration_cast’?
+  530 |   auto duration = fmt::duration_cast<seconds>(time_point.time_since_epoch());
+      |                        ^~~~~~~~~~~~~
+In file included from /usr/local/include/c++/14.2.0/chrono:41,
+                 from /home/fmt/include/fmt/chrono.h:12:
+/usr/local/include/c++/14.2.0/bits/chrono.h:275:7: note: ‘std::chrono::duration_cast’ declared here
+  275 |       duration_cast(const duration<_Rep, _Period>& __d)
+      |       ^~~~~~~~~~~~~
+/home/fmt/include/fmt/chrono.h:530:45: error: expected primary-expression before ‘>’ token
+  530 |   auto duration = fmt::duration_cast<seconds>(time_point.time_since_epoch());
+      |                                             ^
+/home/fmt/include/fmt/chrono.h: In member function ‘decltype (ctx.out()) fmt::v10::formatter<std::chrono::time_point<std::chrono::_V2::system_clock, Duration>, Char>::format(std::chrono::time_point<std::chrono::_V2::system_clock, Duration>, FormatContext&) const’:
+/home/fmt/include/fmt/chrono.h:2088:27: error: ‘duration_cast’ is not a member of ‘fmt’; did you mean ‘std::chrono::duration_cast’?
+ 2088 |       auto subsecs = fmt::duration_cast<Duration>(
+      |                           ^~~~~~~~~~~~~
+/usr/local/include/c++/14.2.0/bits/chrono.h:275:7: note: ‘std::chrono::duration_cast’ declared here
+  275 |       duration_cast(const duration<_Rep, _Period>& __d)
+      |       ^~~~~~~~~~~~~
+/home/fmt/include/fmt/chrono.h:2088:49: error: expected primary-expression before ‘>’ token
+ 2088 |       auto subsecs = fmt::duration_cast<Duration>(
+      |                                                 ^
+/home/fmt/include/fmt/chrono.h:2089:24: error: ‘duration_cast’ is not a member of ‘fmt’; did you mean ‘std::chrono::duration_cast’?
+ 2089 |           epoch - fmt::duration_cast<std::chrono::seconds>(epoch));
+      |                        ^~~~~~~~~~~~~
+/usr/local/include/c++/14.2.0/bits/chrono.h:275:7: note: ‘std::chrono::duration_cast’ declared here
+  275 |       duration_cast(const duration<_Rep, _Period>& __d)
+      |       ^~~~~~~~~~~~~
+/home/fmt/include/fmt/chrono.h:2089:58: error: expected primary-expression before ‘>’ token
+ 2089 |           epoch - fmt::duration_cast<std::chrono::seconds>(epoch));
+      |                                                          ^
+/home/fmt/include/fmt/chrono.h:2093:18: error: ‘duration_cast’ is not a member of ‘fmt’; did you mean ‘std::chrono::duration_cast’?
+ 2093 |             fmt::duration_cast<Duration>(std::chrono::seconds(1));
+      |                  ^~~~~~~~~~~~~
+/usr/local/include/c++/14.2.0/bits/chrono.h:275:7: note: ‘std::chrono::duration_cast’ declared here
+  275 |       duration_cast(const duration<_Rep, _Period>& __d)
+      |       ^~~~~~~~~~~~~
+/home/fmt/include/fmt/chrono.h:2093:40: error: expected primary-expression before ‘>’ token
+ 2093 |             fmt::duration_cast<Duration>(std::chrono::seconds(1));
+      |                                        ^
+gmake[2]: *** [test/CMakeFiles/chrono-test.dir/build.make:76: test/CMakeFiles/chrono-test.dir/chrono-test.cc.o] Error 1
+gmake[1]: *** [CMakeFiles/Makefile2:286: test/CMakeFiles/chrono-test.dir/all] Error 2
+gmake: *** [Makefile:166: all] Error 2
+
+--- failing test details ---
+Internal ctest changing into directory: /home/fmt/build
+Test project /home/fmt/build
+      Start  1: args-test
+ 1/20 Test  #1: args-test ........................   Passed    0.00 sec
+      Start  2: assert-test
+ 2/20 Test  #2: assert-test ......................   Passed    0.00 sec
+      Start  3: chrono-test
+Could not find executable /home/fmt/build/bin/chrono-test
+Looked in the following places:
+/home/fmt/build/bin/chrono-test
+/home/fmt/build/bin/chrono-test
+/home/fmt/build/bin/Release/chrono-test
+/home/fmt/build/bin/Release/chrono-test
+/home/fmt/build/bin/Debug/chrono-test
+/home/fmt/build/bin/Debug/chrono-test
+/home/fmt/build/bin/MinSizeRel/chrono-test
+/home/fmt/build/bin/MinSizeRel/chrono-test
+/home/fmt/build/bin/RelWithDebInfo/chrono-test
+/home/fmt/build/bin/RelWithDebInfo/chrono-test
+/home/fmt/build/bin/Deployment/chrono-test
+/home/fmt/build/bin/Deployment/chrono-test
+/home/fmt/build/bin/Development/chrono-test
+/home/fmt/build/bin/Development/chrono-test
+home/fmt/build/bin/chrono-test
+home/fmt/build/bin/chrono-test
+home/fmt/build/bin/Release/chrono-test
+home/fmt/build/bin/Release/chrono-test
+home/fmt/build/bin/Debug/chrono-test
+home/fmt/build/bin/Debug/chrono-test
+home/fmt/build/bin/MinSizeRel/chrono-test
+home/fmt/build/bin/MinSizeRel/chrono-test
+home/fmt/build/bin/RelWithDebInfo/chrono-test
+home/fmt/build/bin/RelWithDebInfo/chrono-test
+home/fmt/build/bin/Deployment/chrono-test
+home/fmt/build/bin/Deployment/chrono-test
+home/fmt/build/bin/Development/chrono-test
+home/fmt/build/bin/Development/chrono-test
+ 3/20 Test  #3: chrono-test ......................***Not Run   0.00 sec
+Unable to find executable: /home/fmt/build/bin/chrono-test
+      Start  4: color-test
+Could not find executable /home/fmt/build/bin/color-test
+Looked in the following places:
+/home/fmt/build/bin/color-test
+/home/fmt/build/bin/color-test
+/home/fmt/build/bin/Release/color-test
+/home/fmt/build/bin/Release/color-test
+/home/fmt/build/bin/Debug/color-test
+/home/fmt/build/bin/Debug/color-test
+/home/fmt/build/bin/MinSizeRel/color-test
+/home/fmt/build/bin/MinSizeRel/color-test
+/home/fmt/build/bin/RelWithDebInfo/color-test
+/home/fmt/build/bin/RelWithDebInfo/color-test
+/home/fmt/build/bin/Deployment/color-test
+/home/fmt/build/bin/Deployment/color-test
+/home/fmt/build/bin/Development/color-test
+/home/fmt/build/bin/Development/color-test
+home/fmt/build/bin/color-test
+home/fmt/build/bin/color-test
+home/fmt/build/bin/Release/color-test
+home/fmt/build/bin/Release/color-test
+home/fmt/build/bin/Debug/color-test
+home/fmt/build/bin/Debug/color-test
+home/fmt/build/bin/MinSizeRel/color-test
+home/fmt/build/bin/MinSizeRel/color-test
+home/fmt/build/bin/RelWithDebInfo/color-test
+home/fmt/build/bin/RelWithDebInfo/color-test
+home/fmt/build/bin/Deployment/color-test
+home/fmt/build/bin/Deployment/color-test
+home/fmt/build/bin/Development/color-test
+home/fmt/build/bin/Development/color-test
+ 4/20 Test  #4: color-test .......................***Not Run   0.00 sec
+Unable to find executable: /home/fmt/build/bin/color-test
+Unable to find executable: /home/fmt/build/bin/core-test
+      Start  5: core-test
+Could not find executable /home/fmt/build/bin/core-test
+Looked in the following places:
+/home/fmt/build/bin/core-test
+/home/fmt/build/bin/core-test
+/home/fmt/build/bin/Release/core-test
+/home/fmt/build/bin/Release/core-test
+/home/fmt/build/bin/Debug/core-test
+/home/fmt/build/bin/Debug/core-test
+/home/fmt/build/bin/MinSizeRel/core-test
+/home/fmt/build/bin/MinSizeRel/core-test
+/home/fmt/build/bin/RelWithDebInfo/core-test
+/home/fmt/build/bin/RelWithDebInfo/core-test
+/home/fmt/build/bin/Deployment/core-test
+/home/fmt/build/bin/Deployment/core-test
+/home/fmt/build/bin/Development/core-test
+/home/fmt/build/bin/Development/core-test
+home/fmt/build/bin/core-test
+home/fmt/build/bin/core-test
+home/fmt/build/bin/Release/core-test
+home/fmt/build/bin/Release/core-test
+home/fmt/build/bin/Debug/core-test
+home/fmt/build/bin/Debug/core-test
+home/fmt/build/bin/MinSizeRel/core-test
+home/fmt/build/bin/MinSizeRel/core-test
+home/fmt/build/bin/RelWithDebInfo/core-test
+home/fmt/build/bin/RelWithDebInfo/core-test
+home/fmt/build/bin/Deployment/core-test
+home/fmt/build/bin/Deployment/core-test
+home/fmt/build/bin/Development/core-test
+home/fmt/build/bin/Development/core-test
+ 5/20 Test  #5: core-test ........................***Not Run   0.00 sec
+Unable to find executable: /home/fmt/build/bin/gtest-extra-test
+      Start  6: gtest-extra-test
+Could not find executable /home/fmt/build/bin/gtest-extra-test
+Looked in the following places:
+/home/fmt/build/bin/gtest-extra-test
+/home/fmt/build/bin/gtest-extra-test
+/home/fmt/build/bin/Release/gtest-extra-test
+/home/fmt/build/bin/Release/gtest-extra-test
+/home/fmt/build/bin/Debug/gtest-extra-test
+/home/fmt/build/bin/Debug/gtest-extra-test
+/home/fmt/build/bin/MinSizeRel/gtest-extra-test
+/home/fmt/build/bin/MinSizeRel/gtest-extra-test
+/home/fmt/build/bin/RelWithDebInfo/gtest-extra-test
+/home/fmt/build/bin/RelWithDebInfo/gtest-extra-test
+/home/fmt/build/bin/Deployment/gtest-extra-test
+/home/fmt/build/bin/Deployment/gtest-extra-test
+/home/fmt/build/bin/Development/gtest-extra-test
+/home/fmt/build/bin/Development/gtest-extra-test
+home/fmt/build/bin/gtest-extra-test
+home/fmt/build/bin/gtest-extra-test
+home/fmt/build/bin/Release/gtest-extra-test
+home/fmt/build/bin/Release/gtest-extra-test
+home/fmt/build/bin/Debug/gtest-extra-test
+home/fmt/build/bin/Debug/gtest-extra-test
+home/fmt/build/bin/MinSizeRel/gtest-extra-test
+home/fmt/build/bin/MinSizeRel/gtest-extra-test
+home/fmt/build/bin/RelWithDebInfo/gtest-extra-test
+home/fmt/build/bin/RelWithDebInfo/gtest-extra-test
+home/fmt/build/bin/Deployment/gtest-extra-test
+home/fmt/build/bin/Deployment/gtest-extra-test
+home/fmt/build/bin/Development/gtest-extra-test
+home/fmt/build/bin/Development/gtest-extra-test
+ 6/20 Test  #6: gtest-extra-test .................***Not Run   0.00 sec
+      Start  7: format-test
+Unable to find executable: /home/fmt/build/bin/format-test
+Could not find executable /home/fmt/build/bin/format-test
+Looked in the following places:
+/home/fmt/build/bin/format-test
+/home/fmt/build/bin/format-test
+/home/fmt/build/bin/Release/format-test
+/home/fmt/build/bin/Release/format-test
+/home/fmt/build/bin/Debug/format-test
+/home/fmt/build/bin/Debug/format-test
+/home/fmt/build/bin/MinSizeRel/format-test
+/home/fmt/build/bin/MinSizeRel/format-test
+/home/fmt/build/bin/RelWithDebInfo/format-test
+/home/fmt/build/bin/RelWithDebInfo/format-test
+/home/fmt/build/bin/Deployment/format-test
+/home/fmt/build/bin/Deployment/format-test
+/home/fmt/build/bin/Development/format-test
+/home/fmt/build/bin/Development/format-test
+home/fmt/build/bin/format-test
+home/fmt/build/bin/format-test
+home/fmt/build/bin/Release/format-test
+home/fmt/build/bin/Release/format-test
+home/fmt/build/bin/Debug/format-test
+home/fmt/build/bin/Debug/format-test
+home/fmt/build/bin/MinSizeRel/format-test
+home/fmt/build/bin/MinSizeRel/format-test
+home/fmt/build/bin/RelWithDebInfo/format-test
+home/fmt/build/bin/RelWithDebInfo/format-test
+home/fmt/build/bin/Deployment/format-test
+home/fmt/build/bin/Deployment/format-test
+home/fmt/build/bin/Development/format-test
+home/fmt/build/bin/Development/format-test
+ 7/20 Test  #7: format-test ......................***Not Run   0.00 sec
+      Start  8: format-impl-test
+Unable to find executable: /home/fmt/build/bin/format-impl-test
+Could not find executable /home/fmt/build/bin/format-impl-test
+Looked in the following places:
+/home/fmt/build/bin/format-impl-test
+/home/fmt/build/bin/format-impl-test
+/home/fmt/build/bin/Release/format-impl-test
+/home/fmt/build/bin/Release/format-impl-test
+/home/fmt/build/bin/Debug/format-impl-test
+/home/fmt/build/bin/Debug/format-impl-test
+/home/fmt/build/bin/MinSizeRel/format-impl-test
+/home/fmt/build/bin/MinSizeRel/format-impl-test
+/home/fmt/build/bin/RelWithDebInfo/format-impl-test
+/home/fmt/build/bin/RelWithDebInfo/format-impl-test
+/home/fmt/build/bin/Deployment/format-impl-test
+/home/fmt/build/bin/Deployment/format-impl-test
+/home/fmt/build/bin/Development/format-impl-test
+/home/fmt/build/bin/Development/format-impl-test
+home/fmt/build/bin/format-impl-test
+home/fmt/build/bin/format-impl-test
+home/fmt/build/bin/Release/format-impl-test
+home/fmt/build/bin/Release/format-impl-test
+home/fmt/build/bin/Debug/format-impl-test
+home/fmt/build/bin/Debug/format-impl-test
+home/fmt/build/bin/MinSizeRel/format-impl-test
+home/fmt/build/bin/MinSizeRel/format-impl-test
+home/fmt/build/bin/RelWithDebInfo/format-impl-test
+home/fmt/build/bin/RelWithDebInfo/format-impl-test
+home/fmt/build/bin/Deployment/format-impl-test
+home/fmt/build/bin/Deployment/format-impl-test
+home/fmt/build/bin/Development/format-impl-test
+home/fmt/build/bin/Development/format-impl-test
+ 8/20 Test  #8: format-impl-test .................***Not Run   0.00 sec
+      Start  9: ostream-test
+Could not find executable /home/fmt/build/bin/ostream-test
+Looked in the following places:
+/home/fmt/build/bin/ostream-test
+/home/fmt/build/bin/ostream-test
+/home/fmt/build/bin/Release/ostream-test
+/home/fmt/build/bin/Release/ostream-test
+/home/fmt/build/bin/Debug/ostream-test
+/home/fmt/build/bin/Debug/ostream-test
+/home/fmt/build/bin/MinSizeRel/ostream-test
+/home/fmt/build/bin/MinSizeRel/ostream-test
+/home/fmt/build/bin/RelWithDebInfo/ostream-test
+/home/fmt/build/bin/RelWithDebInfo/ostream-test
+/home/fmt/build/bin/Deployment/ostream-test
+/home/fmt/build/bin/Deployment/ostream-test
+/home/fmt/build/bin/Development/ostream-test
+/home/fmt/build/bin/Development/ostream-test
+home/fmt/build/bin/ostream-test
+home/fmt/build/bin/ostream-test
+home/fmt/build/bin/Release/ostream-test
+home/fmt/build/bin/Release/ostream-test
+home/fmt/build/bin/Debug/ostream-test
+home/fmt/build/bin/Debug/ostream-test
+home/fmt/build/bin/MinSizeRel/ostream-test
+home/fmt/build/bin/MinSizeRel/ostream-test
+home/fmt/build/bin/RelWithDebInfo/ostream-test
+home/fmt/build/bin/RelWithDebInfo/ostream-test
+home/fmt/build/bin/Deployment/ostream-test
+home/fmt/build/bin/Deployment/ostream-test
+home/fmt/build/bin/Development/ostream-test
+home/fmt/build/bin/Development/ostream-test
+ 9/20 Test  #9: ostream-test .....................***Not Run   0.00 sec
+Unable to find executable: /home/fmt/build/bin/ostream-test
+      Start 10: compile-test
+Unable to find executable: /home/fmt/build/bin/compile-test
+Could not find executable /home/fmt/build/bin/compile-test
+Looked in the following places:
+/home/fmt/build/bin/compile-test
+/home/fmt/build/bin/compile-test
+/home/fmt/build/bin/Release/compile-test
+/home/fmt/build/bin/Release/compile-test
+/home/fmt/build/bin/Debug/compile-test
+/home/fmt/build/bin/Debug/compile-test
+/home/fmt/build/bin/MinSizeRel/compile-test
+/home/fmt/build/bin/MinSizeRel/compile-test
+/home/fmt/build/bin/RelWithDebInfo/compile-test
+/home/fmt/build/bin/RelWithDebInfo/compile-test
+/home/fmt/build/bin/Deployment/compile-test
+/home/fmt/build/bin/Deployment/compile-test
+/home/fmt/build/bin/Development/compile-test
+/home/fmt/build/bin/Development/compile-test
+home/fmt/build/bin/compile-test
+home/fmt/build/bin/compile-test
+home/fmt/build/bin/Release/compile-test
+home/fmt/build/bin/Release/compile-test
+home/fmt/build/bin/Debug/compile-test
+home/fmt/build/bin/Debug/compile-test
+home/fmt/build/bin/MinSizeRel/compile-test
+home/fmt/build/bin/MinSizeRel/compile-test
+home/fmt/build/bin/RelWithDebInfo/compile-test
+home/fmt/build/bin/RelWithDebInfo/compile-test
+home/fmt/build/bin/Deployment/compile-test
+home/fmt/build/bin/Deployment/compile-test
+home/fmt/build/bin/Development/compile-test
+home/fmt/build/bin/Development/compile-test
+10/20 Test #10: compile-test .....................***Not Run   0.00 sec
+      Start 11: compile-fp-test
+Could not find executable /home/fmt/build/bin/compile-fp-test
+Looked in the following places:
+/home/fmt/build/bin/compile-fp-test
+/home/fmt/build/bin/compile-fp-test
+/home/fmt/build/bin/Release/compile-fp-test
+/home/fmt/build/bin/Release/compile-fp-test
+/home/fmt/build/bin/Debug/compile-fp-test
+/home/fmt/build/bin/Debug/compile-fp-test
+/home/fmt/build/bin/MinSizeRel/compile-fp-test
+/home/fmt/build/bin/MinSizeRel/compile-fp-test
+/home/fmt/build/bin/RelWithDebInfo/compile-fp-test
+/home/fmt/build/bin/RelWithDebInfo/compile-fp-test
+/home/fmt/build/bin/Deployment/compile-fp-test
+/home/fmt/build/bin/Deployment/compile-fp-test
+/home/fmt/build/bin/Development/compile-fp-test
+/home/fmt/build/bin/Development/compile-fp-test
+home/fmt/build/bin/compile-fp-test
+home/fmt/build/bin/compile-fp-test
+home/fmt/build/bin/Release/compile-fp-test
+home/fmt/build/bin/Release/compile-fp-test
+home/fmt/build/bin/Debug/compile-fp-test
+home/fmt/build/bin/Debug/compile-fp-test
+home/fmt/build/bin/MinSizeRel/compile-fp-test
+home/fmt/build/bin/MinSizeRel/compile-fp-test
+home/fmt/build/bin/RelWithDebInfo/compile-fp-test
+home/fmt/build/bin/RelWithDebInfo/compile-fp-test
+home/fmt/build/bin/Deployment/compile-fp-test
+home/fmt/build/bin/Deployment/compile-fp-test
+home/fmt/build/bin/Development/compile-fp-test
+home/fmt/build/bin/Development/compile-fp-test
+11/20 Test #11: compile-fp-test ..................***Not Run   0.00 sec
+Unable to find executable: /home/fmt/build/bin/compile-fp-test
+      Start 12: printf-test
+Unable to find executable: /home/fmt/build/bin/printf-test
+Could not find executable /home/fmt/build/bin/printf-test
+Looked in the following places:
+/home/fmt/build/bin/printf-test
+/home/fmt/build/bin/printf-test
+/home/fmt/build/bin/Release/printf-test
+/home/fmt/build/bin/Release/printf-test
+/home/fmt/build/bin/Debug/printf-test
+/home/fmt/build/bin/Debug/printf-test
+/home/fmt/build/bin/MinSizeRel/printf-test
+/home/fmt/build/bin/MinSizeRel/printf-test
+/home/fmt/build/bin/RelWithDebInfo/printf-test
+/home/fmt/build/bin/RelWithDebInfo/printf-test
+/home/fmt/build/bin/Deployment/printf-test
+/home/fmt/build/bin/Deployment/printf-test
+/home/fmt/build/bin/Development/printf-test
+/home/fmt/build/bin/Development/printf-test
+home/fmt/build/bin/printf-test
+home/fmt/build/bin/printf-test
+home/fmt/build/bin/Release/printf-test
+home/fmt/build/bin/Release/printf-test
+home/fmt/build/bin/Debug/printf-test
+home/fmt/build/bin/Debug/printf-test
+home/fmt/build/bin/MinSizeRel/printf-test
+home/fmt/build/bin/MinSizeRel/printf-test
+home/fmt/build/bin/RelWithDebInfo/printf-test
+home/fmt/build/bin/RelWithDebInfo/printf-test
+home/fmt/build/bin/Deployment/printf-test
+home/fmt/build/bin/Deployment/printf-test
+home/fmt/build/bin/Development/printf-test
+home/fmt/build/bin/Development/printf-test
+12/20 Test #12: printf-test ......................***Not Run   0.00 sec
+      Start 13: ranges-test
+Could not find executable /home/fmt/build/bin/ranges-test
+Looked in the following places:
+/home/fmt/build/bin/ranges-test
+/home/fmt/build/bin/ranges-test
+/home/fmt/build/bin/Release/ranges-test
+/home/fmt/build/bin/Release/ranges-test
+/home/fmt/build/bin/Debug/ranges-test
+/home/fmt/build/bin/Debug/ranges-test
+/home/fmt/build/bin/MinSizeRel/ranges-test
+/home/fmt/build/bin/MinSizeRel/ranges-test
+/home/fmt/build/bin/RelWithDebInfo/ranges-test
+/home/fmt/build/bin/RelWithDebInfo/ranges-test
+/home/fmt/build/bin/Deployment/ranges-test
+/home/fmt/build/bin/Deployment/ranges-test
+/home/fmt/build/bin/Development/ranges-test
+/home/fmt/build/bin/Development/ranges-test
+home/fmt/build/bin/ranges-test
+home/fmt/build/bin/ranges-test
+home/fmt/build/bin/Release/ranges-test
+home/fmt/build/bin/Release/ranges-test
+home/fmt/build/bin/Debug/ranges-test
+home/fmt/build/bin/Debug/ranges-test
+home/fmt/build/bin/MinSizeRel/ranges-test
+home/fmt/build/bin/MinSizeRel/ranges-test
+home/fmt/build/bin/RelWithDebInfo/ranges-test
+home/fmt/build/bin/RelWithDebInfo/ranges-test
+home/fmt/build/bin/Deployment/ranges-test
+home/fmt/build/bin/Deployment/ranges-test
+home/fmt/build/bin/Development/ranges-test
+home/fmt/build/bin/Development/ranges-test
+13/20 Test #13: ranges-test ......................***Not Run   0.00 sec
+Unable to find executable: /home/fmt/build/bin/ranges-test
+      Start 14: scan-test
+Could not find executable /home/fmt/build/bin/scan-test
+Looked in the following places:
+/home/fmt/build/bin/scan-test
+/home/fmt/build/bin/scan-test
+/home/fmt/build/bin/Release/scan-test
+/home/fmt/build/bin/Release/scan-test
+/home/fmt/build/bin/Debug/scan-test
+/home/fmt/build/bin/Debug/scan-test
+/home/fmt/build/bin/MinSizeRel/scan-test
+/home/fmt/build/bin/MinSizeRel/scan-test
+/home/fmt/build/bin/RelWithDebInfo/scan-test
+/home/fmt/build/bin/RelWithDebInfo/scan-test
+/home/fmt/build/bin/Deployment/scan-test
+/home/fmt/build/bin/Deployment/scan-test
+/home/fmt/build/bin/Development/scan-test
+/home/fmt/build/bin/Development/scan-test
+home/fmt/build/bin/scan-test
+home/fmt/build/bin/scan-test
+home/fmt/build/bin/Release/scan-test
+home/fmt/build/bin/Release/scan-test
+home/fmt/build/bin/Debug/scan-test
+home/fmt/build/bin/Debug/scan-test
+home/fmt/build/bin/MinSizeRel/scan-test
+home/fmt/build/bin/MinSizeRel/scan-test
+home/fmt/build/bin/RelWithDebInfo/scan-test
+home/fmt/build/bin/RelWithDebInfo/scan-test
+home/fmt/build/bin/Deployment/scan-test
+home/fmt/build/bin/Deployment/scan-test
+home/fmt/build/bin/Development/scan-test
+home/fmt/build/bin/Development/scan-test
+14/20 Test #14: scan-test ........................***Not Run   0.00 sec
+      Start 15: std-test
+Could not find executable /home/fmt/build/bin/std-test
+Looked in the following places:
+/home/fmt/build/bin/std-test
+/home/fmt/build/bin/std-test
+/home/fmt/build/bin/Release/std-test
+/home/fmt/build/bin/Release/std-test
+/home/fmt/build/bin/Debug/std-test
+/home/fmt/build/bin/Debug/std-test
+/home/fmt/build/bin/MinSizeRel/std-test
+/home/fmt/build/bin/MinSizeRel/std-test
+/home/fmt/build/bin/RelWithDebInfo/std-test
+/home/fmt/build/bin/RelWithDebInfo/std-test
+/home/fmt/build/bin/Deployment/std-test
+/home/fmt/build/bin/Deployment/std-test
+/home/fmt/build/bin/Development/std-test
+/home/fmt/build/bin/Development/std-test
+home/fmt/build/bin/std-test
+home/fmt/build/bin/std-test
+home/fmt/build/bin/Release/std-test
+home/fmt/build/bin/Release/std-test
+home/fmt/build/bin/Debug/std-test
+home/fmt/build/bin/Debug/std-test
+home/fmt/build/bin/MinSizeRel/std-test
+home/fmt/build/bin/MinSizeRel/std-test
+home/fmt/build/bin/RelWithDebInfo/std-test
+home/fmt/build/bin/RelWithDebInfo/std-test
+home/fmt/build/bin/Deployment/std-test
+home/fmt/build/bin/Deployment/std-test
+home/fmt/build/bin/Development/std-test
+home/fmt/build/bin/Development/std-test
+15/20 Test #15: std-test .........................***Not Run   0.00 sec
+      Start 16: unicode-test
+Unable to find executable: /home/fmt/build/bin/scan-test
+Unable to find executable: /home/fmt/build/bin/std-test
+Could not find executable /home/fmt/build/bin/unicode-test
+Looked in the following places:
+/home/fmt/build/bin/unicode-test
+/home/fmt/build/bin/unicode-test
+/home/fmt/build/bin/Release/unicode-test
+/home/fmt/build/bin/Release/unicode-test
+/home/fmt/build/bin/Debug/unicode-test
+/home/fmt/build/bin/Debug/unicode-test
+/home/fmt/build/bin/MinSizeRel/unicode-test
+/home/fmt/build/bin/MinSizeRel/unicode-test
+/home/fmt/build/bin/RelWithDebInfo/unicode-test
+/home/fmt/build/bin/RelWithDebInfo/unicode-test
+/home/fmt/build/bin/Deployment/unicode-test
+/home/fmt/build/bin/Deployment/unicode-test
+/home/fmt/build/bin/Development/unicode-test
+/home/fmt/build/bin/Development/unicode-test
+home/fmt/build/bin/unicode-test
+home/fmt/build/bin/unicode-test
+home/fmt/build/bin/Release/unicode-test
+home/fmt/build/bin/Release/unicode-test
+home/fmt/build/bin/Debug/unicode-test
+home/fmt/build/bin/Debug/unicode-test
+home/fmt/build/bin/MinSizeRel/unicode-test
+home/fmt/build/bin/MinSizeRel/unicode-test
+home/fmt/build/bin/RelWithDebInfo/unicode-test
+home/fmt/build/bin/RelWithDebInfo/unicode-test
+home/fmt/build/bin/Deployment/unicode-test
+home/fmt/build/bin/Deployment/unicode-test
+home/fmt/build/bin/Development/unicode-test
+home/fmt/build/bin/Development/unicode-test
+Unable to find executable: /home/fmt/build/bin/unicode-test
+16/20 Test #16: unicode-test .....................***Not Run   0.00 sec
+      Start 17: xchar-test
+Unable to find executable: /home/fmt/build/bin/xchar-test
+Could not find executable /home/fmt/build/bin/xchar-test
+Looked in the following places:
+/home/fmt/build/bin/xchar-test
+/home/fmt/build/bin/xchar-test
+/home/fmt/build/bin/Release/xchar-test
+/home/fmt/build/bin/Release/xchar-test
+/home/fmt/build/bin/Debug/xchar-test
+/home/fmt/build/bin/Debug/xchar-test
+/home/fmt/build/bin/MinSizeRel/xchar-test
+/home/fmt/build/bin/MinSizeRel/xchar-test
+/home/fmt/build/bin/RelWithDebInfo/xchar-test
+/home/fmt/build/bin/RelWithDebInfo/xchar-test
+/home/fmt/build/bin/Deployment/xchar-test
+/home/fmt/build/bin/Deployment/xchar-test
+/home/fmt/build/bin/Development/xchar-test
+/home/fmt/build/bin/Development/xchar-test
+home/fmt/build/bin/xchar-test
+home/fmt/build/bin/xchar-test
+home/fmt/build/bin/Release/xchar-test
+home/fmt/build/bin/Release/xchar-test
+home/fmt/build/bin/Debug/xchar-test
+home/fmt/build/bin/Debug/xchar-test
+home/fmt/build/bin/MinSizeRel/xchar-test
+home/fmt/build/bin/MinSizeRel/xchar-test
+home/fmt/build/bin/RelWithDebInfo/xchar-test
+home/fmt/build/bin/RelWithDebInfo/xchar-test
+home/fmt/build/bin/Deployment/xchar-test
+home/fmt/build/bin/Deployment/xchar-test
+home/fmt/build/bin/Development/xchar-test
+home/fmt/build/bin/Development/xchar-test
+17/20 Test #17: xchar-test .......................***Not Run   0.00 sec
+      Start 18: enforce-checks-test
+Could not find executable /home/fmt/build/bin/enforce-checks-test
+Looked in the following places:
+/home/fmt/build/bin/enforce-checks-test
+/home/fmt/build/bin/enforce-checks-test
+/home/fmt/build/bin/Release/enforce-checks-test
+/home/fmt/build/bin/Release/enforce-checks-test
+/home/fmt/build/bin/Debug/enforce-checks-test
+/home/fmt/build/bin/Debug/enforce-checks-test
+/home/fmt/build/bin/MinSizeRel/enforce-checks-test
+/home/fmt/build/bin/MinSizeRel/enforce-checks-test
+/home/fmt/build/bin/RelWithDebInfo/enforce-checks-test
+/home/fmt/build/bin/RelWithDebInfo/enforce-checks-test
+/home/fmt/build/bin/Deployment/enforce-checks-test
+/home/fmt/build/bin/Deployment/enforce-checks-test
+/home/fmt/build/bin/Development/enforce-checks-test
+/home/fmt/build/bin/Development/enforce-checks-test
+home/fmt/build/bin/enforce-checks-test
+home/fmt/build/bin/enforce-checks-test
+home/fmt/build/bin/Release/enforce-checks-test
+home/fmt/build/bin/Release/enforce-checks-test
+home/fmt/build/bin/Debug/enforce-checks-test
+home/fmt/build/bin/Debug/enforce-checks-test
+home/fmt/build/bin/MinSizeRel/enforce-checks-test
+home/fmt/build/bin/MinSizeRel/enforce-checks-test
+home/fmt/build/bin/RelWithDebInfo/enforce-checks-test
+home/fmt/build/bin/RelWithDebInfo/enforce-checks-test
+home/fmt/build/bin/Deployment/enforce-checks-test
+home/fmt/build/bin/Deployment/enforce-checks-test
+home/fmt/build/bin/Development/enforce-checks-test
+home/fmt/build/bin/Development/enforce-checks-test
+18/20 Test #18: enforce-checks-test ..............***Not Run   0.00 sec
+Unable to find executable: /home/fmt/build/bin/enforce-checks-test
+      Start 19: posix-mock-test
+Unable to find executable: /home/fmt/build/bin/posix-mock-test
+Could not find executable /home/fmt/build/bin/posix-mock-test
+Looked in the following places:
+/home/fmt/build/bin/posix-mock-test
+/home/fmt/build/bin/posix-mock-test
+/home/fmt/build/bin/Release/posix-mock-test
+/home/fmt/build/bin/Release/posix-mock-test
+/home/fmt/build/bin/Debug/posix-mock-test
+/home/fmt/build/bin/Debug/posix-mock-test
+/home/fmt/build/bin/MinSizeRel/posix-mock-test
+/home/fmt/build/bin/MinSizeRel/posix-mock-test
+/home/fmt/build/bin/RelWithDebInfo/posix-mock-test
+/home/fmt/build/bin/RelWithDebInfo/posix-mock-test
+/home/fmt/build/bin/Deployment/posix-mock-test
+/home/fmt/build/bin/Deployment/posix-mock-test
+/home/fmt/build/bin/Development/posix-mock-test
+/home/fmt/build/bin/Development/posix-mock-test
+home/fmt/build/bin/posix-mock-test
+home/fmt/build/bin/posix-mock-test
+home/fmt/build/bin/Release/posix-mock-test
+home/fmt/build/bin/Release/posix-mock-test
+home/fmt/build/bin/Debug/posix-mock-test
+home/fmt/build/bin/Debug/posix-mock-test
+home/fmt/build/bin/MinSizeRel/posix-mock-test
+home/fmt/build/bin/MinSizeRel/posix-mock-test
+home/fmt/build/bin/RelWithDebInfo/posix-mock-test
+home/fmt/build/bin/RelWithDebInfo/posix-mock-test
+home/fmt/build/bin/Deployment/posix-mock-test
+home/fmt/build/bin/Deployment/posix-mock-test
+home/fmt/build/bin/Development/posix-mock-test
+home/fmt/build/bin/Development/posix-mock-test
+19/20 Test #19: posix-mock-test ..................***Not Run   0.00 sec
+      Start 20: os-test
+Unable to find executable: /home/fmt/build/bin/os-test
+Could not find executable /home/fmt/build/bin/os-test
+Looked in the following places:
+/home/fmt/build/bin/os-test
+/home/fmt/build/bin/os-test
+/home/fmt/build/bin/Release/os-test
+/home/fmt/build/bin/Release/os-test
+/home/fmt/build/bin/Debug/os-test
+/home/fmt/build/bin/Debug/os-test
+/home/fmt/build/bin/MinSizeRel/os-test
+/home/fmt/build/bin/MinSizeRel/os-test
+/home/fmt/build/bin/RelWithDebInfo/os-test
+/home/fmt/build/bin/RelWithDebInfo/os-test
+/home/fmt/build/bin/Deployment/os-test
+/home/fmt/build/bin/Deployment/os-test
+/home/fmt/build/bin/Development/os-test
+/home/fmt/build/bin/Development/os-test
+home/fmt/build/bin/os-test
+home/fmt/build/bin/os-test
+home/fmt/build/bin/Release/os-test
+home/fmt/build/bin/Release/os-test
+home/fmt/build/bin/Debug/os-test
+home/fmt/build/bin/Debug/os-test
+home/fmt/build/bin/MinSizeRel/os-test
+home/fmt/build/bin/MinSizeRel/os-test
+home/fmt/build/bin/RelWithDebInfo/os-test
+home/fmt/build/bin/RelWithDebInfo/os-test
+home/fmt/build/bin/Deployment/os-test
+home/fmt/build/bin/Deployment/os-test
+home/fmt/build/bin/Development/os-test
+home/fmt/build/bin/Development/os-test
+20/20 Test #20: os-test ..........................***Not Run   0.00 sec
+
+10% tests passed, 18 tests failed out of 20
+
+Total Test time (real) =   0.01 sec
+
+The following tests FAILED:
+	  3 - chrono-test (Not Run)
+	  4 - color-test (Not Run)
+	  5 - core-test (Not Run)
+	  6 - gtest-extra-test (Not Run)
+	  7 - format-test (Not Run)
+	  8 - format-impl-test (Not Run)
+	  9 - ostream-test (Not Run)
+	 10 - compile-test (Not Run)
+	 11 - compile-fp-test (Not Run)
+	 12 - printf-test (Not Run)
+	 13 - ranges-test (Not Run)
+	 14 - scan-test (Not Run)
+	 15 - std-test (Not Run)
+	 16 - unicode-test (Not Run)
+	 17 - xchar-test (Not Run)
+	 18 - enforce-checks-test (Not Run)
+	 19 - posix-mock-test (Not Run)
+	 20 - os-test (Not Run)
+Errors while running CTest

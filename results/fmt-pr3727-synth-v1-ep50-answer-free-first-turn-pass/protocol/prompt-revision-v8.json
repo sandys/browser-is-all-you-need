@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "revision": 8,
+  "parent_prompt_sha256": "5787a1f7edfba23afb9e62b3dbf77768e72a7fa12fba19a7525086d51410c2ac",
+  "prompt_sha256": "9af528a207435f905da0499b5f14eace87a5e5cbca5e40ca1d7e76fb931e027d",
+  "prompt_bytes": 7246,
+  "prompt_words": 882,
+  "basis": "Synthesis of supplied pre-fix source structure and compiler/edit failures through trial a8",
+  "added_guidance": [
+    "explicit two-overload C++11 duration conversion architecture without implementation code",
+    "exact insertion and existing-gmtime anchors from the pre-fix file",
+    "explicit arbitrary-Duration gmtime conversion boundary",
+    "small exact formatter substitutions and exhaustive no-fail checklist"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

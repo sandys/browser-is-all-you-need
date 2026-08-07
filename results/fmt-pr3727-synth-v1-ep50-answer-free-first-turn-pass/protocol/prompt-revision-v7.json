@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": 7,
+  "parent_prompt_sha256": "90a296cf4fcca042c2313cb6ed6047b645bc7f10ca761d7c96177b509a9a6f4b",
+  "prompt_sha256": "5787a1f7edfba23afb9e62b3dbf77768e72a7fa12fba19a7525086d51410c2ac",
+  "prompt_bytes": 6867,
+  "prompt_words": 848,
+  "basis": "Trial a7 exhausted the completion without emitting a unified diff; whole-file fallback was predeclared",
+  "added_guidance": [
+    "emit the complete file without extended analysis",
+    "preserve all unrelated content byte-for-byte",
+    "audit prefix, suffix, preprocessor, namespaces, comments, declarations, and known unchanged calls"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

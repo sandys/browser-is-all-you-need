@@ -1,0 +1,50 @@
+diff --git a/include/fmt/chrono.h b/include/fmt/chrono.h
+index 7bd4206d..bc83b010 100644
+--- a/include/fmt/chrono.h
++++ b/include/fmt/chrono.h
+@@ -523,9 +523,12 @@ inline std::tm gmtime(std::time_t time) {
+   return gt.tm_;
+ }
+ 
++template <typename Duration>
+ inline std::tm gmtime(
+-    std::chrono::time_point<std::chrono::system_clock> time_point) {
+-  return gmtime(std::chrono::system_clock::to_time_t(time_point));
++    std::chrono::time_point<std::chrono::system_clock, Duration> time_point) {
++  using seconds = std::chrono::duration<std::int64_t>;
++  auto duration = fmt::duration_cast<seconds>(time_point.time_since_epoch());
++  return gmtime(static_cast<std::time_t>(duration.count()));
+ }
+ 
+ namespace detail {
+@@ -2082,12 +2085,12 @@ struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+             period::num != 1 || period::den != 1 ||
+             std::is_floating_point<typename Duration::rep>::value)) {
+       const auto epoch = val.time_since_epoch();
+-      auto subsecs = std::chrono::duration_cast<Duration>(
+-          epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
++      auto subsecs = fmt::duration_cast<Duration>(
++          epoch - fmt::duration_cast<std::chrono::seconds>(epoch));
+ 
+       if (subsecs.count() < 0) {
+         auto second =
+-            std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
++            fmt::duration_cast<Duration>(std::chrono::seconds(1));
+         if (epoch.count() < ((Duration::min)() + second).count())
+           FMT_THROW(format_error("duration is too small"));
+         subsecs += second;
+@@ -2095,12 +2098,11 @@ struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+       }
+ 
+       return formatter<std::tm, Char>::do_format(
+-          gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
+-          &subsecs);
++          gmtime<Duration>(val), ctx, &subsecs);
+     }
+ 
+     return formatter<std::tm, Char>::format(
+-        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx);
++        gmtime<Duration>(val), ctx);
+   }
+ };
+ 

@@ -1,0 +1,169 @@
+chrono.h
+```cpp
+<<<<<<< SEARCH
+template <typename Char>
+auto write_encoded_tm_str(OutputIt out, string_view in, const std::locale& loc)
+    -> OutputIt {
+  if (detail::is_utf8() && loc != get_classic_locale()) {
+    // char16_t and char32_t codecvts are broken in MSVC (linkage errors) and
+    // gcc-4.
+#if FMT_MSC_VERSION != 0 || \
+    (defined(__GLIBCXX__) && !defined(_GLIBCXX_USE_DUAL_ABI))
+    // The _GLIBCXX_USE_DUAL_ABI macro is always defined in libstdc++ from gcc-5
+    // and newer.
+    using code_unit = wchar_t;
+#else
+    using code_unit = char32_t;
+#endif
+
+    using unit_t = codecvt_result<code_unit>;
+    unit_t unit;
+    write_codecvt(unit, in, loc);
+    // In UTF-8 is used one to four one-byte code units.
+    auto u =
+        to_utf8<code_unit, basic_memory_buffer<char, unit_t::max_size * 4>>();
+    if (!u.convert({unit.buf, to_unsigned(unit.end - unit.buf)}))
+      FMT_THROW(format_error("failed to format time"));
+    return copy_str<char>(u.c_str(), u.c_str() + u.size(), out);
+  }
+  return copy_str<char>(in.data(), in.data() + in.size(), out);
+}
+=======
+template <typename Char>
+auto write_encoded_tm_str(OutputIt out, string_view in, const std::locale& loc)
+    -> OutputIt {
+  if (detail::is_utf8() && loc != get_classic_locale()) {
+    // char16_t and char32_t codecvts are broken in MSVC (linkage errors) and
+    // gcc-4.
+#if FMT_MSC_VERSION != 0 || \
+    (defined(__GLIBCXX__) && !defined(_GLIBCXX_USE_DUAL_ABI))
+    // The _GLIBCXX_USE_DUAL_ABI macro is always defined in libstdc++ from gcc-5
+    // and newer.
+    using code_unit = wchar_t;
+#else
+    using code_unit = char32_t;
+#endif
+
+    using unit_t = codecvt_result<code_unit>;
+    unit_t unit;
+    write_codecvt(unit, in, loc);
+    // In UTF-8 is used one to four one-byte code units.
+    auto u =
+        to_utf8<code_unit, basic_memory_buffer<char, unit_t::max_size * 4>>();
+    if (!u.convert({unit.buf, to_unsigned(unit.end - unit.buf)}))
+      FMT_THROW(format_error("failed to format time"));
+    return copy_str<char>(u.c_str(), u.c_str() + u.size(), out);
+  }
+  return copy_str<char>(in.data(), in.data() + in.size(), out);
+}
+
+namespace detail {
+
+template <typename Duration>
+std::chrono::seconds to_seconds(Duration val, int& ec) {
+  using seconds = std::chrono::seconds;
+  using rep = typename Duration::rep;
+  using period = typename Duration::period;
+
+  if (!std::is_same<Duration, seconds>::value) {
+#if FMT_SAFE_DURATION_CAST
+    if (std::is_integral<rep>::value == std::is_same<period, std::ratio<1>>::value) {
+      return fmt::safe_duration_cast<seconds>(val, ec);
+    }
+    ec = 1;
+    return seconds();
+#else
+    return std::chrono::duration_cast<seconds>(val);
+#endif
+  }
+  return val;
+}
+
+}  // namespace detail
+>>>>>>> REPLACE
+```
+
+chrono.h
+```cpp
+<<<<<<< SEARCH
+      template <typename FormatContext>
+      auto format(std::chrono::time_point<std::chrono::system_clock, Duration> val,
+                  FormatContext& ctx) const -> decltype(ctx.out()) {
+        using period = typename Duration::period;
+        if (detail::const_check(
+                period::num != 1 || period::den != 1 ||
+                std::is_floating_point<typename Duration::rep>::value)) {
+          const auto epoch = val.time_since_epoch();
+          auto subsecs = std::chrono::duration_cast<Duration>(
+              epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+
+          if (subsecs.count() < 0) {
+            auto second =
+                std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+            if (epoch.count() < ((Duration::min)() + second).count())
+              FMT_THROW(format_error("duration is too small"));
+            subsecs += second;
+            val -= second;
+          }
+
+          int ec = 0;
+          auto sec = detail::to_seconds(epoch, ec);
+          if (ec != 0) FMT_THROW(format_error("cannot format duration"));
+          auto time = gmtime(sec.count());
+          return static_cast<formatter<std::tm, Char>>*
+                     this>(time)->do_format(time, ctx, &subsecs);
+        }
+
+        int ec = 0;
+        auto sec = detail::to_seconds(epoch, ec);
+        if (ec != 0) FMT_THROW(format_error("cannot format duration"));
+        auto time = gmtime(sec.count());
+        return static_cast<formatter<std::tm, Char>>*
+                   this>(time)->do_format(time, ctx, nullptr);
+      }
+=======
+      template <typename FormatContext>
+      auto format(std::chrono::time_point<std::chrono::system_clock, Duration> val,
+                  FormatContext& ctx) const -> decltype(ctx.out()) {
+        using period = typename Duration::period;
+        if (detail::const_check(
+                period::num != 1 || period::den != 1 ||
+                std::is_floating_point<typename Duration::rep>::value)) {
+          const auto epoch = val.time_since_epoch();
+          auto subsecs = std::chrono::duration_cast<Duration>(
+              epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+
+          if (subsecs.count() < 0) {
+            auto second =
+                std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+            if (epoch.count() < ((Duration::min)() + second).count())
+              FMT_THROW(format_error("duration is too small"));
+            subsecs += second;
+            val -= second;
+          }
+
+          int ec = 0;
+          auto sec = detail::to_seconds(epoch, ec);
+          if (ec != 0) FMT_THROW(format_error("cannot format duration"));
+          if (sec.count() > std::numeric_limits<std::time_t>::max())
+            sec = std::chrono::seconds(std::numeric_limits<std::time_t>::max());
+          else if (sec.count() < std::numeric_limits<std::time_t>::min())
+            sec = std::chrono::seconds(std::numeric_limits<std::time_t>::min());
+          auto time = gmtime(static_cast<std::time_t>(sec.count()));
+          return static_cast<formatter<std::tm, Char>>*
+                     this>(time)->do_format(time, ctx, &subsecs);
+        }
+
+        int ec = 0;
+        auto sec = detail::to_seconds(epoch, ec);
+        if (ec != 0) FMT_THROW(format_error("cannot format duration"));
+        if (sec.count() > std::numeric_limits<std::time_t>::max())
+          sec = std::chrono::seconds(std::numeric_limits<std::time_t>::max());
+        else if (sec.count() < std::numeric_limits<std::time_t>::min())
+          sec = std::chrono::seconds(std::numeric_limits<std::time_t>::min());
+        auto time = gmtime(static_cast<std::time_t>(sec.count()));
+        return static_cast<formatter<std::tm, Char>>*
+                   this>(time)->do_format(time, ctx, nullptr);
+      }
+>>>>>>> REPLACE
+```

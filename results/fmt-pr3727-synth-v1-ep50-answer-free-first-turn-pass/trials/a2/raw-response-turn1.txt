@@ -1,0 +1,79 @@
+chrono.h
+```cpp
+<<<<<<< SEARCH
+}  // namespace safe_duration_cast
+#endif
+
+// Prevents expansion of a preceding token as a function-style macro.
+=======
+}  // namespace safe_duration_cast
+#endif
+
+namespace detail {
+
+template <typename To, typename From>
+To safe_cast_duration(const From& from) {
+#if FMT_SAFE_DURATION_CAST
+    int ec;
+    To to = safe_duration_cast::safe_duration_cast<To>(from, ec);
+    if (ec) FMT_THROW(format_error("cannot format duration"));
+    return to;
+#else
+    return std::chrono::duration_cast<To>(from);
+#endif
+}
+
+}  // namespace detail
+
+// Prevents expansion of a preceding token as a function-style macro.
+>>>>>>> REPLACE
+```
+
+chrono.h
+```cpp
+<<<<<<< SEARCH
+if (detail::const_check(
+        period::num != 1 || period::den != 1 ||
+        std::is_floating_point<typename Duration::rep>::value)) {
+    const auto epoch = val.time_since_epoch();
+    auto subsecs = std::chrono::duration_cast<Duration>(
+        epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+
+    if (subsecs.count() < 0) {
+        auto second =
+            std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+        if (epoch.count() < ((Duration::min)() + second).count())
+            FMT_THROW(format_error("duration is too small"));
+        subsecs += second;
+        val -= second;
+    }
+
+    return formatter<std::tm, Char>::do_format(
+        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
+        &subsecs);
+}
+=======
+if (detail::const_check(
+        period::num != 1 || period::den != 1 ||
+        std::is_floating_point<typename Duration::rep>::value)) {
+    const auto epoch = val.time_since_epoch();
+    auto seconds = detail::safe_cast_duration<std::chrono::seconds>(epoch);
+    auto subsecs =
+        detail::safe_cast_duration<Duration>(epoch - seconds);
+
+    if (subsecs.count() < 0) {
+        auto second =
+            std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+        if (epoch.count() < ((Duration::min)() + second).count())
+            FMT_THROW(format_error("duration is too small"));
+        subsecs += second;
+        val -= second;
+    }
+
+    return formatter<std::tm, Char>::do_format(
+        gmtime(std::chrono::time_point<std::chrono::system_clock, std::chrono::seconds>(
+            detail::safe_cast_duration<std::chrono::seconds>(val.time_since_epoch()))),
+        ctx, &subsecs);
+}
+>>>>>>> REPLACE
+```

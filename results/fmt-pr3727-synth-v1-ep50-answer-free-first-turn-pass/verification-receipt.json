@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-08-07T20:30:41Z",
+  "checks": {
+    "manifest_complete": true,
+    "prompt_hash_matches_generation_receipt": true,
+    "response_hash_matches_generation_receipt": true,
+    "candidate_patch_hash_matches_grade_receipt": true,
+    "candidate_header_hash_matches_grade_receipt": true,
+    "grader_log_hash_matches_grade_receipt": true,
+    "official_grade_passed": true,
+    "official_suite_20_of_20": true,
+    "passing_trial_has_no_turn2": true,
+    "workspace_copies_excluded": true,
+    "accepted_reference_patch_excluded": true,
+    "credential_scan_found_private_key_material": false
+  },
+  "passing_trial": "a16",
+  "candidate_patch_sha256": "6b376eb22063ba36f718ac7505326b07dd6aae94d88c5b8bf05331a07574982c",
+  "grader_log_sha256": "9ef618f70cadf17360e5fe8a5a479e60d278a510242d3802b3a2909fa453c71d",
+  "task_prompt_sha256": "0595414b51ee9d0bacedb062d894cd4db66588d325b26a48b2d588109c948fe9"
+}

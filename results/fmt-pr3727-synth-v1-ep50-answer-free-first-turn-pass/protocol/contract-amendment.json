@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "experiment_id": "fmt-pr3727-synth-v1-ep50-answer-free-v1",
+  "original_contract_sha256": "b194549fd5a2578f2ca1f590651ae86810675b60e87106a04c3911d3f59b8282",
+  "status": "superseded_after_original_attempt_budget",
+  "reason": "After the original frozen arm failed, the user explicitly directed continued prompt tuning using all available non-solution information and iterative failure-derived context.",
+  "original_frozen_arm": {
+    "trials": ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"],
+    "fresh_first_turn_passes": 0,
+    "attempts": 8,
+    "result": "0/8"
+  },
+  "failure_informed_context_tuning_arm": {
+    "trials": ["a9", "a10", "a11", "a12", "a13", "a14", "a15", "a16"],
+    "fresh_repository_first_turn_passes": 1,
+    "attempts": 8,
+    "result": "1/8",
+    "passing_trial": "a16",
+    "allowed_additional_context": [
+      "prior candidate compiler and test failures",
+      "source-derived implementation constraints",
+      "editing-transport failures",
+      "failure-derived architecture and pre-submit checks"
+    ],
+    "still_forbidden": [
+      "accepted PR patch or production reference code",
+      "hidden test patch or grader source",
+      "manual edits to a candidate before official grading"
+    ]
+  },
+  "claim_boundary": "Trial a16 is a real first-model-turn pass from the untouched base under a failure-informed, answer-withheld prompt. It is not an independent pass under the original frozen 8-attempt protocol, and the 16 sequential attempts are not IID.",
+  "final_prompt_sha256": "0595414b51ee9d0bacedb062d894cd4db66588d325b26a48b2d588109c948fe9",
+  "accepted_patch_or_reference_code_used": false
+}

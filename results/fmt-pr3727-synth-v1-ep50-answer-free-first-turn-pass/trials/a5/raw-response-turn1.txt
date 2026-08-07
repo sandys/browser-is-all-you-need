@@ -1,0 +1,95 @@
+chrono.h
+```cpp
+<<<<<<< SEARCH
+template <typename Char, typename Duration>
+struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+                 Char> : formatter<std::tm, Char> {
+  FMT_CONSTEXPR formatter() {
+    this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 'T'>{};
+  }
+
+  template <typename FormatContext>
+  auto format(std::chrono::time_point<std::chrono::system_clock, Duration> val,
+              FormatContext& ctx) const -> decltype(ctx.out()) {
+    using period = typename Duration::period;
+    if (detail::const_check(
+            period::num != 1 || period::den != 1 ||
+            std::is_floating_point<typename Duration::rep>::value)) {
+      const auto epoch = val.time_since_epoch();
+      auto subsecs = std::chrono::duration_cast<Duration>(
+          epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+
+      if (subsecs.count() < 0) {
+        auto second =
+            std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+        if (epoch.count() < ((Duration::min)() + second).count())
+          FMT_THROW(format_error("duration is too small"));
+        subsecs += second;
+        val -= second;
+      }
+
+      return formatter<std::tm, Char>::do_format(
+          gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
+          &subsecs);
+    }
+
+    return formatter<std::tm, Char>::format(
+        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx);
+  }
+};
+=======
+template <typename Char, typename Duration>
+struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+                 Char> : formatter<std::tm, Char> {
+  FMT_CONSTEXPR formatter() {
+    this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 'T'>{};
+  }
+
+  static std::chrono::seconds to_seconds(
+      std::chrono::time_point<std::chrono::system_clock, Duration> time_point) {
+    using seconds = std::chrono::seconds;
+    const auto duration = time_point.time_since_epoch();
+    if (std::is_integral<typename Duration::rep>::value) {
+      int ec = 0;
+      auto converted =
+          detail::safe_duration_cast::safe_duration_cast<seconds>(duration, ec);
+      if (ec) {
+        FMT_THROW(format_error("cannot format duration"));
+      }
+      return converted;
+    }
+    return std::chrono::duration_cast<seconds>(duration);
+  }
+
+  template <typename FormatContext>
+  auto format(std::chrono::time_point<std::chrono::system_clock, Duration> val,
+              FormatContext& ctx) const -> decltype(ctx.out()) {
+    using period = typename Duration::period;
+    if (detail::const_check(
+            period::num != 1 || period::den != 1 ||
+            std::is_floating_point<typename Duration::rep>::value)) {
+      const auto epoch = val.time_since_epoch();
+      const auto seconds = to_seconds(val);
+      auto subsecs = std::chrono::duration_cast<Duration>(
+          epoch - seconds);
+
+      if (subsecs.count() < 0) {
+        auto second =
+            std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+        if (epoch.count() < ((Duration::min)() + second).count())
+          FMT_THROW(format_error("duration is too small"));
+        subsecs += second;
+        val -= second;
+      }
+
+      return formatter<std::tm, Char>::do_format(
+          gmtime(static_cast<std::time_t>(seconds)), ctx, &subsecs);
+    }
+
+    const auto seconds = to_seconds(val);
+    return formatter<std::tm, Char>::format(
+        gmtime(static_cast<std::time_t>(seconds)), ctx);
+  }
+};
+>>>>>>> REPLACE
+```

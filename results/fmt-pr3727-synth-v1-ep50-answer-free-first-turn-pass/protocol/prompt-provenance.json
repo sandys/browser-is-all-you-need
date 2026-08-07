@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "experiment_id": "fmt-pr3727-synth-v1-ep50-answer-free-v1",
+  "task_prompt_sha256": "3b0423917a6a4f88719a11d2c498eef7806ca1705cd166abd6c18a3d868ad3f0",
+  "allowed_model_context": [
+    "complete untouched pre-fix include/fmt/chrono.h at commit 06f1c0d725855861535e9e65cd4d502aca7c61ed",
+    "public fmt issue 3725 requirements and reproducer",
+    "C++11, one-file, compatibility, and test expectations stated without solution code",
+    "Aider diff-format instructions"
+  ],
+  "excluded_from_model_context": [
+    "accepted fmt PR 3727 patch or any equivalent production diff",
+    "reference-derived helper names or signatures",
+    "implementation map from the prior guided run",
+    "prior candidate patches and prior compiler diagnostics",
+    "hidden test patch and grader source",
+    "Docker socket, shell, repository map, and extra editable files"
+  ],
+  "prompt_audit": {
+    "exact_nontrivial_added_lines_matching_accepted_patch": [],
+    "accepted_implementation_code_disclosed": false,
+    "accepted_reference_used_for_offline_audit_only": true
+  },
+  "important_limitations": [
+    "The upstream task and accepted fix are public, so pretraining contamination cannot be ruled out.",
+    "The evaluator had inspected the accepted patch during an earlier experiment; this proves model-prompt answer exclusion, not evaluator-blind task design.",
+    "Requirements and structural hints traceable to the public issue and pre-fix source are intentionally allowed."
+  ]
+}

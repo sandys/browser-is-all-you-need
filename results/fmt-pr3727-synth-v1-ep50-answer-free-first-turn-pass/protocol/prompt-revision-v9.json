@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "revision": 9,
+  "parent_prompt_sha256": "9af528a207435f905da0499b5f14eace87a5e5cbca5e40ca1d7e76fb931e027d",
+  "prompt_sha256": "2f2283916777e9b909ae6247992ed12348a83e0537bd6445299769e61c37dfe1",
+  "prompt_bytes": 8590,
+  "prompt_words": 1080,
+  "basis": "Trial a9 emitted unapplied plain snippets and exposed additional compile-time defects",
+  "added_guidance": [
+    "literal Aider SEARCH/REPLACE transport template",
+    "duration types expose rep and period but no nested duration",
+    "two FMT_ENABLE_IF overloads rather than runtime traits",
+    "replace rather than duplicate the gmtime overload",
+    "formatter seconds scope and mutable subseconds invariants"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

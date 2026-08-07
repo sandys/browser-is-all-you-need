@@ -1,0 +1,108 @@
+include/fmt/chrono.h
+```cpp
+<<<<<<< SEARCH
+namespace detail {
+
+static std::pair<std::chrono::seconds, std::chrono::seconds> split_seconds(
+    std::chrono::seconds duration) {
+  return {duration, std::chrono::seconds::zero()};
+}
+
+template <typename Duration>
+static std::pair<std::chrono::seconds, Duration> split_duration(Duration duration) {
+=======
+namespace detail {
+
+static std::pair<std::chrono::seconds, std::chrono::seconds> split_seconds(
+    std::chrono::seconds duration) {
+  return {duration, std::chrono::seconds::zero()};
+}
+
+template <typename Duration>
+static std::pair<std::chrono::seconds, Duration> split_duration(Duration duration) {
+>>>>>>> REPLACE
+```
+
+include/fmt/chrono.h
+```cpp
+<<<<<<< SEARCH
+template <typename Char, typename Duration>
+struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+                 Char> : formatter<std::tm, Char> {
+  FMT_CONSTEXPR formatter() {
+    this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 'T'>{};
+  }
+
+  template <typename FormatContext>
+  auto format(std::chrono::time_point<std::chrono::system_clock, Duration> val,
+              FormatContext& ctx) const -> decltype(ctx.out()) {
+    const auto epoch = val.time_since_epoch();
+    auto [sec, subsecs] = split_duration(epoch);
+    std::time_t time = sec.count();
+    std::tm tm = gmtime(time);
+    return formatter<std::tm, Char>::do_format(tm, ctx, &subsecs);
+  }
+};
+=======
+template <typename Char, typename Duration>
+struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+                 Char> : formatter<std::tm, Char> {
+  FMT_CONSTEXPR formatter() {
+    this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 'T'>{};
+  }
+
+  template <typename FormatContext>
+  auto format(std::chrono::time_point<std::chrono::system_clock, Duration> val,
+              FormatContext& ctx) const -> decltype(ctx.out()) {
+    const auto epoch = val.time_since_epoch();
+    auto [sec, subsecs] = detail::split_duration(epoch);
+    std::time_t time = sec.count();
+    std::tm tm = gmtime(time);
+    return formatter<std::tm, Char>::do_format(tm, ctx, &subsecs);
+  }
+};
+>>>>>>> REPLACE
+```
+
+include/fmt/chrono.h
+```cpp
+<<<<<<< SEARCH
+#if FMT_USE_LOCAL_TIME
+template <typename Char, typename Duration>
+struct formatter<std::chrono::local_time<Duration>, Char>
+    : formatter<std::tm, Char> {
+  FMT_CONSTEXPR formatter() {
+    this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 'T'>{};
+  }
+
+  template <typename FormatContext>
+  auto format(std::chrono::local_time<Duration> val, FormatContext& ctx) const
+      -> decltype(ctx.out()) {
+    const auto epoch = val.time_since_epoch();
+    auto [sec, subsecs] = split_duration(epoch);
+    std::time_t time = sec.count();
+    std::tm tm = localtime(time);
+    return formatter<std::tm, Char>::do_format(tm, ctx, &subsecs);
+  }
+};
+=======
+#if FMT_USE_LOCAL_TIME
+template <typename Char, typename Duration>
+struct formatter<std::chrono::local_time<Duration>, Char>
+    : formatter<std::tm, Char> {
+  FMT_CONSTEXPR formatter() {
+    this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 'T'>{};
+  }
+
+  template <typename FormatContext>
+  auto format(std::chrono::local_time<Duration> val, FormatContext& ctx) const
+      -> decltype(ctx.out()) {
+    const auto epoch = val.time_since_epoch();
+    auto [sec, subsecs] = detail::split_duration(epoch);
+    std::time_t time = sec.count();
+    std::tm tm = localtime(time);
+    return formatter<std::tm, Char>::do_format(tm, ctx, &subsecs);
+  }
+};
+>>>>>>> REPLACE
+```
