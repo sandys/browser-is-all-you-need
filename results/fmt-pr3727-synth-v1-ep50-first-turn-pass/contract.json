@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "experiment_id": "fmt-pr3727-synth-v1-ep50-guided-aider",
+  "objective": "Measure whether the published Synth v1 epoch-50 checkpoint can execute a strongly guided fmtlib/fmt PR 3727 implementation task and produce a patch that passes the official evaluator.",
+  "task": {
+    "repository": "https://github.com/fmtlib/fmt.git",
+    "issue": "https://github.com/fmtlib/fmt/issues/3725",
+    "historical_pr": "https://github.com/fmtlib/fmt/pull/3727",
+    "official_image": "mswebench/fmtlib_m_fmt:pr-3727",
+    "official_image_id": "sha256:855d772196ea6554f59c98415689d73f91dcaf47df484bcf0fbcce9aad884a6a",
+    "base_commit": "06f1c0d725855861535e9e65cd4d502aca7c61ed",
+    "editable_file": "include/fmt/chrono.h",
+    "editable_file_bytes": 72590,
+    "editable_file_sha256": "2416673e284a28b63596e68e8a917cf136e64c0f63293007759bc8eb99f898c6"
+  },
+  "checkpoint": {
+    "identity": "Synth v1 epoch 50",
+    "base_model": "zai-org/GLM-4.7-Flash",
+    "base_revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+    "huggingface_repository": "TokenBender/glm47-synth-v1-100ep",
+    "adapter_revision": "a8d386d6b5bedf761cbe4effe2fdc36a97ad62bc",
+    "adapter_path": "checkpoints/iter_0000649/adapter",
+    "iteration": 649,
+    "lora_rank": 16,
+    "source_adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+    "training_data_manifest_sha256": "afec0d05d5c1f9460ac9b2ed4e65aea69775b49639c7ae727f3660308ae1b8b8",
+    "source_tensor_count": 9741,
+    "removed_layer_47_tensor_count": 207,
+    "serving_tensor_count": 9534,
+    "source_adapter_config_sha256": "0bd6d85f88fc42fefa52627b3c261f1ad58bb2c9519332ae8034dd5dffe2498e",
+    "serving_adapter_sha256": "6de1aeba533a5bfef26a73286fc32b47f403c022bd7467e2b3dc32cf18a35f48",
+    "serving_adapter_config_sha256": "0bd6d85f88fc42fefa52627b3c261f1ad58bb2c9519332ae8034dd5dffe2498e",
+    "fail_closed": true
+  },
+  "serving": {
+    "image": "radixark/miles:latest",
+    "image_id": "sha256:926f671a9da56d96eec1e81af8b3eec58063ebaa13fba44c160b4810ce1301fa",
+    "image_digest": "radixark/miles@sha256:1872ff76e700bb6d79af80e47e404598fa0d8eda23f167922d894acc56b4be29",
+    "tensor_parallel_size": 4,
+    "memory_fraction_static": 0.8,
+    "max_running_requests": 16,
+    "tool_call_parser": "glm47",
+    "reasoning_parser": "glm45",
+    "lora_backend": "triton",
+    "activation_gate": "greedy adapter and base completions or token logprobs must diverge before task inference",
+    "lora_loader_hotfix": {
+      "original_sha256": "69a81a070fd329695628076a133d5e0a514c6d73ebe4abc36338bbc2bf41d6f8",
+      "patched_sha256": "c367ed3c912dff448c8448ec3ebca60a2816c7cc198c177b6e6ca0dc414b3b40",
+      "reason": "Initialize shared and per-expert LoRA A/B temporary dictionaries independently so mixed shared-outer adapters do not crash before the first token."
+    }
+  },
+  "aider": {
+    "image": "aider-benchmark:latest",
+    "image_id": "sha256:77cd719f97d4493db95721998c2651dd443d785a961fd54e5fa3e50832ea0b04",
+    "commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "version": "0.86.3.dev53+g5dc9490bb",
+    "model_name": "openai/glm-4.7-flash-grpo",
+    "edit_format": "whole",
+    "repository_map": false,
+    "streaming": false,
+    "thinking_disabled": false,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "max_completion_tokens": 32768,
+    "benchmark_attempts": 2,
+    "explicit_seed": null,
+    "auto_lint": false,
+    "auto_lint_reason": "Disabled for the final one-shot because Aider's generic C++ linter falsely marked most of the valid 2,238-line header and triggered an unnecessary second whole-file model call during diagnostic trial a1.",
+    "git_integration": false
+  },
+  "model_disclosure": {
+    "task_prompt_path": "task-prompt.md",
+    "task_prompt_sha256": "4f8cd36512ca6e423b843dc2302404d90134fe960180d5b82ed9a20ac9c12793",
+    "task_prompt_bytes": 7359,
+    "task_prompt_words": 891,
+    "reference_patch_path": "production-reference.patch",
+    "reference_patch_sha256": "1e5b2e54d779c5e44df41ad0511837f9091e847085306045cda9cddb186b2848",
+    "model_prompt_path": "model-prompt.txt",
+    "model_prompt_sha256": "76f562cb819409a8e63da114eec41e4856d19ac87d548bd0cb96b271b235c2e4",
+    "model_prompt_bytes": 17149,
+    "model_prompt_words": 1771,
+    "supplied_source": "the complete pre-fix chrono.h through Aider's normal whole-file context",
+    "measured_first_request_messages": 8,
+    "measured_first_request_characters": 92404,
+    "measured_first_request_tokens": 24131,
+    "measured_prompt_tokens": 4125,
+    "measured_header_tokens": 19363,
+    "guidance_mode": "success-first exact public production diff reproduction",
+    "disclosed_up_front": [
+      "the exact two evaluator regression cases",
+      "the overflow mechanism",
+      "the intended helper names and responsibilities",
+      "the required namespace and ordering constraints",
+      "every production conversion area that must be updated",
+      "negative-subsecond and compatibility invariants",
+      "the exact authoritative public production diff",
+      "the evaluator sequence and one-file scope"
+    ],
+    "reference_patch_code_disclosed": true,
+    "reference_derived_implementation_map_disclosed": true,
+    "first_turn_feedback": "none beyond the complete up-front work packet",
+    "second_turn_feedback": "verbatim compiler and test output from the failed first-turn candidate, plus Aider's standard three-line test-failure addendum"
+  },
+  "evaluator_only": {
+    "test_patch_sha256": "76eac48ef70cf13f40a9d99390ec7decc840451c0bae1aedaa93dd2ba7b77002",
+    "reference_patch_sha256": "1e5b2e54d779c5e44df41ad0511837f9091e847085306045cda9cddb186b2848",
+    "test_runner_sha256": "fe480a99fb0e475058e6cdb91947477612bc9636603fbccf343cff5b2def1a5e",
+    "hidden_test_patch_never_mounted_into_aider": true,
+    "reference_patch_never_applied_to_candidate_workspace": true,
+    "grader": "fresh official container per candidate; apply hidden test patch, configure, build, and run full CTest suite",
+    "scope_gate": "exactly one changed path: include/fmt/chrono.h",
+    "first_turn_scored_separately": true
+  },
+  "preflight_evidence": {
+    "base_oracle": {
+      "expected": "fail",
+      "observed_return_code": 8,
+      "observed_result": "19 of 20 tests passed; chrono-test failed"
+    },
+    "reference_oracle": {
+      "expected": "pass",
+      "observed_return_code": 0,
+      "observed_result": "20 of 20 tests passed"
+    }
+  },
+  "context_comparison": {
+    "failed_r5_model_prompt_bytes": 17379,
+    "representative_published_fixed26_task_prompt_bytes": 3590,
+    "guided_fmt_task_prompt_bytes": 6568,
+    "design": "The guided prompt is intentionally larger than a normal Fixed26 prompt because the target is a 72,590-byte production header and the goal is reliable implementation rather than independent solution discovery.",
+    "still_withheld": [
+      "the reference patch code",
+      "a ready-to-apply diff",
+      "a previous candidate response",
+      "fabricated diagnostic feedback before the first attempt"
+    ]
+  },
+  "run_state": "prepared_only_no_task_inference"
+}
