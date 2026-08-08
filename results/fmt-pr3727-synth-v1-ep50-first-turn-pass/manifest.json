@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "kind": "real-upstream-success-first-checkpoint-evaluation",
+  "status": "complete",
+  "disposition": "eval-only",
+  "training_eligible": false,
+  "task": {
+    "repository": "https://github.com/fmtlib/fmt",
+    "issue": "https://github.com/fmtlib/fmt/issues/3725",
+    "reference_pr": "https://github.com/fmtlib/fmt/pull/3727",
+    "base_commit": "06f1c0d725855861535e9e65cd4d502aca7c61ed",
+    "editable_file": "include/fmt/chrono.h",
+    "official_image": "mswebench/fmtlib_m_fmt:pr-3727",
+    "official_image_id": "sha256:855d772196ea6554f59c98415689d73f91dcaf47df484bcf0fbcce9aad884a6a",
+    "hidden_test_patch_sha256": "76eac48ef70cf13f40a9d99390ec7decc840451c0bae1aedaa93dd2ba7b77002"
+  },
+  "checkpoint": {
+    "identity": "Synth v1 epoch 50",
+    "iteration": 649,
+    "lora_rank": 16,
+    "base_repository": "zai-org/GLM-4.7-Flash",
+    "base_revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+    "adapter_repository": "TokenBender/glm47-synth-v1-100ep",
+    "adapter_revision": "a8d386d6b5bedf761cbe4effe2fdc36a97ad62bc",
+    "adapter_path": "checkpoints/iter_0000649/adapter",
+    "source_adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+    "serving_adapter_sha256": "6de1aeba533a5bfef26a73286fc32b47f403c022bd7467e2b3dc32cf18a35f48",
+    "activation_status": "diverged"
+  },
+  "inference": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "edit_format": "whole",
+    "repository_map": false,
+    "thinking_disabled": false,
+    "streaming": false,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "max_completion_tokens": 32768,
+    "explicit_seed": null,
+    "auto_lint": false,
+    "benchmark_attempts": 2
+  },
+  "disclosure": {
+    "mode": "success-first exact public production diff reproduction",
+    "task_prompt_sha256": "4f8cd36512ca6e423b843dc2302404d90134fe960180d5b82ed9a20ac9c12793",
+    "reference_patch_disclosed": true,
+    "reference_patch_sha256": "1e5b2e54d779c5e44df41ad0511837f9091e847085306045cda9cddb186b2848",
+    "model_prompt_sha256": "76f562cb819409a8e63da114eec41e4856d19ac87d548bd0cb96b271b235c2e4",
+    "model_prompt_bytes": 17149,
+    "model_prompt_words": 1771,
+    "measured_first_request_messages": 8,
+    "measured_first_request_characters": 92404,
+    "measured_first_request_tokens": 24131
+  },
+  "trials": [
+    {
+      "name": "a1",
+      "role": "diagnostic minimal-prompt attempt",
+      "first_candidate_passed": false,
+      "return_code": 2,
+      "candidate_patch_sha256": "48e28fe7fa321a48e2ade01043ffbabd5cd1f1f3e7b80248edd086178d8d667a"
+    },
+    {
+      "name": "guided-a1",
+      "role": "implementation-map attempt",
+      "first_candidate_passed": false,
+      "return_code": 2,
+      "candidate_patch_sha256": "35aab094fded69fe375044d21a79a478812906c3c1cac2ef8e60791d703acf8d"
+    },
+    {
+      "name": "exact-a1",
+      "role": "exact-reference attempt before final integrity guidance",
+      "first_candidate_passed": false,
+      "return_code": 2,
+      "candidate_patch_sha256": "09ff359213247bc92febd0ca4c79f86f4cce1aa7eb13758350b0c696f6af9c14"
+    },
+    {
+      "name": "exact-a2",
+      "role": "fresh final attempt",
+      "first_candidate_passed": true,
+      "final_passed": true,
+      "turn2_response": null,
+      "return_code": 0,
+      "candidate_patch_sha256": "2e00944c8f75ab95ae095b45c2e89132f057757a3058bb62522d2154219cbf57",
+      "candidate_header_sha256": "ee29926ef5bea37346e9ef80de725a47dbd1d09176f0ad8eca82b7570167f073",
+      "grader_log_sha256": "d4edf46151466d2256802bae05728dde373420fde51dac34cdf9d88494edc563",
+      "tests_passed": 20,
+      "tests_total": 20
+    }
+  ],
+  "result": {
+    "fresh_first_turn_pass": true,
+    "build_passed": true,
+    "official_tests_passed": 20,
+    "official_tests_total": 20,
+    "candidate_matches_reference_byte_for_byte": false
+  },
+  "preservation": {
+    "excluded_reproducible_bulk": [
+      "62.4 GB pinned base-model shards",
+      "454 MB converted serving-adapter tensors",
+      "workspace copies"
+    ],
+    "identity_receipts_and_conversion_scripts_preserved": true,
+    "failed_trials_preserved": true,
+    "final_trial_preserved": true
+  },
+  "worklog": {
+    "master_issue": "https://github.com/tokenbender/browser-is-all-you-need/issues/95",
+    "experiment_issue": "https://github.com/tokenbender/browser-is-all-you-need/issues/96"
+  }
+}

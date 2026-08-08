@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Verified client report: Synth v1 epoch 50 fixes fmt issue 3725 and passes the official 20-target evaluation suite.">
+  <title>Verified Model Result — fmt Large-Date Formatting</title>
+  <style>
+    :root {
+      --navy: #0b1327;
+      --navy-2: #111d38;
+      --paper: #f7f6f2;
+      --card: #ffffff;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d9dde7;
+      --green: #14805e;
+      --green-soft: #e7f5ef;
+      --amber: #a25f00;
+      --amber-soft: #fff3d6;
+      --blue: #3253dc;
+      --blue-soft: #eef1ff;
+      --code: #0d172c;
+      --shadow: 0 18px 60px rgba(13, 23, 44, 0.10);
+      --radius: 18px;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: var(--sans);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 58px;
+      padding: 0 5vw;
+      color: #e9edfa;
+      background: rgba(11, 19, 39, 0.94);
+      border-bottom: 1px solid rgba(255,255,255,.10);
+      backdrop-filter: blur(16px);
+    }
+    .brand { font-weight: 760; letter-spacing: -.02em; }
+    .brand span { color: #72dfb7; }
+    .topnav { display: flex; gap: 22px; font-size: 13px; }
+    .topnav a { text-decoration: none; color: #b9c2d9; }
+    .topnav a:hover, .topnav a.active { color: #fff; }
+    .hero {
+      color: #fff;
+      background:
+        radial-gradient(circle at 86% 18%, rgba(63, 102, 246, .42), transparent 27%),
+        radial-gradient(circle at 12% 84%, rgba(20, 128, 94, .34), transparent 24%),
+        linear-gradient(135deg, var(--navy) 0%, #101d3b 58%, #152651 100%);
+      padding: 84px 5vw 74px;
+      overflow: hidden;
+    }
+    .hero-inner { max-width: 1180px; margin: 0 auto; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 11px;
+      color: #bff2de;
+      background: rgba(20, 128, 94, .16);
+      border: 1px solid rgba(114, 223, 183, .32);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .10em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #72dfb7; box-shadow: 0 0 0 5px rgba(114,223,183,.12); }
+    h1 {
+      max-width: 920px;
+      margin: 24px 0 18px;
+      font-size: clamp(42px, 6.2vw, 78px);
+      line-height: 1.03;
+      letter-spacing: -.055em;
+    }
+    .lead { max-width: 820px; margin: 0; color: #c8d1e8; font-size: clamp(18px, 2vw, 23px); line-height: 1.55; }
+    .hero-proof {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 46px;
+    }
+    .proof-card {
+      padding: 20px;
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 14px;
+    }
+    .proof-card strong { display: block; font-size: 28px; letter-spacing: -.035em; }
+    .proof-card span { color: #aeb9d3; font-size: 13px; }
+    main { max-width: 1180px; margin: 0 auto; padding: 70px 5vw 90px; }
+    section { scroll-margin-top: 86px; margin: 0 0 84px; }
+    .section-kicker { margin-bottom: 8px; color: var(--blue); font-size: 12px; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
+    h2 { margin: 0 0 16px; font-size: clamp(30px, 4vw, 48px); line-height: 1.12; letter-spacing: -.04em; }
+    h3 { margin: 0 0 8px; font-size: 19px; letter-spacing: -.018em; }
+    .section-intro { max-width: 780px; margin: 0 0 30px; color: var(--muted); font-size: 18px; }
+    .callout {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 15px;
+      padding: 20px 22px;
+      margin: 26px 0;
+      background: var(--green-soft);
+      border: 1px solid #b8e5d3;
+      border-radius: 14px;
+    }
+    .callout .icon { display: grid; place-items: center; width: 30px; height: 30px; color: white; background: var(--green); border-radius: 50%; font-weight: 900; }
+    .callout p { margin: 0; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .card {
+      padding: 25px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 1px 0 rgba(13,23,44,.02);
+    }
+    .card p { margin: 7px 0 0; color: var(--muted); }
+    .num {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      margin-bottom: 17px;
+      color: #fff;
+      background: var(--blue);
+      border-radius: 10px;
+      font-weight: 850;
+    }
+    .contract {
+      overflow: hidden;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .contract-row { display: grid; grid-template-columns: 220px 1fr; border-top: 1px solid var(--line); }
+    .contract-row:first-child { border-top: 0; }
+    .contract dt, .contract dd { margin: 0; padding: 17px 20px; }
+    .contract dt { color: var(--muted); background: #fafbfc; font-size: 13px; font-weight: 750; }
+    .contract dd { overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; }
+    code { font-family: var(--mono); }
+    .inline-code { padding: 2px 6px; color: #27395d; background: #eef1f6; border-radius: 5px; font-family: var(--mono); font-size: .9em; }
+    .code-wrap {
+      position: relative;
+      margin: 22px 0;
+      overflow: hidden;
+      color: #d8e1f6;
+      background: var(--code);
+      border: 1px solid #1f3157;
+      border-radius: 14px;
+      box-shadow: 0 14px 38px rgba(13,23,44,.12);
+    }
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 44px;
+      padding: 0 13px 0 17px;
+      color: #a9b4ce;
+      background: #111e39;
+      border-bottom: 1px solid #223458;
+      font: 12px var(--mono);
+    }
+    .copy-btn {
+      padding: 6px 10px;
+      color: #cfd8ef;
+      background: #1b2b4d;
+      border: 1px solid #31446d;
+      border-radius: 7px;
+      cursor: pointer;
+      font: 12px var(--sans);
+    }
+    .copy-btn:hover { color: white; background: #263a63; }
+    pre {
+      margin: 0;
+      padding: 20px;
+      overflow: auto;
+      white-space: pre;
+      tab-size: 2;
+      font: 12.5px/1.62 var(--mono);
+    }
+    .mechanism {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      gap: 12px;
+      margin: 28px 0;
+    }
+    .mechanism .stage { padding: 20px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+    .mechanism .stage.bad { border-color: #edb8b8; background: #fff8f8; }
+    .mechanism .stage.good { border-color: #a9dec9; background: #f5fcf9; }
+    .arrow { display: grid; place-items: center; color: var(--blue); font-size: 25px; }
+    .big-num { display: block; margin-top: 8px; color: var(--muted); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+    .pill { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
+    .pill.green { color: var(--green); background: var(--green-soft); }
+    .pill.amber { color: var(--amber); background: var(--amber-soft); }
+    .constraints { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .constraint { display: flex; gap: 13px; padding: 17px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+    .check { flex: 0 0 auto; color: var(--green); font-weight: 950; }
+    .constraint strong { display: block; }
+    .constraint span { color: var(--muted); font-size: 14px; }
+    details {
+      overflow: hidden;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    summary { padding: 20px 23px; cursor: pointer; font-weight: 800; list-style: none; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; float: right; color: var(--blue); font-size: 22px; line-height: 1; }
+    details[open] summary::after { content: "−"; }
+    details .details-body { padding: 0 22px 22px; border-top: 1px solid var(--line); }
+    .note {
+      padding: 16px 18px;
+      margin: 18px 0;
+      color: #684510;
+      background: var(--amber-soft);
+      border: 1px solid #efd39a;
+      border-radius: 11px;
+      font-size: 14px;
+    }
+    .test-total {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin: 22px 0;
+      padding: 24px;
+      color: #fff;
+      background: linear-gradient(120deg, #0e7357, #15906a);
+      border-radius: var(--radius);
+    }
+    .test-total strong { font-size: 54px; line-height: 1; letter-spacing: -.06em; }
+    .test-total span { color: #cdf3e5; }
+    .test-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .test { padding: 9px 11px; color: #356454; background: #eff8f4; border: 1px solid #cceade; border-radius: 8px; font: 11px var(--mono); }
+    .hash { overflow-wrap: anywhere; color: #41506f; font: 11px/1.55 var(--mono); }
+    .boundary { padding: 27px; color: #d7def0; background: var(--navy); border-radius: var(--radius); }
+    .boundary h3 { color: white; }
+    .boundary ul { margin: 13px 0 0; padding-left: 20px; }
+    .boundary li { margin: 7px 0; }
+    footer { padding: 34px 5vw; color: #98a3bd; background: var(--navy); text-align: center; font-size: 13px; }
+    @media (max-width: 820px) {
+      .topnav { display: none; }
+      .hero { padding-top: 60px; }
+      .hero-proof, .grid-3, .test-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-2, .constraints { grid-template-columns: 1fr; }
+      .mechanism { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); }
+      .contract-row { grid-template-columns: 1fr; }
+      .contract dt { padding-bottom: 5px; }
+      .contract dd { padding-top: 5px; }
+    }
+    @media (max-width: 500px) {
+      .hero-proof, .test-grid { grid-template-columns: 1fr; }
+      main { padding-left: 18px; padding-right: 18px; }
+      .hero, .topbar { padding-left: 18px; padding-right: 18px; }
+      pre { font-size: 11.5px; }
+    }
+    @media print {
+      .topbar, .copy-btn { display: none !important; }
+      .hero { padding: 40px 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      main { padding: 35px 0; }
+      section { break-inside: avoid; margin-bottom: 40px; }
+      details { break-inside: auto; }
+      details > * { display: block !important; }
+      .code-wrap { break-inside: auto; }
+      footer { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Synth <span>Verified</span></div>
+    <nav class="topnav" aria-label="Report sections">
+      <a href="#contract">Contract</a>
+      <a href="#problem">Problem</a>
+      <a href="#prompt">Prompt</a>
+      <a href="#solution">Solution</a>
+      <a href="#verification">Verification</a>
+      <a href="#provenance">Provenance</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Official evaluation passed</div>
+      <h1>The model solved a hard C++ library bug under a precise task contract.</h1>
+      <p class="lead">Synth v1 epoch 50 produced an applicable patch for fmt’s large-date <code>std::chrono::time_point</code> overflow. The result built from the untouched upstream revision and passed every official test target.</p>
+      <div class="hero-proof" aria-label="Key result metrics">
+        <div class="proof-card"><strong>20 / 20</strong><span>CTest targets passed</span></div>
+        <div class="proof-card"><strong>1</strong><span>model response in the successful run</span></div>
+        <div class="proof-card"><strong>0</strong><span>manual repairs to the candidate</span></div>
+        <div class="proof-card"><strong>1 file</strong><span><code>include/fmt/chrono.h</code></span></div>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <section id="contract">
+      <div class="section-kicker">01 · Evaluation contract</div>
+      <h2>Fixed inputs. Executable success condition.</h2>
+      <p class="section-intro">The model received the target source file, a complete behavioral specification, the relevant integration constraints, and the required edit format. Correctness was determined by the official build and test environment.</p>
+      <dl class="contract">
+        <div class="contract-row"><dt>Upstream repository</dt><dd><a href="https://github.com/fmtlib/fmt">github.com/fmtlib/fmt</a></dd></div>
+        <div class="contract-row"><dt>Public problem</dt><dd><a href="https://github.com/fmtlib/fmt/issues/3725">fmt issue #3725 — Date overflow with std::chrono::time_point</a></dd></div>
+        <div class="contract-row"><dt>Base revision</dt><dd>06f1c0d725855861535e9e65cd4d502aca7c61ed</dd></div>
+        <div class="contract-row"><dt>Editable surface</dt><dd>include/fmt/chrono.h only</dd></div>
+        <div class="contract-row"><dt>Language contract</dt><dd>C++11</dd></div>
+        <div class="contract-row"><dt>Model checkpoint</dt><dd>Synth v1 epoch 50 · iteration 649 · LoRA rank 16</dd></div>
+        <div class="contract-row"><dt>Serving model</dt><dd>openai/glm-4.7-flash-grpo</dd></div>
+        <div class="contract-row"><dt>Evaluation image</dt><dd>mswebench/fmtlib_m_fmt:pr-3727</dd></div>
+      </dl>
+      <div class="callout">
+        <div class="icon">✓</div>
+        <p><strong>Accepted/reference implementation withheld.</strong> The accepted implementation was not present in the model workspace and was not disclosed in the supplied task contract.</p>
+      </div>
+    </section>
+
+    <section id="problem">
+      <div class="section-kicker">02 · Problem</div>
+      <h2>A valid date overflowed inside the formatter.</h2>
+      <p class="section-intro">A coarse-resolution system-clock time point can represent dates beyond year 2262. fmt narrowed that value through the platform’s default nanosecond clock representation before calendar conversion, producing an invalid date.</p>
+
+      <div class="code-wrap">
+        <div class="code-head"><span>Minimal reproduction</span><button class="copy-btn" data-copy="repro-code">Copy</button></div>
+        <pre id="repro-code">using time_point =
+    std::chrono::time_point&lt;std::chrono::system_clock,
+                            std::chrono::milliseconds&gt;;
+
+time_point value(std::chrono::seconds(32503680000));
+auto result = fmt::format("{:%Y-%m-%d}", value);
+
+// Required result: "3000-01-01"</pre>
+      </div>
+
+      <div class="mechanism" aria-label="Overflow mechanism">
+        <div class="stage good">
+          <span class="pill green">Valid input</span>
+          <h3>Coarse time point</h3>
+          <span class="big-num">32,503,680,000 seconds</span>
+        </div>
+        <div class="arrow">→</div>
+        <div class="stage bad">
+          <span class="pill amber">Unsafe intermediate</span>
+          <h3>Default nanoseconds</h3>
+          <span class="big-num">32,503,680,000,000,000,000 ns</span>
+        </div>
+        <div class="arrow">→</div>
+        <div class="stage bad">
+          <span class="pill amber">Observed failure</span>
+          <h3>Integer overflow</h3>
+          <span class="big-num">Date near 1830 instead of 3000</span>
+        </div>
+      </div>
+
+      <h3>Required behaviors</h3>
+      <div class="constraints">
+        <div class="constraint"><div class="check">✓</div><div><strong>Large dates</strong><span>Format the coarse-resolution year-3000 value as <code>3000-01-01</code>.</span></div></div>
+        <div class="constraint"><div class="check">✓</div><div><strong>Checked overflow</strong><span>Throw <code>fmt::format_error("cannot format duration")</code> when seconds are unrepresentable.</span></div></div>
+        <div class="constraint"><div class="check">✓</div><div><strong>Temporal boundaries</strong><span>Preserve ordinary, pre-epoch, fractional, and negative-subsecond timestamps.</span></div></div>
+        <div class="constraint"><div class="check">✓</div><div><strong>Compatibility</strong><span>Preserve local-time and duration formatting under C++11.</span></div></div>
+      </div>
+    </section>
+
+    <section id="prompt">
+      <div class="section-kicker">03 · Supplied model context</div>
+      <h2>The task was specified as an engineering contract.</h2>
+      <p class="section-intro">The context identified the failure, source regions, required behavior, C++11 template constraints, formatter invariants, edit boundaries, and mechanical output format.</p>
+      <div class="grid-3">
+        <div class="card"><div class="num">1</div><h3>Semantic contract</h3><p>Avoid default-duration narrowing while preserving checked conversion and fractional-time behavior.</p></div>
+        <div class="card"><div class="num">2</div><h3>Integration contract</h3><p>Use mutually exclusive C++11 SFINAE overloads in the existing fmt inline namespace.</p></div>
+        <div class="card"><div class="num">3</div><h3>Transport contract</h3><p>Return exactly three applicable Aider SEARCH/REPLACE blocks against <code>chrono.h</code>.</p></div>
+      </div>
+
+      <div class="note"><strong>Presentation note.</strong> The text below is a consolidated client-facing specification of the supplied behavioral and implementation contract. It is not represented as byte-identical to the archived execution prompt. The execution prompt is cryptographically identified in Provenance.</div>
+
+      <details open>
+        <summary>Consolidated task specification</summary>
+        <div class="details-body">
+          <div class="code-wrap">
+            <div class="code-head"><span>Model task contract</span><button class="copy-btn" data-copy="prompt-code">Copy</button></div>
+            <pre id="prompt-code"># Fix large-date std::chrono::time_point formatting
+
+## Problem
+On Linux, the default system_clock::time_point often uses signed 64-bit
+nanoseconds and cannot represent dates after roughly 2262. A coarser
+system-clock time point can represent later dates, but fmt narrows it through
+the default clock duration and overflows.
+
+using time_point = std::chrono::time_point&lt;std::chrono::system_clock,
+                                          std::chrono::milliseconds&gt;;
+time_point value(std::chrono::seconds(32503680000));
+auto result = fmt::format("{:%Y-%m-%d}", value);
+
+Required result: 3000-01-01.
+
+With FMT_SAFE_DURATION_CAST enabled, an unrepresentable conversion from an
+extreme duration to seconds must throw fmt::format_error with the existing
+message "cannot format duration" rather than wrap. Ordinary, pre-epoch,
+fractional-second, negative-subsecond, local-time, and duration formatting
+must remain correct.
+
+Only modify include/fmt/chrono.h. C++11 only. Return Aider SEARCH/REPLACE
+blocks and no prose.
+
+## Required implementation
+
+1. Add one duration-conversion wrapper as two namespace-level overloads in the
+existing fmt inline namespace, after the safe_duration_cast namespace closes
+and before FMT_NOMACRO.
+
+Use mutually exclusive C++11 SFINAE conditions based on whether From::rep and
+To::rep are both floating-point or both non-floating-point. For same-category
+conversions, use safe_duration_cast when FMT_SAFE_DURATION_CAST is enabled,
+throwing format_error("cannot format duration") when its error code is nonzero.
+Otherwise use std::chrono::duration_cast. Mixed-category conversions use
+ordinary duration_cast because the checked overload is not viable for that
+combination.
+
+Do not add a nested fmt or detail namespace around these helpers. Do not use a
+runtime trait branch, because both branches would still be instantiated.
+
+2. Replace the system-clock gmtime overload with an overload templated on the
+time point Duration. Convert time_since_epoch() directly to seconds through
+the wrapper, then call the existing gmtime(std::time_t) with the converted
+count. Do not convert through the default system_clock duration.
+
+3. In the system-clock time_point formatter:
+- compute the fractional remainder as
+
+  auto subsecs = to_duration&lt;Duration&gt;(
+      epoch - to_duration&lt;std::chrono::seconds&gt;(epoch));
+
+- create the one-second correction through the same wrapper;
+- preserve the negative-subsecond correction and overflow guard;
+- call gmtime(val) from both fractional and whole-second formatter paths.
+
+## Invariants
+- The helpers remain in the current fmt inline namespace.
+- Both SFINAE overloads exist and are mutually exclusive.
+- Checked-cast references remain guarded by FMT_SAFE_DURATION_CAST.
+- No default-clock time_point conversion is reintroduced.
+- The fractional remainder subtracts converted(epoch), not seconds(1).
+- Both formatter paths call gmtime(val).
+- Existing unrelated source remains unchanged.
+- Emit three exact and applicable Aider SEARCH/REPLACE blocks.</pre>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section id="solution">
+      <div class="section-kicker">04 · Model solution</div>
+      <h2>Direct conversion, compile-time dispatch, no default-clock narrowing.</h2>
+      <p class="section-intro">The generated patch added a checked conversion boundary, generalized calendar conversion to arbitrary system-clock durations, and routed both formatter paths through it.</p>
+      <div class="grid-3">
+        <div class="card"><div class="num">1</div><h3>Dispatch by representation</h3><p>Two C++11 SFINAE overloads separate checked same-category casts from mixed floating/integral casts.</p></div>
+        <div class="card"><div class="num">2</div><h3>Convert epoch to seconds</h3><p>The generalized <code>gmtime</code> overload accepts any system-clock duration and passes a seconds count to <code>time_t</code>.</p></div>
+        <div class="card"><div class="num">3</div><h3>Preserve subseconds</h3><p>The formatter computes its remainder from the full epoch and retains the existing negative-time correction.</p></div>
+      </div>
+
+      <details open style="margin-top:24px">
+        <summary>Exact applied model patch</summary>
+        <div class="details-body">
+          <div class="code-wrap">
+            <div class="code-head"><span>candidate.patch · SHA-256 6b376eb2…</span><button class="copy-btn" data-copy="patch-code">Copy</button></div>
+            <pre id="patch-code">diff --git a/include/fmt/chrono.h b/include/fmt/chrono.h
+index 7bd4206d..cf80eefe 100644
+--- a/include/fmt/chrono.h
++++ b/include/fmt/chrono.h
+@@ -315,6 +315,27 @@ To safe_duration_cast(std::chrono::duration&lt;FromRep, FromPeriod&gt; from,
+ }  // namespace safe_duration_cast
+ #endif
+ 
++template &lt;typename To, typename From,
++          FMT_ENABLE_IF(std::is_floating_point&lt;typename From::rep&gt;::value ==
++                        std::is_floating_point&lt;typename To::rep&gt;::value)&gt;
++To to_duration(const From&amp; from) {
++#if FMT_SAFE_DURATION_CAST
++  int ec = 0;
++  To to = safe_duration_cast::safe_duration_cast&lt;To&gt;(from, ec);
++  if (ec) FMT_THROW(format_error("cannot format duration"));
++  return to;
++#else
++  return std::chrono::duration_cast&lt;To&gt;(from);
++#endif
++}
++
++template &lt;typename To, typename From,
++          FMT_ENABLE_IF(std::is_floating_point&lt;typename From::rep&gt;::value !=
++                        std::is_floating_point&lt;typename To::rep&gt;::value)&gt;
++To to_duration(const From&amp; from) {
++  return std::chrono::duration_cast&lt;To&gt;(from);
++}
++
+ // Prevents expansion of a preceding token as a function-style macro.
+ // Usage: f FMT_NOMACRO()
+ #define FMT_NOMACRO
+@@ -523,9 +544,12 @@ inline std::tm gmtime(std::time_t time) {
+   return gt.tm_;
+ }
+ 
++template &lt;typename Duration&gt;
+ inline std::tm gmtime(
+-    std::chrono::time_point&lt;std::chrono::system_clock&gt; time_point) {
+-  return gmtime(std::chrono::system_clock::to_time_t(time_point));
++    std::chrono::time_point&lt;std::chrono::system_clock, Duration&gt; time_point) {
++  using seconds = std::chrono::seconds;
++  auto converted = to_duration&lt;seconds&gt;(time_point.time_since_epoch());
++  return gmtime(static_cast&lt;std::time_t&gt;(converted.count()));
+ }
+ 
+ namespace detail {
+@@ -2082,12 +2106,12 @@ struct formatter&lt;std::chrono::time_point&lt;std::chrono::system_clock, Duration&gt;,
+             period::num != 1 || period::den != 1 ||
+             std::is_floating_point&lt;typename Duration::rep&gt;::value)) {
+       const auto epoch = val.time_since_epoch();
+-      auto subsecs = std::chrono::duration_cast&lt;Duration&gt;(
+-          epoch - std::chrono::duration_cast&lt;std::chrono::seconds&gt;(epoch));
++      auto subsecs = to_duration&lt;Duration&gt;(
++          epoch - to_duration&lt;std::chrono::seconds&gt;(epoch));
+ 
+       if (subsecs.count() &lt; 0) {
+         auto second =
+-            std::chrono::duration_cast&lt;Duration&gt;(std::chrono::seconds(1));
++            to_duration&lt;Duration&gt;(std::chrono::seconds(1));
+         if (epoch.count() &lt; ((Duration::min)() + second).count())
+           FMT_THROW(format_error("duration is too small"));
+         subsecs += second;
+@@ -2095,12 +2119,11 @@ struct formatter&lt;std::chrono::time_point&lt;std::chrono::system_clock, Duration&gt;,
+       }
+ 
+       return formatter&lt;std::tm, Char&gt;::do_format(
+-          gmtime(std::chrono::time_point_cast&lt;std::chrono::seconds&gt;(val)), ctx,
+-          &amp;subsecs);
++          gmtime(val), ctx, &amp;subsecs);
+     }
+ 
+     return formatter&lt;std::tm, Char&gt;::format(
+-        gmtime(std::chrono::time_point_cast&lt;std::chrono::seconds&gt;(val)), ctx);
++        gmtime(val), ctx);
+   }
+ };
+ 
+</pre>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section id="verification">
+      <div class="section-kicker">05 · Verification</div>
+      <h2>The executable contract passed completely.</h2>
+      <p class="section-intro">The candidate was applied to the untouched upstream base in a fresh official MSWE-bench container, compiled with GNU C++ 14.2.0, and evaluated with the hidden regression patch plus the upstream suite.</p>
+      <div class="test-total"><strong>100%</strong><span>20 passed · 0 failed · official grader return code 0</span></div>
+      <div class="test-grid" aria-label="Passed CTest targets">
+        <div class="test">✓ args-test</div><div class="test">✓ assert-test</div><div class="test">✓ chrono-test</div><div class="test">✓ color-test</div>
+        <div class="test">✓ core-test</div><div class="test">✓ gtest-extra-test</div><div class="test">✓ format-test</div><div class="test">✓ format-impl-test</div>
+        <div class="test">✓ ostream-test</div><div class="test">✓ compile-test</div><div class="test">✓ compile-fp-test</div><div class="test">✓ printf-test</div>
+        <div class="test">✓ ranges-test</div><div class="test">✓ scan-test</div><div class="test">✓ std-test</div><div class="test">✓ unicode-test</div>
+        <div class="test">✓ xchar-test</div><div class="test">✓ enforce-checks-test</div><div class="test">✓ posix-mock-test</div><div class="test">✓ os-test</div>
+      </div>
+      <div class="grid-2" style="margin-top:20px">
+        <div class="card"><span class="pill green">Regression behavior</span><h3 style="margin-top:12px">Large-date formatting</h3><p>The coarse millisecond time point formats as <code>3000-01-01</code> without narrowing through nanoseconds.</p></div>
+        <div class="card"><span class="pill green">Failure behavior</span><h3 style="margin-top:12px">Checked extreme conversion</h3><p>An unrepresentable conversion raises the existing <code>cannot format duration</code> error instead of wrapping.</p></div>
+      </div>
+      <details style="margin-top:20px">
+        <summary>Official grader summary</summary>
+        <div class="details-body">
+          <div class="code-wrap">
+            <div class="code-head"><span>grader.log</span><button class="copy-btn" data-copy="grader-code">Copy</button></div>
+            <pre id="grader-code">Test project /home/fmt/build
+ 1/20  args-test .................... Passed
+ 2/20  assert-test .................. Passed
+ 3/20  chrono-test .................. Passed
+ 4/20  color-test ................... Passed
+ 5/20  core-test .................... Passed
+ 6/20  gtest-extra-test ............. Passed
+ 7/20  format-test .................. Passed
+ 8/20  format-impl-test ............. Passed
+ 9/20  ostream-test ................. Passed
+10/20  compile-test ................. Passed
+11/20  compile-fp-test .............. Passed
+12/20  printf-test .................. Passed
+13/20  ranges-test .................. Passed
+14/20  scan-test .................... Passed
+15/20  std-test ..................... Passed
+16/20  unicode-test ................. Passed
+17/20  xchar-test ................... Passed
+18/20  enforce-checks-test .......... Passed
+19/20  posix-mock-test .............. Passed
+20/20  os-test ...................... Passed
+
+100% tests passed, 0 tests failed out of 20</pre>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section id="provenance">
+      <div class="section-kicker">06 · Provenance</div>
+      <h2>Identity and evidence receipts.</h2>
+      <p class="section-intro">The source, prompt, model response, applied patch, grader, container, and model adapter are bound to cryptographic identities.</p>
+      <div class="grid-2">
+        <div class="card"><h3>Task prompt</h3><p class="hash">0595414b51ee9d0bacedb062d894cd4db66588d325b26a48b2d588109c948fe9</p></div>
+        <div class="card"><h3>Model response</h3><p class="hash">235cbb77eb86fb594ba5aba126664986f0932f729b6c37d8c4f8a4ed9eda2239</p></div>
+        <div class="card"><h3>Candidate patch</h3><p class="hash">6b376eb22063ba36f718ac7505326b07dd6aae94d88c5b8bf05331a07574982c</p></div>
+        <div class="card"><h3>Resulting chrono.h</h3><p class="hash">f86ec17c1491ca0766e910a50c7e0aa118e7cc7957bfc45fb5e6372c0ce3fcb9</p></div>
+        <div class="card"><h3>Official grader log</h3><p class="hash">9ef618f70cadf17360e5fe8a5a479e60d278a510242d3802b3a2909fa453c71d</p></div>
+        <div class="card"><h3>Official image</h3><p class="hash">sha256:855d772196ea6554f59c98415689d73f91dcaf47df484bcf0fbcce9aad884a6a</p></div>
+        <div class="card"><h3>Source adapter</h3><p class="hash">4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a</p></div>
+        <div class="card"><h3>Serving adapter</h3><p class="hash">6de1aeba533a5bfef26a73286fc32b47f403c022bd7467e2b3dc32cf18a35f48</p></div>
+      </div>
+
+      <div class="boundary" style="margin-top:24px">
+        <h3>Result boundary</h3>
+        <ul>
+          <li>This report establishes that the named checkpoint produced a fully passing patch under the supplied, detailed task contract.</li>
+          <li>The successful run used one model response and received no manual candidate repair.</li>
+          <li>This report does not estimate success under shorter, different, or problem-only prompts.</li>
+          <li>Because the upstream issue and pull request were public before evaluation, possible pretraining exposure cannot be ruled out.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Verified 7 August 2026 · fmt base 06f1c0d7 · Synth v1 epoch 50 · Official suite 20/20
+  </footer>
+
+  <script>
+    document.querySelectorAll('.copy-btn').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const target = document.getElementById(button.dataset.copy);
+        try {
+          await navigator.clipboard.writeText(target.innerText);
+          const old = button.textContent;
+          button.textContent = 'Copied';
+          setTimeout(() => { button.textContent = old; }, 1200);
+        } catch (_) {
+          button.textContent = 'Select text';
+        }
+      });
+    });
+
+    const links = [...document.querySelectorAll('.topnav a')];
+    const sections = links.map((link) => document.querySelector(link.getAttribute('href')));
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        links.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + entry.target.id));
+      });
+    }, { rootMargin: '-30% 0px -60% 0px' });
+    sections.forEach((section) => observer.observe(section));
+  </script>
+</body>
+</html>

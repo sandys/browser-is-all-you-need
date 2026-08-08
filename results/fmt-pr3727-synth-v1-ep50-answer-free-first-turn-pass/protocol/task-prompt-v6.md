@@ -1,0 +1,101 @@
+# Fix large-date `std::chrono::time_point` formatting
+
+## Reported problem
+
+On Linux, `std::chrono::system_clock::time_point` commonly stores nanoseconds in a signed 64-bit counter and therefore cannot represent dates beyond roughly year 2262. Applications can represent later dates by using a system-clock time point with a coarser duration, for example:
+
+```cpp
+using time_point =
+    std::chrono::time_point<std::chrono::system_clock,
+                            std::chrono::milliseconds>;
+```
+
+Such a time point can represent year 3000, but fmt currently overflows while formatting it and emits a date around 1830. Standard-library formatting of the same coarse-resolution value produces the expected future date.
+
+A representative reproduction is:
+
+```cpp
+using time_point =
+    std::chrono::time_point<std::chrono::system_clock,
+                            std::chrono::milliseconds>;
+time_point value(std::chrono::seconds(32503680000));
+auto result = fmt::format("{:%Y-%m-%d}", value);
+```
+
+Required result:
+
+```text
+3000-01-01
+```
+
+## Required behavior
+
+Solve the general conversion problem rather than special-casing this date or formatted output.
+
+The evaluator checks both of these externally observable contracts:
+
+1. The millisecond-resolution system-clock time point above formats exactly as `3000-01-01`.
+2. When `FMT_SAFE_DURATION_CAST` is enabled, an unrepresentable extreme integral duration must fail with the existing checked-conversion behavior instead of wrapping or silently succeeding:
+
+   ```cpp
+   using years =
+       std::chrono::duration<std::int64_t, std::ratio<31556952>>;
+   std::chrono::time_point<std::chrono::system_clock, years> value(
+       years((std::numeric_limits<std::int64_t>::max)()));
+   ```
+
+   Formatting this value must throw `fmt::format_error` with the message `cannot format duration`.
+
+Ordinary dates, dates before the Unix epoch, fractional seconds, local-time formatting, and existing duration formatting must remain correct. The complete existing test suite must stay green.
+
+## Scope and constraints
+
+- The only editable production file is `include/fmt/chrono.h`, supplied to you as `chrono.h`.
+- Do not modify tests, build files, generated files, or any other path.
+- Keep the header compatible with the project's C++11 baseline.
+- Preserve existing preprocessor guards, namespace boundaries, public overload behavior, negative-subsecond handling, timezone behavior, and failure semantics.
+- Reuse compatible facilities and conventions already present in the header rather than introducing a parallel conversion subsystem without need.
+- Avoid undefined behavior from signed arithmetic overflow and unsafe intermediate narrowing.
+- Do not hardcode the year, timestamp, expected string, platform word size, or a test-only branch.
+- Make the smallest coherent production change that satisfies the complete contract.
+- Do not change unrelated comments, declarations, formatting, or expressions.
+
+Inspect the supplied header carefully, trace all relevant conversion paths, implement the production fix, and return an applicable edit for `chrono.h`. Do not respond with analysis alone.
+
+####
+
+Use the above instructions to modify the supplied file: chrono.h
+Don't change the names of existing functions or classes, as they may be referenced from other code like unit tests, etc.
+Only use standard libraries, don't suggest installing any packages.
+
+
+## Failure-derived implementation guidance
+
+Use these constraints from the supplied source and prior compiler diagnostics; they are not solution code:
+
+1. The overflow is reintroduced if a coarse `time_point<system_clock, Duration>` is first changed to `time_point<system_clock, seconds>` and then passed to the existing `gmtime(time_point<system_clock>)`, because binding that parameter converts back to the clock's default nanosecond duration. Fix the conversion boundary so arbitrary system-clock durations reach calendar conversion without that implicit narrowing.
+2. The existing `safe_duration_cast::safe_duration_cast<To>(from, ec)` overloads are viable only when both representations are integral or both are floating-point. A reusable conversion layer should use that checked facility for compatible representation categories, throw the required error when `ec` is set, and preserve ordinary `std::chrono::duration_cast` behavior for mixed categories. Implement category selection at compile time with C++11-compatible overloads or SFINAE, not a runtime type-trait `if`.
+3. Reuse the existing `gmtime(std::time_t)` endpoint and existing formatter structure. Do not invent undeclared helpers, do not pass a duration where a time point is required, and fully qualify `std::chrono::system_clock`.
+4. Apply the conversion consistently to the system-clock formatter's fractional and whole-second paths. Preserve negative-subsecond correction and all unrelated overloads.
+
+Integration rules:
+
+- C++11 only; no structured bindings or branch-local result variables needed after compile-time dispatch.
+- One coherent definition per helper or formatter overload; no duplicates.
+- Every new helper must be declared before use and have an applied call site.
+- The only changed path must be `include/fmt/chrono.h`.
+- Aider SEARCH text must be copied byte-for-byte from the supplied header, including leading spaces. The system-clock formatter declaration begins at column zero:
+
+```cpp
+template <typename Char, typename Duration>
+struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+                 Char> : formatter<std::tm, Char> {
+```
+
+Before finishing, audit for unresolved names, invalid template instantiations, implicit conversion back to the default clock duration, unsafe narrowing, duplicate declarations, and unapplied SEARCH blocks.
+
+## Exact compiler corrections from the last candidate
+
+- `safe_duration_cast` is a namespace in the current `fmt` inline namespace, not inside `detail`; `detail::safe_duration_cast` does not exist.
+- `std::chrono::seconds` is a duration object. Pass its `.count()` to the `gmtime(std::time_t)` endpoint rather than trying to `static_cast` the duration itself.
+- A runtime `if (std::is_integral<...>::value)` still instantiates both branches. Use C++11 SFINAE/tag dispatch so the checked same-category call is never instantiated for a mixed floating/integral conversion.

@@ -1,0 +1,13 @@
+{
+  "base_commit": "06f1c0d725855861535e9e65cd4d502aca7c61ed",
+  "editable_file": "include/fmt/chrono.h",
+  "editable_file_bytes": 72590,
+  "editable_file_sha256": "2416673e284a28b63596e68e8a917cf136e64c0f63293007759bc8eb99f898c6",
+  "official_image": "mswebench/fmtlib_m_fmt:pr-3727",
+  "official_image_id": "sha256:855d772196ea6554f59c98415689d73f91dcaf47df484bcf0fbcce9aad884a6a",
+  "reference_patch_sha256": "1e5b2e54d779c5e44df41ad0511837f9091e847085306045cda9cddb186b2848",
+  "schema_version": 1,
+  "task": "fmtlib/fmt PR 3727",
+  "test_patch_sha256": "76eac48ef70cf13f40a9d99390ec7decc840451c0bae1aedaa93dd2ba7b77002",
+  "test_run_sha256": "fe480a99fb0e475058e6cdb91947477612bc9636603fbccf343cff5b2def1a5e"
+}

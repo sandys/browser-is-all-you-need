@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "kind": "failure-informed-answer-withheld-first-turn-pass",
+  "status": "complete",
+  "disposition": "eval-only",
+  "training_eligible": false,
+  "task": {
+    "repository": "https://github.com/fmtlib/fmt",
+    "issue": "https://github.com/fmtlib/fmt/issues/3725",
+    "reference_pr": "https://github.com/fmtlib/fmt/pull/3727",
+    "base_commit": "06f1c0d725855861535e9e65cd4d502aca7c61ed",
+    "editable_file": "include/fmt/chrono.h",
+    "official_image": "mswebench/fmtlib_m_fmt:pr-3727",
+    "official_image_id": "sha256:855d772196ea6554f59c98415689d73f91dcaf47df484bcf0fbcce9aad884a6a",
+    "hidden_test_patch_sha256": "76eac48ef70cf13f40a9d99390ec7decc840451c0bae1aedaa93dd2ba7b77002"
+  },
+  "checkpoint": {
+    "identity": "Synth v1 epoch 50",
+    "iteration": 649,
+    "lora_rank": 16,
+    "base_repository": "zai-org/GLM-4.7-Flash",
+    "base_revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+    "adapter_repository": "TokenBender/glm47-synth-v1-100ep",
+    "adapter_revision": "a8d386d6b5bedf761cbe4effe2fdc36a97ad62bc",
+    "source_adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+    "serving_adapter_sha256": "6de1aeba533a5bfef26a73286fc32b47f403c022bd7467e2b3dc32cf18a35f48",
+    "activation_status": "diverged"
+  },
+  "inference": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "edit_format": "diff",
+    "repository_map": false,
+    "thinking_disabled": false,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "max_completion_tokens": 32768,
+    "explicit_seed": null,
+    "auto_lint": false
+  },
+  "protocol": {
+    "original_frozen_arm": {
+      "trials": "a1-a8",
+      "first_turn_passes": 0,
+      "attempts": 8
+    },
+    "failure_informed_context_tuning_arm": {
+      "trials": "a9-a16",
+      "first_turn_passes": 1,
+      "attempts": 8
+    },
+    "overall_sequence": {
+      "first_turn_passes": 1,
+      "attempts": 16,
+      "iid": false
+    },
+    "accepted_patch_or_reference_code_supplied_to_model": false,
+    "prior_failure_context_used_after_original_arm": true,
+    "amendment": "protocol/contract-amendment.json",
+    "final_prompt_sha256": "0595414b51ee9d0bacedb062d894cd4db66588d325b26a48b2d588109c948fe9"
+  },
+  "result": {
+    "passing_trial": "a16",
+    "fresh_repository_first_model_turn_pass": true,
+    "turn2_response": null,
+    "build_passed": true,
+    "official_tests_passed": 20,
+    "official_tests_total": 20,
+    "candidate_patch_sha256": "6b376eb22063ba36f718ac7505326b07dd6aae94d88c5b8bf05331a07574982c",
+    "candidate_header_sha256": "f86ec17c1491ca0766e910a50c7e0aa118e7cc7957bfc45fb5e6372c0ce3fcb9",
+    "grader_log_sha256": "9ef618f70cadf17360e5fe8a5a479e60d278a510242d3802b3a2909fa453c71d",
+    "candidate_matches_reference_byte_for_byte": false
+  },
+  "claim_boundary": [
+    "a16 is a first-model-turn pass from the untouched base under a failure-informed answer-withheld prompt",
+    "a16 is not an independent pass under the original frozen 8-attempt protocol",
+    "the sequential attempts are not IID and are not a pass@16 estimate",
+    "public issue/PR pretraining contamination cannot be ruled out"
+  ],
+  "preservation": {
+    "all_trial_non_workspace_artifacts_preserved": true,
+    "prompt_lineage_preserved": true,
+    "identity_receipts_and_harness_preserved": true,
+    "excluded_reproducible_bulk": [
+      "62.4 GB base-model shards",
+      "454 MB converted serving-adapter tensors",
+      "workspace copies"
+    ]
+  },
+  "worklog": {
+    "master_issue": "https://github.com/tokenbender/browser-is-all-you-need/issues/95",
+    "experiment_issue": "https://github.com/tokenbender/browser-is-all-you-need/issues/100"
+  }
+}

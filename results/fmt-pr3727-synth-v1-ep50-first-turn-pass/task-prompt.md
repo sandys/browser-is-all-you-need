@@ -1,0 +1,120 @@
+# Fix large-date chrono time-point formatting
+
+You are editing fmt's `include/fmt/chrono.h`. The repository is already at the pre-fix state. Your job is to implement and integrate the fix in that one supplied header; do not spend time discovering the expected behavior or changing tests.
+
+## What is broken
+
+Formatting a `std::chrono::time_point<std::chrono::system_clock, Duration>` currently narrows the value through `system_clock`'s native duration before converting it to calendar fields. On this 64-bit Linux target, the native clock duration cannot represent some dates that the source duration and `time_t` can represent. The intermediate narrowing overflows before formatting.
+
+The conversion must operate directly from `time_since_epoch()` into a `std::chrono::duration<std::time_t>`, with checked conversion when fmt's safe-duration-cast mode supports it.
+
+## Exact required tests
+
+The evaluator adds these cases to `test/chrono-test.cc` after your response:
+
+```cpp
+std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>
+    t5(std::chrono::seconds(32503680000));
+EXPECT_EQ(fmt::format("{:%Y-%m-%d}", t5), "3000-01-01");
+
+#if FMT_SAFE_DURATION_CAST
+using years = std::chrono::duration<std::int64_t, std::ratio<31556952>>;
+std::chrono::time_point<std::chrono::system_clock, years> t6(
+    years(std::numeric_limits<std::int64_t>::max()));
+EXPECT_THROW_MSG((void)fmt::format("{:%Y-%m-%d}", t6), fmt::format_error,
+                 "cannot format duration");
+#endif
+```
+
+The full existing fmt CTest suite also runs, so ordinary timestamps, negative epochs, fractional seconds, local time, and duration formatting must continue to work.
+
+## Implementation map
+
+Use the following plan. The names are intentional so every conversion path uses one consistent mechanism.
+
+### 1. Add a unified duration-cast helper in the early `detail` namespace
+
+Near the early time-formatting helpers, before the public `localtime` and `gmtime` overloads, add:
+
+- `detail::is_same_arithmetic_type<Rep1, Rep2>`
+  - true for integral-to-integral representations;
+  - true for floating-to-floating representations;
+  - false for mixed integral/floating representations.
+- Two SFINAE overloads of `detail::fmt_duration_cast<To>(from)`:
+  - For the same arithmetic category, use `safe_duration_cast::safe_duration_cast` when `FMT_SAFE_DURATION_CAST` is enabled. If its error code is nonzero, throw `fmt::format_error("cannot format duration")`. Otherwise return the converted duration. When safe casting is disabled, use `std::chrono::duration_cast`.
+  - For mixed integral/floating categories, use `std::chrono::duration_cast`; the existing safe cast machinery does not support that mixed case.
+- A templated `detail::to_time_t` accepting `std::chrono::time_point<std::chrono::system_clock, Duration>`. Convert `time_since_epoch()` directly to `std::chrono::duration<std::time_t>` through `fmt_duration_cast` and return `.count()`.
+
+Do not first cast to `std::chrono::system_clock::time_point`; that is the overflow being fixed.
+
+### 2. Route calendar conversion through the generic helper
+
+Update the calendar functions so the original duration type survives until conversion to `time_t`:
+
+- The `localtime(std::chrono::local_time<Duration>)` overload should call `detail::to_time_t(std::chrono::current_zone()->to_sys(time))` instead of `system_clock::to_time_t`.
+- Make the `gmtime` system-clock overload itself a `template <typename Duration>` and call `detail::to_time_t(time_point)`.
+
+Keep namespace placement and existing feature guards unchanged.
+
+### 3. Use the unified cast helper throughout duration formatting
+
+Replace the relevant raw or old checked duration casts with `fmt_duration_cast` so safe-mode behavior is consistent:
+
+- In `write_fractional_seconds`, use it for:
+  - conversion to whole seconds;
+  - conversion of the fractional remainder to the selected subsecond precision.
+- Remove the later standalone `fmt_safe_duration_cast` helper; the new early `fmt_duration_cast` replaces it.
+- In the integral `get_milliseconds` path, use `fmt_duration_cast` for the common-duration, whole-second, and millisecond conversions. Use it in both safe and non-safe branches where those conversions occur.
+- In `chrono_formatter::write`, route the conversion into `seconds` through `fmt_duration_cast` rather than maintaining separate safe and unsafe implementations.
+
+### 4. Stop narrowing time points before `gmtime` and `localtime`
+
+In `formatter<std::chrono::time_point<std::chrono::system_clock, Duration>, Char>`:
+
+- Compute whole seconds and the subsecond remainder with `detail::fmt_duration_cast`.
+- Preserve the existing negative-subsecond correction and `duration is too small` guard.
+- Pass `val` directly to `gmtime`; do not wrap it in `time_point_cast<std::chrono::seconds>`.
+- Apply that both to the `do_format(..., &subsecs)` path and the no-subseconds `format(...)` path.
+
+In `formatter<std::chrono::local_time<Duration>, Char>`:
+
+- Compute the subsecond remainder through `detail::fmt_duration_cast`.
+- Pass `val` directly to `localtime` in both formatter paths; do not pre-narrow it with `time_point_cast<std::chrono::seconds>`.
+
+## Rejected failure patterns from an earlier attempt
+
+Avoid these concrete integration mistakes:
+
+- A duration template must accept both representation and period; do not write a parameter as `std::chrono::duration<From>`, which only matches the default period.
+- Implement the same-category versus mixed-category split with mutually exclusive C++11 SFINAE overloads. Do not create an unconstrained overload beside a defaulted-boolean overload.
+- Do not shadow a `seconds` type alias with a variable named `seconds`.
+- Do not touch unrelated calls such as `get_units<Period>()`, comments, or condition syntax.
+- Do not replace the formatter paths with a manually converted epoch count. Preserve `val` and route `gmtime(val)` / `localtime(val)` through the new generic time-point overloads.
+
+## Compile and integration constraints
+
+- Only `chrono.h` may change. It is the supplied representation of repository path `include/fmt/chrono.h`.
+- Keep the header C++11-compatible: no `if constexpr`, concepts, or other newer-only syntax.
+- Keep helpers in the correct `detail` namespace and qualify calls consistently across public and detail scopes.
+- Preserve all existing preprocessor guards and namespace/export boundaries.
+- Do not duplicate the old and new checked-cast helpers.
+- Do not remove unrelated functions, closing braces, overloads, or conditional directives.
+- Do not modify or output tests, CMake files, or other paths.
+
+## Evaluator procedure
+
+After Aider applies your full-file response, the evaluator:
+
+1. rejects any changed path other than `include/fmt/chrono.h`;
+2. applies the two regression cases above;
+3. configures and builds fmt;
+4. runs all 20 CTest targets;
+5. if the first candidate fails, returns the genuine compiler/test output for one repair attempt.
+
+Produce the complete corrected `chrono.h`, not a prose-only answer or a partial snippet. Check the whole-file structure carefully before finishing.
+
+####
+
+Use the above instructions to modify the supplied file: chrono.h
+Don't change the names of existing functions or classes, as they may be referenced from other code like unit tests, etc.
+Only use standard libraries, don't suggest installing any packages.

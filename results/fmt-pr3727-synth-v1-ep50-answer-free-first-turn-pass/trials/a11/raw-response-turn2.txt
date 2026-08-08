@@ -1,0 +1,89 @@
+chrono.h
+```cpp
+<<<<<<< SEARCH
+}  // namespace safe_duration_cast
+#endif
+
+// Prevents expansion of a preceding token as a function-style macro.
+#define FMT_NOMACRO
+=======
+}  // namespace safe_duration_cast
+#endif
+
+namespace fmt {
+template <typename To, typename From>
+FMT_ENABLE_IF(
+    std::is_integral<typename From::rep>::value ==
+        std::is_integral<typename To::rep>::value)
+To duration_cast(From from) {
+  int ec = 0;
+  To to = safe_duration_cast::safe_duration_cast<To>(from, ec);
+  if (ec) FMT_THROW(format_error("cannot format duration"));
+  return to;
+}
+
+template <typename To, typename From>
+FMT_ENABLE_IF(
+    !std::is_integral<typename From::rep>::value !=
+        !std::is_integral<typename To::rep>::value)
+To duration_cast(From from) {
+  return std::chrono::duration_cast<To>(from);
+}
+}  // namespace fmt
+
+// Prevents expansion of a preceding token as a function-style macro.
+#define FMT_NOMACRO
+>>>>>>> REPLACE
+```
+
+chrono.h
+```cpp
+<<<<<<< SEARCH
+inline std::tm gmtime(
+    std::chrono::time_point<std::chrono::system_clock> time_point) {
+  return gmtime(std::chrono::system_clock::to_time_t(time_point));
+}
+=======
+template <typename Duration>
+inline std::tm gmtime(
+    std::chrono::time_point<std::chrono::system_clock, Duration> time_point) {
+  using seconds = std::chrono::duration<std::int64_t>;
+  auto duration = fmt::duration_cast<seconds>(time_point.time_since_epoch());
+  return gmtime(static_cast<std::time_t>(duration.count()));
+}
+>>>>>>> REPLACE
+```
+
+chrono.h
+```cpp
+<<<<<<< SEARCH
+    auto subsecs = std::chrono::duration_cast<Duration>(
+        epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+=======
+    auto subsecs = fmt::duration_cast<Duration>(
+        epoch - fmt::duration_cast<std::chrono::seconds>(epoch));
+>>>>>>> REPLACE
+```
+
+chrono.h
+```cpp
+<<<<<<< SEARCH
+    return formatter<std::tm, Char>::do_format(
+        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
+        &subsecs);
+=======
+    return formatter<std::tm, Char>::do_format(
+        gmtime<Duration>(val), ctx, &subsecs);
+>>>>>>> REPLACE
+```
+
+chrono.h
+```cpp
+<<<<<<< SEARCH
+    return formatter<std::tm, Char>::format(
+        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx);
+=======
+    return formatter<std::tm, Char>::format(
+        gmtime<Duration>(val), ctx);
+>>>>>>> REPLACE
+```

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": 6,
+  "parent_prompt_sha256": "154ae9ce54e9079d9158ef30b5cf55a5511f363d152bc34597b785e24689e75c",
+  "prompt_sha256": "90a296cf4fcca042c2313cb6ed6047b645bc7f10ca761d7c96177b509a9a6f4b",
+  "prompt_bytes": 6341,
+  "prompt_words": 780,
+  "basis": "Verbatim compiler diagnostics from trial a5 plus supplied pre-fix namespace declarations",
+  "added_guidance": [
+    "use the actual safe_duration_cast namespace rather than nonexistent detail namespace",
+    "pass a seconds duration count to gmtime(time_t)",
+    "use C++11 compile-time dispatch instead of a runtime representation trait branch"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

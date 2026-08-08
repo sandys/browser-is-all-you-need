@@ -1,0 +1,42 @@
+diff --git a/include/fmt/chrono.h b/include/fmt/chrono.h
+index 7bd4206d..bf531e59 100644
+--- a/include/fmt/chrono.h
++++ b/include/fmt/chrono.h
+@@ -2082,8 +2082,23 @@ struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+             period::num != 1 || period::den != 1 ||
+             std::is_floating_point<typename Duration::rep>::value)) {
+       const auto epoch = val.time_since_epoch();
+-      auto subsecs = std::chrono::duration_cast<Duration>(
+-          epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
++      using seconds = std::chrono::seconds;
++      using common_seconds = std::chrono::duration<
++          typename std::common_type<typename Duration::rep, seconds::rep>::type,
++          seconds::period>;
++#if FMT_SAFE_DURATION_CAST
++      auto epoch_seconds =
++          fmt_safe_duration_cast<common_seconds>(epoch);
++      auto subsecs =
++          std::chrono::duration_cast<Duration>(
++              epoch - epoch_seconds);
++#else
++      auto epoch_seconds =
++          std::chrono::duration_cast<common_seconds>(epoch);
++      auto subsecs =
++          std::chrono::duration_cast<Duration>(
++              epoch - epoch_seconds);
++#endif
+ 
+       if (subsecs.count() < 0) {
+         auto second =
+@@ -2095,8 +2110,9 @@ struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+       }
+ 
+       return formatter<std::tm, Char>::do_format(
+-          gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
+-          &subsecs);
++          gmtime(std::chrono::time_point<system_clock, seconds>(
++              epoch_seconds)),
++          ctx, &subsecs);
+     }
+ 
+     return formatter<std::tm, Char>::format(

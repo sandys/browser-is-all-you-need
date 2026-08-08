@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": 4,
+  "parent_prompt_sha256": "bf699c4d134691bd96a20c7e88bbb00e2ac491b5c9ab99a2cb98b7ad810f2fb5",
+  "prompt_sha256": "c0f5461b14f5bc1e4b3ad4a8ccaaec4b564958d50424b708a0ec96e421e87c97",
+  "prompt_bytes": 6271,
+  "prompt_words": 808,
+  "basis": "Pre-fix overload tracing plus observed trial a3 Aider anchoring failure",
+  "added_guidance": [
+    "avoid implicit conversion from a seconds-resolution system-clock time point back to the default nanosecond time-point parameter before to_time_t",
+    "keep compile-time dispatch results in valid C++11 scope",
+    "provide the exact pre-fix formatter declaration at column zero for Aider anchoring"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}
