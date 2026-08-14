@@ -29,10 +29,6 @@ api_server_access: false
 setup: |
   set -euo pipefail
 
-  sudo apt-get update
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    docker-buildx \
-    docker.io
   sudo systemctl enable --now docker
   sudo docker version
   sudo docker buildx version

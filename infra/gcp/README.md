@@ -69,9 +69,10 @@ immutable source-revision tag:
 ghcr.io/tokenbender/glm47-runtime:git-<full-commit-sha>
 ```
 
-The publisher installs the distro Docker engine and buildx plugin during its
-idempotent setup, verifies both before authenticating, and removes the GHCR
-credential from the builder when the job exits.
+The pinned SkyPilot 0.13 GCP image supplies Docker Engine and buildx. The
+publisher starts and verifies that existing stack before authenticating, then
+removes the GHCR credential from the builder when the job exits. It deliberately
+does not mix Ubuntu's `docker.io` packages with SkyPilot's Docker CE packages.
 
 The publisher prints the content-addressed `sha256` reference and automatically
 deletes its GCP VM after ten idle minutes. A newly created GHCR package is private
