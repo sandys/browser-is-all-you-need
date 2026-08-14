@@ -78,7 +78,6 @@ run: |
     --label "org.opencontainers.image.revision=${GLM47_SOURCE_REVISION}" \
     --label "org.opencontainers.image.source=${GLM47_IMAGE_SOURCE}" \
     --provenance=mode=max \
-    --sbom=true \
     --push \
     --tag "${GHCR_IMAGE}:${tag}" \
     .

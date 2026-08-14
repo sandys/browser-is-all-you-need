@@ -73,6 +73,10 @@ The pinned SkyPilot 0.13 GCP image supplies Docker Engine and buildx. The
 publisher starts and verifies that existing stack before authenticating, then
 removes the GHCR credential from the builder when the job exits. It deliberately
 does not mix Ubuntu's `docker.io` packages with SkyPilot's Docker CE packages.
+The published manifest includes maximal BuildKit provenance. Inline SPDX SBOM
+attestation is deliberately disabled: Syft's inventory of this CUDA training
+image exceeds BuildKit's 40 MiB attestation-file ceiling, which otherwise makes
+the exporter fail closed before pushing the manifest.
 
 The publisher prints the content-addressed `sha256` reference and automatically
 deletes its GCP VM after ten idle minutes. A newly created GHCR package is private
