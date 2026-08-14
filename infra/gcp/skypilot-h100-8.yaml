@@ -20,6 +20,12 @@ envs:
   GLM47_GCP_ASSETS_BUCKET: transformer-tales-glm47-assets
   GLM47_GCP_RUNS_BUCKET: transformer-tales-glm47-runs
 
+secrets:
+  WANDB_API_KEY: null
+
+# The training task does not need credentials for nested SkyPilot operations.
+api_server_access: false
+
 file_mounts:
   /root/models:
     source: gs://${GLM47_GCP_MODELS_BUCKET}

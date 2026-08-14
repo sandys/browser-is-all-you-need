@@ -124,6 +124,32 @@ Bucket names are ordinary SkyPilot environment values and can be overridden with
 `--env` when targeting another GCP project. IAM remains the enforcement boundary:
 setting a different bucket name does not grant access to it.
 
+## Runtime secrets
+
+The H100 task declares `WANDB_API_KEY: null`, making the W&B credential required
+without storing its value in YAML. Export it locally and pass only its name:
+
+```bash
+export WANDB_API_KEY='<personal W&B API key>'
+sky launch infra/gcp/skypilot-h100-8.yaml \
+  --secret WANDB_API_KEY \
+  --image-id docker:ghcr.io/<owner>/glm47-runtime@sha256:<digest>
+```
+
+SkyPilot reads the value from the launching shell and redacts it from dashboard
+and YAML output. The task disables API-server credential injection because the
+training process does not launch nested SkyPilot operations.
+
+Secret scopes remain separate:
+
+- `WANDB_API_KEY` is the only secret required by the H100 SFT/RL task.
+- `HF_TOKEN` is needed only when an asset-publishing process downloads gated
+  model files; it is not needed to read the pre-populated private GCS mounts.
+- `GHCR_TOKEN` is needed only by `skypilot-publish-ghcr.yaml` and never reaches
+  an H100 training task.
+- GCP access uses each runner's login plus the attached runtime service account;
+  no service-account key is generated, uploaded, or passed as a task secret.
+
 ## Runner onboarding
 
 Each authorized user uses their own Google identity:
@@ -136,9 +162,9 @@ uv tool install --with pip "skypilot[gcp]==0.13.0"
 sky check gcp
 ```
 
-The public runtime image requires no registry credential. User secrets such as
-`HF_TOKEN` and `WANDB_API_KEY` must be passed with SkyPilot `--secret`; they do
-not belong in this repository or the shared bucket.
+The public runtime image requires no registry credential. Required task secrets
+must be passed with SkyPilot `--secret`; they do not belong in this repository or
+the shared buckets.
 
 The runtime image is not considered available until its published GHCR digest is
 recorded, anonymously pullable, and supplied through `sky launch --image-id`.
