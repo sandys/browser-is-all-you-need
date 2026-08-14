@@ -66,7 +66,7 @@ def main() -> int:
     except (RuntimeError, ValueError) as exc:
         print(f"Miles H100 runtime preflight failed: {exc}", file=sys.stderr)
         print(
-            "Build examples/miles/Dockerfile.h100-runtime and relaunch with that image.",
+            "Build the root Dockerfile and relaunch with its pinned image digest.",
             file=sys.stderr,
         )
         return 2

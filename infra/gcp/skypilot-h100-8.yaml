@@ -19,6 +19,12 @@ envs:
   GLM47_GCP_MODELS_BUCKET: transformer-tales-glm47-models
   GLM47_GCP_ASSETS_BUCKET: transformer-tales-glm47-assets
   GLM47_GCP_RUNS_BUCKET: transformer-tales-glm47-runs
+  GLM47_MODEL_REVISION: 7dd20894a642a0aa287e9827cb1a1f7f91386b67
+  MILES_HF_CHECKPOINT: /root/models/GLM-4.7-Flash
+  MILES_REF_LOAD_DIR: /root/models/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8
+  MILES_CPP_TASKS_DIR: /workspace/assets/data/tasks
+  GLM47_CPP_SANDBOX_BACKEND: local
+  GLM47_CPP_SANDBOX_UNSHARE_NET: "1"
 
 secrets:
   WANDB_API_KEY: null
@@ -48,6 +54,43 @@ file_mounts:
     config:
       mount_cached:
         vfs_cache_max_size: 200G
+
+setup: |
+  set -euo pipefail
+
+  python3 -m pip install --no-deps -e .
+  python3 scripts/check_runtime.py
+
+  command -v nvidia-smi >/dev/null
+  command -v g++ >/dev/null
+  command -v bwrap >/dev/null
+
+  mapfile -t gpu_names < <(nvidia-smi --query-gpu=name --format=csv,noheader)
+  if [ "${#gpu_names[@]}" -ne 8 ]; then
+    echo "Expected exactly 8 GPUs, found ${#gpu_names[@]}." >&2
+    exit 2
+  fi
+  for gpu_name in "${gpu_names[@]}"; do
+    if [[ "${gpu_name}" != *H100* ]]; then
+      echo "Expected H100 GPUs, found: ${gpu_name}" >&2
+      exit 2
+    fi
+  done
+
+  test -f "${MILES_HF_CHECKPOINT}/config.json"
+  test -f "${MILES_HF_CHECKPOINT}/MODEL_REVISION"
+  actual_model_revision="$(tr -d '[:space:]' < "${MILES_HF_CHECKPOINT}/MODEL_REVISION")"
+  if [ "${actual_model_revision}" != "${GLM47_MODEL_REVISION}" ]; then
+    echo "Model revision mismatch: expected ${GLM47_MODEL_REVISION}, found ${actual_model_revision}." >&2
+    exit 2
+  fi
+  test -f "${MILES_REF_LOAD_DIR}/latest_checkpointed_iteration.txt"
+  test -d "${MILES_CPP_TASKS_DIR}"
+  test -w /workspace/runs
+  test -n "${WANDB_API_KEY}"
+
+  python3 -m glm47_posttraining.integrations.miles_aider_polyglot preflight
+  echo "GLM47_SKYPILOT_PREFLIGHT_READY"
 
 # Supply the verified public GHCR digest at launch:
 # sky launch infra/gcp/skypilot-h100-8.yaml \

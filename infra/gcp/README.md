@@ -150,6 +150,27 @@ Secret scopes remain separate:
 - GCP access uses each runner's login plus the attached runtime service account;
   no service-account key is generated, uploaded, or passed as a task secret.
 
+## Runtime setup and preflight
+
+SkyPilot runs the H100 task's idempotent `setup` block after the image, source,
+mounts, environment, and secret are available. It installs this checkout in
+editable mode without resolving dependencies, then fails before training unless:
+
+- the pinned Miles, SGLang, and FlashInfer runtime packages are compatible;
+- `nvidia-smi` reports exactly eight H100 GPUs;
+- the compiler and Bubblewrap sandbox executables are present;
+- the mounted Hugging Face model matches revision
+  `7dd20894a642a0aa287e9827cb1a1f7f91386b67`;
+- the converted TP4/PP1/EP8 reference checkpoint and C++ task directory exist;
+- the runs mount is writable and the required W&B secret is non-empty; and
+- a harmless C++ program compiles and executes inside the network-isolated
+  Bubblewrap reward sandbox.
+
+The setup block is read-only apart from installing the synced checkout into the
+container environment. It does not create a run directory or begin SFT/RL. A
+successful setup ends with `GLM47_SKYPILOT_PREFLIGHT_READY`; any missing or
+incompatible prerequisite stops the task first.
+
 ## Runner onboarding
 
 Each authorized user uses their own Google identity:
