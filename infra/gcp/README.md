@@ -91,6 +91,18 @@ sky launch infra/gcp/skypilot-h100-8.yaml \
   --image-id docker:ghcr.io/<owner>/glm47-runtime@sha256:<digest>
 ```
 
+## Source payload
+
+Run SkyPilot from the repository root. The H100 task declares `workdir: .`, so
+SkyPilot syncs the local checkout into `~/sky_workdir` and executes later `setup`
+and `run` commands there. The public GHCR image contains the shared toolchain and
+dependencies, not this repository's source tree.
+
+The root `.skyignore` is the fail-closed upload boundary for generated artifacts,
+local environments, caches, credentials, checkpoints, and previous results. Keep
+large models, datasets, adapters, checkpoints, and logs out of `workdir`; the next
+step mounts those through the private GCS assets and runs buckets.
+
 ## Runner onboarding
 
 Each authorized user uses their own Google identity:

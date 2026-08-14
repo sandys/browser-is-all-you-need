@@ -1,5 +1,7 @@
 name: glm47-h100-8
 
+workdir: .
+
 num_nodes: 1
 
 resources:
