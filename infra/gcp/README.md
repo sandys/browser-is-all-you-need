@@ -86,6 +86,16 @@ without GitHub credentials. Public visibility should be enabled only after the
 image contents and third-party notices have been reviewed. Miles itself is
 Apache-2.0 licensed.
 
+The currently published digest and the source revision that produced it are
+recorded in `runtime-image.env`. Source that file before launch instead of
+copying a mutable tag:
+
+```bash
+set -a
+source infra/gcp/runtime-image.env
+set +a
+```
+
 Verify the public boundary without reusing local Docker credentials:
 
 ```bash
