@@ -15,7 +15,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
     "ruff>=0.6",
 ]
 
@@ -27,10 +26,6 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/glm47_posttraining"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
