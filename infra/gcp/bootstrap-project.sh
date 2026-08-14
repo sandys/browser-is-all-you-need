@@ -10,6 +10,7 @@ RUNNER_PRINCIPAL="${GLM47_GCP_RUNNER_PRINCIPAL:-}"
 ASSET_WRITER_PRINCIPAL="${GLM47_GCP_ASSET_WRITER_PRINCIPAL:-}"
 ROLE_ID="${GLM47_GCP_RUNNER_ROLE_ID:-glm47SkyPilotRunner}"
 SERVICE_ACCOUNT_ID="${GLM47_GCP_SERVICE_ACCOUNT_ID:-skypilot-v1}"
+MODELS_BUCKET="${GLM47_GCP_MODELS_BUCKET:-${PROJECT_ID}-glm47-models}"
 ASSETS_BUCKET="${GLM47_GCP_ASSETS_BUCKET:-${PROJECT_ID}-glm47-assets}"
 RUNS_BUCKET="${GLM47_GCP_RUNS_BUCKET:-${PROJECT_ID}-glm47-runs}"
 ROLE_FILE="${SCRIPT_DIR}/iam/skypilot-runner-role.yaml"
@@ -85,7 +86,7 @@ gcloud iam service-accounts add-iam-policy-binding "${SERVICE_ACCOUNT}" \
   --condition=None \
   --project="${PROJECT_ID}"
 
-for BUCKET in "${ASSETS_BUCKET}" "${RUNS_BUCKET}"; do
+for BUCKET in "${MODELS_BUCKET}" "${ASSETS_BUCKET}" "${RUNS_BUCKET}"; do
   if ! gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1; then
     gcloud storage buckets create "gs://${BUCKET}" \
       --location="${REGION}" \
@@ -95,10 +96,12 @@ for BUCKET in "${ASSETS_BUCKET}" "${RUNS_BUCKET}"; do
 done
 
 for MEMBER in "${RUNNER_PRINCIPAL}" "serviceAccount:${SERVICE_ACCOUNT}"; do
-  gcloud storage buckets add-iam-policy-binding "gs://${ASSETS_BUCKET}" \
-    --member="${MEMBER}" \
-    --role=roles/storage.objectViewer \
-    --condition=None
+  for BUCKET in "${MODELS_BUCKET}" "${ASSETS_BUCKET}"; do
+    gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
+      --member="${MEMBER}" \
+      --role=roles/storage.objectViewer \
+      --condition=None
+  done
   gcloud storage buckets add-iam-policy-binding "gs://${RUNS_BUCKET}" \
     --member="${MEMBER}" \
     --role=roles/storage.objectUser \
@@ -106,15 +109,18 @@ for MEMBER in "${RUNNER_PRINCIPAL}" "serviceAccount:${SERVICE_ACCOUNT}"; do
 done
 
 if [ -n "${ASSET_WRITER_PRINCIPAL}" ]; then
-  gcloud storage buckets add-iam-policy-binding "gs://${ASSETS_BUCKET}" \
-    --member="${ASSET_WRITER_PRINCIPAL}" \
-    --role=roles/storage.objectUser \
-    --condition=None
+  for BUCKET in "${MODELS_BUCKET}" "${ASSETS_BUCKET}"; do
+    gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
+      --member="${ASSET_WRITER_PRINCIPAL}" \
+      --role=roles/storage.objectUser \
+      --condition=None
+  done
 fi
 
 echo "Shared GCP resources are configured."
 echo "project=${PROJECT_ID}"
 echo "region=${REGION}"
 echo "runtime_service_account=${SERVICE_ACCOUNT}"
+echo "models_bucket=gs://${MODELS_BUCKET}"
 echo "assets_bucket=gs://${ASSETS_BUCKET}"
 echo "runs_bucket=gs://${RUNS_BUCKET}"

@@ -22,6 +22,7 @@ The bootstrap creates or reconciles:
 
 - the project-level `glm47SkyPilotRunner` custom role;
 - the shared `skypilot-v1@transformer-tales.iam.gserviceaccount.com` runtime identity;
+- the private `transformer-tales-glm47-models` read-only runtime bucket;
 - the private `transformer-tales-glm47-assets` read-only runtime bucket;
 - the private `transformer-tales-glm47-runs` writable output bucket;
 - runner, runtime, and optional asset-writer bindings scoped to those resources.
@@ -35,10 +36,10 @@ Runners receive `roles/iam.serviceAccountUser` only on `skypilot-v1`. No
 service-account key is created or stored.
 
 The same split protects experiment inputs: ordinary runners and VMs can read the
-assets bucket but cannot replace its model, dataset, or adapter objects. They can
-write checkpoints and logs only to the runs bucket. The optional asset-writer
-group can publish inputs. GHCR publication is controlled by GitHub repository and
-package permissions rather than GCP IAM.
+models and assets buckets but cannot replace model, dataset, or adapter objects.
+They can write checkpoints and logs only to the runs bucket. The optional
+asset-writer group can publish models and other inputs. GHCR publication is
+controlled by GitHub repository and package permissions rather than GCP IAM.
 
 ## Runtime image publication
 
@@ -101,7 +102,27 @@ dependencies, not this repository's source tree.
 The root `.skyignore` is the fail-closed upload boundary for generated artifacts,
 local environments, caches, credentials, checkpoints, and previous results. Keep
 large models, datasets, adapters, checkpoints, and logs out of `workdir`; the next
-step mounts those through the private GCS assets and runs buckets.
+step mounts those through private GCS buckets.
+
+## Storage mounts
+
+The H100 task mounts three existing private GCS buckets at the same paths used by
+the Modal launcher:
+
+| Container path | Bucket | Access and cache profile |
+| --- | --- | --- |
+| `/root/models` | `transformer-tales-glm47-models` | Read-only model checkpoints, 100 GB cache ceiling |
+| `/workspace/assets` | `transformer-tales-glm47-assets` | Read-only datasets and adapters, 50 GB cache ceiling |
+| `/workspace/runs` | `transformer-tales-glm47-runs` | Read-write checkpoints and logs, 200 GB cache ceiling |
+
+SkyPilot does not currently support mounting independent subpaths from one cloud
+bucket, so models and other assets are deliberately separate buckets. The cached
+mount profiles leave 150 GB of the 500 GB boot disk outside configured cache
+ceilings for the container image, source checkout, and runtime scratch space.
+
+Bucket names are ordinary SkyPilot environment values and can be overridden with
+`--env` when targeting another GCP project. IAM remains the enforcement boundary:
+setting a different bucket name does not grant access to it.
 
 ## Runner onboarding
 

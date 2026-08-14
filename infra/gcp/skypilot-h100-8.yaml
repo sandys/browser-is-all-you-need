@@ -15,6 +15,34 @@ resources:
     managed-by: skypilot
     workload: glm47-posttraining
 
+envs:
+  GLM47_GCP_MODELS_BUCKET: transformer-tales-glm47-models
+  GLM47_GCP_ASSETS_BUCKET: transformer-tales-glm47-assets
+  GLM47_GCP_RUNS_BUCKET: transformer-tales-glm47-runs
+
+file_mounts:
+  /root/models:
+    source: gs://${GLM47_GCP_MODELS_BUCKET}
+    mode: MOUNT_CACHED
+    type: MODEL_CHECKPOINT_RO
+    config:
+      mount_cached:
+        vfs_cache_max_size: 100G
+  /workspace/assets:
+    source: gs://${GLM47_GCP_ASSETS_BUCKET}
+    mode: MOUNT_CACHED
+    type: DATASET_RO
+    config:
+      mount_cached:
+        vfs_cache_max_size: 50G
+  /workspace/runs:
+    source: gs://${GLM47_GCP_RUNS_BUCKET}
+    mode: MOUNT_CACHED
+    type: MODEL_CHECKPOINT_RW
+    config:
+      mount_cached:
+        vfs_cache_max_size: 200G
+
 # Supply the verified public GHCR digest at launch:
 # sky launch infra/gcp/skypilot-h100-8.yaml \
 #   --image-id docker:ghcr.io/<owner>/glm47-runtime@sha256:<digest>
