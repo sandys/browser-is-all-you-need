@@ -1,0 +1,35 @@
+title: GLM47 SkyPilot Runner
+description: Manage SkyPilot compute and inspect the pre-created shared GCS buckets.
+stage: GA
+includedPermissions:
+  - compute.disks.create
+  - compute.disks.list
+  - compute.firewalls.create
+  - compute.firewalls.delete
+  - compute.firewalls.get
+  - compute.globalOperations.get
+  - compute.instances.create
+  - compute.instances.delete
+  - compute.instances.get
+  - compute.instances.list
+  - compute.instances.setLabels
+  - compute.instances.setMetadata
+  - compute.instances.setServiceAccount
+  - compute.instances.start
+  - compute.instances.stop
+  - compute.networks.get
+  - compute.networks.getEffectiveFirewalls
+  - compute.networks.list
+  - compute.projects.get
+  - compute.subnetworks.list
+  - compute.subnetworks.use
+  - compute.subnetworks.useExternalIp
+  - compute.zoneOperations.get
+  - iam.roles.get
+  - iam.serviceAccounts.get
+  - resourcemanager.projects.get
+  - resourcemanager.projects.getIamPolicy
+  - serviceusage.services.enable
+  - serviceusage.services.list
+  - serviceusage.services.use
+  - storage.buckets.get

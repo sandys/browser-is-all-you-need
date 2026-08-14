@@ -9,4 +9,10 @@ resources:
   use_spot: false
   disk_size: 500
   disk_tier: high
-  network_tier: best
+  labels:
+    managed-by: skypilot
+    workload: glm47-posttraining
+
+# Supply the verified public GHCR digest at launch:
+# sky launch infra/gcp/skypilot-h100-8.yaml \
+#   --image-id docker:ghcr.io/<owner>/glm47-runtime@sha256:<digest>

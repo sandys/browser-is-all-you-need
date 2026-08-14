@@ -65,24 +65,12 @@ prepare_image = (
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
-# This is the same runtime definition as the repository Dockerfile, extended
-# with the GCC 13 toolchain used by the Modal C++ reward scorer.
 training_image = (
     modal.Image.from_dockerfile(
         LOCAL_REPO / "Dockerfile",
         context_dir=LOCAL_REPO,
         add_python=None,
         build_args={"MILES_BASE_IMAGE": MILES_IMAGE},
-    )
-    .apt_install(
-        "software-properties-common", "rsync", "gawk", "util-linux", "git", "bubblewrap"
-    )
-    .run_commands(
-        "add-apt-repository -y ppa:ubuntu-toolchain-r/test "
-        "&& apt-get update "
-        "&& DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-13 g++-13 "
-        "&& update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 "
-        "&& update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100"
     )
     .add_local_dir(LOCAL_REPO, remote_path=REMOTE_REPO, copy=True, ignore=source_ignore)
 )
@@ -268,7 +256,9 @@ def _stage_env(
         # Modal's runtime rejects bwrap's netns loopback setup (RTM_NEWADDR).
         "GLM47_CPP_SANDBOX_UNSHARE_NET": "0",
         "GLM47_MODEL_REVISION": MODEL_REVISION,
-        "GLM47_TRAINING_IMAGE": MILES_IMAGE,
+        # This is the immutable parent. The derived runtime gets its own digest
+        # only after the shared Dockerfile is built and published.
+        "GLM47_BASE_IMAGE": MILES_IMAGE,
         "GLM47_EXPERIMENT_ID": run_id,
         "MILES_WANDB_PROJECT": "glm47-pie-cpp-posttraining",
         "MILES_WANDB_GROUP": run_id,

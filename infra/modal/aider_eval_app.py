@@ -35,11 +35,29 @@ EXPECTED_TRAINING_TASK_COUNT = int(
     os.environ.get("GLM47_EXPECTED_TRAINING_TASK_COUNT", "253")
 )
 EVAL_LORA_RANK = int(os.environ.get("GLM47_EVAL_LORA_RANK", "16"))
+MILES_IMAGE = (
+    "radixark/miles:latest-cu12@"
+    "sha256:efc8027fc47aaa9687dc4f1046093ed4e2f9789e52a932fcefb7031402aeff37"
+)
+
+_MODULE_PATH = Path(__file__).resolve()
+LOCAL_REPO = (
+    _MODULE_PATH.parents[2]
+    if len(_MODULE_PATH.parents) >= 3
+    else _MODULE_PATH.parent
+)
 
 app = modal.App(f"glm47-aider-{EVAL_TAG}-grpo-eval")
 image = (
-    modal.Image.from_registry(
-        "radixark/miles:latest-cu12@sha256:efc8027fc47aaa9687dc4f1046093ed4e2f9789e52a932fcefb7031402aeff37",
+    modal.Image.from_dockerfile(
+        LOCAL_REPO / "Dockerfile",
+        context_dir=LOCAL_REPO,
+        add_python=None,
+        build_args={
+            "MILES_BASE_IMAGE": MILES_IMAGE,
+            "GLM47_AIDER_COMMIT": AIDER_COMMIT,
+            "GLM47_POLYGLOT_COMMIT": POLYGLOT_COMMIT,
+        },
     )
     .env(
         {
@@ -48,22 +66,6 @@ image = (
             "GLM47_EXPECTED_TRAINING_TASK_COUNT": str(EXPECTED_TRAINING_TASK_COUNT),
             "GLM47_EVAL_LORA_RANK": str(EVAL_LORA_RANK),
         }
-    )
-    .run_commands(
-        "python3 -m pip install --no-cache-dir --no-deps --upgrade "
-        "flashinfer-python==0.6.12 flashinfer-cubin==0.6.12",
-        "python3 -m pip install --no-cache-dir --no-deps --upgrade "
-        "flashinfer-jit-cache==0.6.12 --index-url https://flashinfer.ai/whl/cu129/",
-        "python3 -m pip install --no-cache-dir --no-deps --force-reinstall "
-        "sglang-kernel==0.4.4 --index-url https://docs.sglang.ai/whl/cu129/",
-        "python3 -m pip install --no-cache-dir --no-deps --upgrade "
-        "torch-memory-saver==0.0.9.post1",
-    )
-    .apt_install("git", "cmake", "make", "g++", "curl", "python3-venv")
-    .run_commands(
-        f"git clone https://github.com/Aider-AI/aider.git /aider && git -C /aider checkout {AIDER_COMMIT}",
-        f"git clone https://github.com/Aider-AI/polyglot-benchmark.git /aider/tmp.benchmarks/polyglot-benchmark && git -C /aider/tmp.benchmarks/polyglot-benchmark checkout {POLYGLOT_COMMIT}",
-        "python3 -m venv /opt/aider-venv && /opt/aider-venv/bin/pip install -e '/aider[dev]'",
     )
 )
 

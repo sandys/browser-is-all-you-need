@@ -1,0 +1,57 @@
+name: glm47-runtime-publisher
+
+workdir: .
+
+resources:
+  infra: gcp/us-central1
+  instance_type: n2-standard-8
+  use_spot: false
+  disk_size: 500
+  disk_tier: high
+  autostop:
+    idle_minutes: 10
+    down: true
+  labels:
+    managed-by: skypilot
+    workload: glm47-image-build
+
+run: |
+  set -euo pipefail
+
+  : "${GHCR_USERNAME:?pass with --env GHCR_USERNAME}"
+  : "${GHCR_TOKEN:?pass with --secret GHCR_TOKEN}"
+  : "${GHCR_IMAGE:?pass with --env GHCR_IMAGE}"
+  : "${GLM47_SOURCE_REVISION:?pass with --env GLM47_SOURCE_REVISION}"
+  : "${GLM47_IMAGE_SOURCE:?pass with --env GLM47_IMAGE_SOURCE}"
+
+  cleanup() {
+    docker logout ghcr.io >/dev/null 2>&1 || true
+  }
+  trap cleanup EXIT
+
+  echo "${GHCR_TOKEN}" | docker login ghcr.io \
+    --username "${GHCR_USERNAME}" \
+    --password-stdin
+
+  tag="git-${GLM47_SOURCE_REVISION}"
+  docker buildx create --name glm47-builder --use
+  docker buildx build \
+    --platform linux/amd64 \
+    --label "org.opencontainers.image.revision=${GLM47_SOURCE_REVISION}" \
+    --label "org.opencontainers.image.source=${GLM47_IMAGE_SOURCE}" \
+    --provenance=mode=max \
+    --sbom=true \
+    --push \
+    --tag "${GHCR_IMAGE}:${tag}" \
+    .
+
+  digest="$(
+    docker buildx imagetools inspect "${GHCR_IMAGE}:${tag}" \
+      | awk '$1 == "Digest:" {print $2; exit}'
+  )"
+  test -n "${digest}"
+
+  echo "Published immutable runtime:"
+  echo "${GHCR_IMAGE}@${digest}"
+  echo "SkyPilot image ID:"
+  echo "docker:${GHCR_IMAGE}@${digest}"
