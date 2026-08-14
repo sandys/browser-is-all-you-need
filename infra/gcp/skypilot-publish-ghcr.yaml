@@ -15,6 +15,28 @@ resources:
     managed-by: skypilot
     workload: glm47-image-build
 
+envs:
+  GHCR_USERNAME: null
+  GHCR_IMAGE: null
+  GLM47_SOURCE_REVISION: null
+  GLM47_IMAGE_SOURCE: null
+
+secrets:
+  GHCR_TOKEN: null
+
+api_server_access: false
+
+setup: |
+  set -euo pipefail
+
+  sudo apt-get update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    docker-buildx \
+    docker.io
+  sudo systemctl enable --now docker
+  sudo docker version
+  sudo docker buildx version
+
 run: |
   set -euo pipefail
 
@@ -24,18 +46,38 @@ run: |
   : "${GLM47_SOURCE_REVISION:?pass with --env GLM47_SOURCE_REVISION}"
   : "${GLM47_IMAGE_SOURCE:?pass with --env GLM47_IMAGE_SOURCE}"
 
+  if [[ ! "${GHCR_USERNAME}" =~ ^[A-Za-z0-9-]+$ ]]; then
+    echo "GHCR_USERNAME is not a valid GitHub owner name." >&2
+    exit 2
+  fi
+  if [[ ! "${GHCR_IMAGE}" =~ ^ghcr\.io/[a-z0-9-]+/[a-z0-9._-]+$ ]]; then
+    echo "GHCR_IMAGE must be an untagged ghcr.io/owner/image reference." >&2
+    exit 2
+  fi
+  if [[ ! "${GLM47_SOURCE_REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "GLM47_SOURCE_REVISION must be a full Git commit SHA." >&2
+    exit 2
+  fi
+  if [[ ! "${GLM47_IMAGE_SOURCE}" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+    echo "GLM47_IMAGE_SOURCE must be a canonical GitHub repository URL." >&2
+    exit 2
+  fi
+
   cleanup() {
-    docker logout ghcr.io >/dev/null 2>&1 || true
+    sudo docker logout ghcr.io >/dev/null 2>&1 || true
   }
   trap cleanup EXIT
 
-  echo "${GHCR_TOKEN}" | docker login ghcr.io \
+  echo "${GHCR_TOKEN}" | sudo docker login ghcr.io \
     --username "${GHCR_USERNAME}" \
     --password-stdin
 
   tag="git-${GLM47_SOURCE_REVISION}"
-  docker buildx create --name glm47-builder --use
-  docker buildx build \
+  if ! sudo docker buildx inspect glm47-builder >/dev/null 2>&1; then
+    sudo docker buildx create --name glm47-builder
+  fi
+  sudo docker buildx use glm47-builder
+  sudo docker buildx build \
     --platform linux/amd64 \
     --label "org.opencontainers.image.revision=${GLM47_SOURCE_REVISION}" \
     --label "org.opencontainers.image.source=${GLM47_IMAGE_SOURCE}" \
@@ -46,7 +88,7 @@ run: |
     .
 
   digest="$(
-    docker buildx imagetools inspect "${GHCR_IMAGE}:${tag}" \
+    sudo docker buildx imagetools inspect "${GHCR_IMAGE}:${tag}" \
       | awk '$1 == "Digest:" {print $2; exit}'
   )"
   test -n "${digest}"

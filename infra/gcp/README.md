@@ -69,6 +69,10 @@ immutable source-revision tag:
 ghcr.io/tokenbender/glm47-runtime:git-<full-commit-sha>
 ```
 
+The publisher installs the distro Docker engine and buildx plugin during its
+idempotent setup, verifies both before authenticating, and removes the GHCR
+credential from the builder when the job exits.
+
 The publisher prints the content-addressed `sha256` reference and automatically
 deletes its GCP VM after ten idle minutes. A newly created GHCR package is private
 by default; a package owner must make
@@ -80,16 +84,17 @@ Apache-2.0 licensed.
 Verify the public boundary without reusing local Docker credentials:
 
 ```bash
+: "${GLM47_RUNTIME_IMAGE:?Set the docker:ghcr.io/...@sha256:... value printed by the publisher}"
 clean_docker_config="$(mktemp -d)"
 DOCKER_CONFIG="${clean_docker_config}" docker pull \
-  ghcr.io/<owner>/glm47-runtime@sha256:<digest>
+  "${GLM47_RUNTIME_IMAGE#docker:}"
 ```
 
 Do not use a mutable tag for a run. Supply the verified digest to SkyPilot:
 
 ```bash
 sky launch infra/gcp/skypilot-h100-8.yaml \
-  --image-id docker:ghcr.io/<owner>/glm47-runtime@sha256:<digest>
+  --image-id "${GLM47_RUNTIME_IMAGE}"
 ```
 
 ## Source payload
@@ -102,7 +107,7 @@ dependencies, not this repository's source tree.
 The root `.skyignore` is the fail-closed upload boundary for generated artifacts,
 local environments, caches, credentials, checkpoints, and previous results. Keep
 large models, datasets, adapters, checkpoints, and logs out of `workdir`; the next
-step mounts those through private GCS buckets.
+task mounts those through private GCS buckets.
 
 ## Storage mounts
 
@@ -133,7 +138,7 @@ without storing its value in YAML. Export it locally and pass only its name:
 export WANDB_API_KEY='<personal W&B API key>'
 sky launch infra/gcp/skypilot-h100-8.yaml \
   --secret WANDB_API_KEY \
-  --image-id docker:ghcr.io/<owner>/glm47-runtime@sha256:<digest>
+  --image-id "${GLM47_RUNTIME_IMAGE}"
 ```
 
 SkyPilot reads the value from the launching shell and redacts it from dashboard
@@ -170,6 +175,46 @@ The setup block is read-only apart from installing the synced checkout into the
 container environment. It does not create a run directory or begin SFT/RL. A
 successful setup ends with `GLM47_SKYPILOT_PREFLIGHT_READY`; any missing or
 incompatible prerequisite stops the task first.
+
+After the training job exits, SkyPilot waits 15 idle minutes, flushes mounted
+filesystem writes, and tears the H100 VM down. Idleness is tied to jobs rather
+than SSH sessions so an abandoned shell cannot keep the paid node alive.
+
+## SFT and GRPO execution
+
+The task has no default training stage. Four environment values are deliberately
+`null`, so SkyPilot refuses a launch unless the caller supplies an explicit
+`sft` or `grpo` stage, a unique run ID, the full source commit, and the exact
+GHCR image digest. From a clean repository root:
+
+```bash
+export GLM47_STAGE=sft  # or: grpo
+export MILES_RUN_ID="glm47-${GLM47_STAGE}-$(date -u +%Y%m%d-%H%M%S)"
+export GLM47_SOURCE_COMMIT="$(git rev-parse HEAD)"
+: "${GLM47_RUNTIME_IMAGE:?Set the immutable image value printed by the publisher}"
+
+sky launch -c "${MILES_RUN_ID}" infra/gcp/skypilot-h100-8.yaml \
+  --env GLM47_STAGE \
+  --env MILES_RUN_ID \
+  --env GLM47_SOURCE_COMMIT \
+  --env GLM47_RUNTIME_IMAGE \
+  --secret WANDB_API_KEY \
+  --image-id "${GLM47_RUNTIME_IMAGE}"
+```
+
+The dispatcher accepts only `sft` and `grpo`, validates the identifiers and
+immutable image reference, and refuses to reuse `/workspace/runs/<run-id>`.
+Each run gets its own prepared dataset, checkpoints, logs, and W&B directory
+beneath that GCS-backed prefix. The dispatcher always writes a top-level
+SkyPilot launch receipt; an invoked training script also writes its stage receipt.
+SFT uses the Modal-parity 3072-token, batch-20 defaults. GRPO warm-starts from
+`/workspace/assets/adapters/sft` by default; override `MILES_LORA_ADAPTER_PATH`
+with `--env MILES_LORA_ADAPTER_PATH=/workspace/assets/adapters/<name>` only when
+intentionally selecting a different mounted adapter.
+
+The source commit records provenance but cannot prove a dirty local tree was not
+synced because `.git` is excluded from the payload. Check `git status --short`
+before launching; benchmark-grade runs require an empty result.
 
 ## Runner onboarding
 

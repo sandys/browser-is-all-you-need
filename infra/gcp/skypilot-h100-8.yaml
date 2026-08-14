@@ -11,6 +11,10 @@ resources:
   use_spot: false
   disk_size: 500
   disk_tier: high
+  autostop:
+    idle_minutes: 15
+    down: true
+    wait_for: jobs
   labels:
     managed-by: skypilot
     workload: glm47-posttraining
@@ -19,10 +23,16 @@ envs:
   GLM47_GCP_MODELS_BUCKET: transformer-tales-glm47-models
   GLM47_GCP_ASSETS_BUCKET: transformer-tales-glm47-assets
   GLM47_GCP_RUNS_BUCKET: transformer-tales-glm47-runs
+  GLM47_STAGE: null
+  MILES_RUN_ID: null
+  GLM47_SOURCE_COMMIT: null
+  GLM47_RUNTIME_IMAGE: null
   GLM47_MODEL_REVISION: 7dd20894a642a0aa287e9827cb1a1f7f91386b67
   MILES_HF_CHECKPOINT: /root/models/GLM-4.7-Flash
   MILES_REF_LOAD_DIR: /root/models/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8
   MILES_CPP_TASKS_DIR: /workspace/assets/data/tasks
+  GLM47_GRPO_ADAPTER_PATH: /workspace/assets/adapters/sft
+  MILES_LORA_ADAPTER_PATH: ""
   GLM47_CPP_SANDBOX_BACKEND: local
   GLM47_CPP_SANDBOX_UNSHARE_NET: "1"
 
@@ -31,6 +41,12 @@ secrets:
 
 # The training task does not need credentials for nested SkyPilot operations.
 api_server_access: false
+
+config:
+  hooks:
+    - run: sync
+      events: [down]
+      timeout: 60
 
 file_mounts:
   /root/models:
@@ -92,6 +108,8 @@ setup: |
   python3 -m glm47_posttraining.integrations.miles_aider_polyglot preflight
   echo "GLM47_SKYPILOT_PREFLIGHT_READY"
 
+run: bash infra/gcp/run-stage.sh
+
 # Supply the verified public GHCR digest at launch:
 # sky launch infra/gcp/skypilot-h100-8.yaml \
-#   --image-id docker:ghcr.io/<owner>/glm47-runtime@sha256:<digest>
+#   --image-id "${GLM47_RUNTIME_IMAGE}"
