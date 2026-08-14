@@ -1,0 +1,12 @@
+name: glm47-h100-8
+
+num_nodes: 1
+
+resources:
+  infra: gcp/us-central1
+  instance_type: a3-highgpu-8g
+  accelerators: H100:8
+  use_spot: false
+  disk_size: 500
+  disk_tier: high
+  network_tier: best
