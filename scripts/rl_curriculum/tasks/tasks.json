@@ -1,0 +1,24 @@
+{
+  "sensor-ring": {
+    "slug": "telemetry_ring",
+    "ns": "telemetry",
+    "cls": "SampleRing",
+    "files": [
+      "telemetry_ring.h",
+      "telemetry_ring.cpp"
+    ],
+    "blurb": "Implement `telemetry::SampleRing`, a fixed-depth telemetry ring of `int` samples. `push` appends a sample and throws `telemetry::RingFull` when the ring is saturated. `pop` removes and returns the oldest sample and throws `telemetry::RingEmpty` when drained. `force` appends a sample, first evicting the oldest if the ring is saturated. `purge` discards everything. `pending()` reports how many samples are held, `depth()` the configured depth, and `saturated()`/`drained()` report the two boundary states. A zero depth throws `std::invalid_argument`. Samples come back in the order they went in, and the ring must keep working indefinitely as indices wrap.",
+    "test": "telemetry_ring_test.cpp"
+  },
+  "print-spool": {
+    "slug": "print_spool",
+    "ns": "spool",
+    "cls": "PrintSpool",
+    "files": [
+      "print_spool.h",
+      "print_spool.cpp"
+    ],
+    "blurb": "Implement `spool::PrintSpool`, a fixed-slot print queue of job names. `queue` appends a job and throws `spool::SpoolFull` when every slot is taken. `release` removes and returns the job that has waited longest and throws `spool::SpoolEmpty` when nothing is waiting. `displace` appends a job, first dropping the longest-waiting job if every slot is taken. `abandon` clears the spool. `backlog()` reports how many jobs are waiting, `slots()` the configured capacity, and `full()`/`idle()` report the two boundary states. Zero slots throws `std::invalid_argument`. Jobs are released in arrival order, and the spool must keep working indefinitely as slots are reused.",
+    "test": "print_spool_test.cpp"
+  }
+}
