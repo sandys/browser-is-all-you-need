@@ -27,6 +27,7 @@ DEFAULT_CONFIGURE_TIMEOUT_S = 30
 DEFAULT_BUILD_TIMEOUT_S = 120
 DEFAULT_TEST_TIMEOUT_S = 30
 MAX_CANDIDATE_FILE_BYTES = 256 * 1024
+TSAN_PREFLIGHT_REQUIRED_ENV = "GLM47_CPP_TSAN_PREFLIGHT_REQUIRED"
 PASS_RE = re.compile(
     r"All tests passed \(\s*\d+ assertions? in\s*(\d+) test cases?\)", re.IGNORECASE
 )
@@ -76,7 +77,8 @@ def _shadow_ordinal_total(grader_source: str) -> int | None:
 def aider_sandbox_image_dockerfile() -> str:
     return """FROM gcc:13
 RUN apt-get update \\
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake make \\
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \\
+      cmake make util-linux \\
     && rm -rf /var/lib/apt/lists/*
 """
 
@@ -307,7 +309,20 @@ def _run_stage(
     if sandbox_backend() == "local":
         command = _local_sandbox_command(scratch, script)
     else:
-        command = docker_base_args(scratch, image=image, memory="4g") + ["bash", "-lc", script]
+        docker_args = docker_base_args(scratch, image=image, memory="4g")
+        # TSan reserves a fixed shadow-memory range. High-entropy ASLR can place
+        # the executable inside that range, while Docker's default seccomp profile
+        # blocks the personality syscall TSan uses to recover. Scope the proven
+        # workaround to executing an already-built TSan binary: compilation and
+        # every non-TSan sandbox stage retain the default seccomp profile and ASLR.
+        tsan_execution = (
+            "candidate_test_tsan" in script
+            and "-o .grader/candidate_test_tsan" not in script
+        ) or ("probe_tsan" in script and "c++" not in script)
+        if tsan_execution:
+            docker_args[-1:-1] = ["--security-opt", "seccomp=unconfined"]
+            script = f"setarch x86_64 -R env {script}"
+        command = docker_args + ["bash", "-lc", script]
     try:
         return subprocess.run(
             command, check=False, capture_output=True, text=True, timeout=timeout_s
@@ -401,20 +416,45 @@ def assert_local_sandbox_ready() -> None:
 
 
 def run_sandbox_preflight() -> None:
-    """Compile and execute a harmless probe through the selected isolation path."""
+    """Compile and execute harmless probes through the selected isolation path."""
 
     assert_local_sandbox_ready()
     with TemporaryDirectory(prefix="aider_sandbox_preflight_") as scratch_value:
         scratch = Path(scratch_value)
-        (scratch / "probe.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+        (scratch / "probe.cpp").write_text(
+            "#include <thread>\n"
+            "int main() { int value = 0; std::thread worker([&] { value = 1; }); "
+            "worker.join(); return value == 1 ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        require_tsan = os.environ.get(TSAN_PREFLIGHT_REQUIRED_ENV, "0") == "1"
+        compile_tsan = (
+            " && c++ -std=c++17 -Wall -Wextra -Werror -pedantic -pthread "
+            "-fsanitize=thread probe.cpp -o probe_tsan"
+            if require_tsan
+            else ""
+        )
         result = _run_stage(
             scratch,
-            "c++ -std=c++17 -Wall -Wextra -Werror -pedantic probe.cpp -o probe && ./probe",
+            "c++ -std=c++17 -Wall -Wextra -Werror -pedantic -pthread probe.cpp -o probe "
+            "&& ./probe" + compile_tsan,
             image=DEFAULT_AIDER_DOCKER_IMAGE,
-            timeout_s=30,
+            timeout_s=90,
         )
         if result.returncode != 0:
             raise SandboxInfrastructureError(_combined_logs(result) or "sandbox preflight failed")
+        if not require_tsan:
+            return
+        tsan_result = _run_stage(
+            scratch,
+            "TSAN_OPTIONS=halt_on_error=1 ./probe_tsan",
+            image=DEFAULT_AIDER_DOCKER_IMAGE,
+            timeout_s=90,
+        )
+        if tsan_result.returncode != 0:
+            raise SandboxInfrastructureError(
+                _combined_logs(tsan_result) or "TSan sandbox preflight failed"
+            )
 
 
 def shlex_quote(value: str) -> str:

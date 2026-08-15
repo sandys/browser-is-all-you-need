@@ -191,6 +191,16 @@ container environment. It does not create a run directory or begin SFT/RL. A
 successful setup ends with `GLM47_SKYPILOT_PREFLIGHT_READY`; any missing or
 incompatible prerequisite stops the task first.
 
+Docker-backed Aider reward runs can additionally require a real ThreadSanitizer
+probe by setting `GLM47_CPP_TSAN_PREFLIGHT_REQUIRED=1`. The verifier image
+declares `util-linux` explicitly for `setarch`. Only execution of the compiled
+`probe_tsan` or `candidate_test_tsan` binary disables ASLR and selects an
+unconfined seccomp profile so TSan can reserve its shadow-memory range; normal
+compilation and every non-TSan sandbox stage retain ASLR, dropped capabilities,
+`no-new-privileges`, the read-only root, and network isolation. This is the
+runtime path proven by the successful Synth-v1 one-update receipt at
+`docs/receipts/glm47-synthv1-one-update-gcp-20260815.json`.
+
 After the training job exits, SkyPilot waits 15 idle minutes, flushes mounted
 filesystem writes, and tears the H100 VM down. Idleness is tied to jobs rather
 than SSH sessions so an abandoned shell cannot keep the paid node alive.

@@ -1,0 +1,47 @@
+{
+  "status": "complete",
+  "run_id": "glm47-synthv1-one-update-trusted-parent-tsanfix-20260815T010421Z",
+  "stage": "grpo_lora_r16",
+  "cloud": "gcp",
+  "accelerator": "8x NVIDIA H100",
+  "starting_checkpoint": "Synth-v1 ep50 rank-16 adapter",
+  "starting_adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+  "dataset_kind": "charm-r7-admitted-mef-exact40",
+  "training_contract": {
+    "updates": 1,
+    "rollout_batch_size": 32,
+    "samples_per_prompt": 8,
+    "global_batch_size": 256,
+    "sequence_length": 6144,
+    "max_response_length": 4096,
+    "lora_rank": 16,
+    "lora_alpha": 32,
+    "learning_rate": 5e-7,
+    "kl_loss_coefficient": 0.02,
+    "tensor_parallel_size": 4,
+    "expert_parallel_size": 8
+  },
+  "runtime": {
+    "training_image_sha256": "815b868f76360a0b0a1399546bcf2a1b48754cb4b2a8c0f30dd346e5287041ef",
+    "parent_training_image_sha256": "e4452109c3f36dddcd9214892d7d82057f33d654c0c2a39a4c7d0aca9e7f45d8",
+    "verifier_image_sha256": "0f47efd8b1ed947ad17c9e37ee6a79b9ed561a92d596920df8bc7f8cf1812809",
+    "sandbox_backend": "docker",
+    "tsan_aslr_fix": "disable ASLR only for TSan execution and allow its personality syscall",
+    "tsan_patch_sha256": "14392d7b7257b8c3912ddafc46b53f86c2dcca963f26e89b871ace4af258fb0a"
+  },
+  "result": {
+    "wall_seconds": 818,
+    "peak_gpu_memory_mib": 69419,
+    "rollout_rows": 256,
+    "eval_rows": 11,
+    "checkpoint_files": 19,
+    "checkpoint_adapter_sha256": "48939aac0b0390a0a2f7279af1f4e874a82de95c2d062c30ed42cbf23d60995c",
+    "rollout_sha256": "fff41f1bee16b6f8ec51b8cb53803a08600caaa2c9806784ef544f274c70829f",
+    "eval_rollout_sha256": "5ddbce77c632ae120a85be81fe0c7a75d04d7a216e4f972990131404c7b624b1"
+  },
+  "reusable_source": {
+    "tsan_runtime_path": "src/glm47_posttraining/aider_polyglot/harness.py",
+    "scope": "Docker-backed Aider verifier stages",
+    "preserved_local_receipt": "artifacts/glm47-synthv1-rl-one-update-20260815/PRESERVATION_RECEIPT.md"
+  }
+}
