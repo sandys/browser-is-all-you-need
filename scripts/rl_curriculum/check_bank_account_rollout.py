@@ -12,6 +12,7 @@ from typing import Any
 
 
 EXPECTED_SAMPLES = 8
+EXPECTED_GROUPS = 40
 MINIMUM_MIXED_FRACTION = 0.30
 HIGH_LOAD_RATE_DELTA = 0.10
 
@@ -44,7 +45,9 @@ def _load_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def evaluate_gate(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def evaluate_gate(
+    rows: list[dict[str, Any]], *, expected_groups: int = EXPECTED_GROUPS
+) -> dict[str, Any]:
     bank_rows = [
         row
         for row in rows
@@ -97,6 +100,8 @@ def evaluate_gate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     reasons: list[str] = []
     if infrastructure:
         reasons.append("infrastructure-invalid-records-present")
+    if len(groups) != expected_groups:
+        reasons.append("prompt-group-count-mismatch")
     if malformed_groups:
         reasons.append("prompt-groups-do-not-have-eight-valid-samples")
     if groups and all_pass_groups == len(groups):
@@ -133,6 +138,7 @@ def evaluate_gate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "valid_records": len(valid),
         "infrastructure_invalid_records": len(infrastructure),
         "prompt_groups": len(groups),
+        "expected_prompt_groups": expected_groups,
         "malformed_groups": malformed_groups,
         "mixed_groups": mixed_groups,
         "mixed_prompt_group_fraction": mixed_fraction,
@@ -159,8 +165,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rewards", type=Path)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--expected-groups", type=int, default=EXPECTED_GROUPS)
     args = parser.parse_args()
-    result = evaluate_gate(_load_rows(args.rewards))
+    if args.expected_groups < 1:
+        raise SystemExit("--expected-groups must be positive")
+    result = evaluate_gate(_load_rows(args.rewards), expected_groups=args.expected_groups)
     payload = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

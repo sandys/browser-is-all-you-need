@@ -16,6 +16,7 @@ DATA_DIR="${MILES_CPP_DATA_DIR:-${RUN_ROOT}/data}"
 TASKS_DIR="${MILES_CPP_TASKS_DIR:-${REPO_ROOT}/.glm47-posttraining/data/tasks-small}"
 DATA_BUILD_MODULE="${MILES_DATA_BUILD_MODULE:-glm47_posttraining.integrations.miles_cpp_perf}"
 DATA_CURRICULUM="${MILES_DATA_CURRICULUM:-}"
+ROLLOUT_ONLY="${MILES_ROLLOUT_ONLY:-0}"
 CUSTOM_RM_PATH="${MILES_CUSTOM_RM_PATH:-glm47_posttraining.integrations.miles_cpp_perf.reward_func}"
 REWARD_PREFLIGHT_MODULE="${MILES_REWARD_PREFLIGHT_MODULE:-}"
 EXPECTED_DATASET_KIND="${MILES_EXPECTED_DATASET_KIND:-}"
@@ -112,6 +113,7 @@ echo "run_root=${RUN_ROOT}"
 echo "tasks_dir=${TASKS_DIR}"
 echo "data_build_module=${DATA_BUILD_MODULE}"
 echo "data_curriculum=${DATA_CURRICULUM}"
+echo "rollout_only=${ROLLOUT_ONLY}"
 echo "custom_rm_path=${CUSTOM_RM_PATH}"
 echo "expected_dataset_kind=${EXPECTED_DATASET_KIND}"
 echo "eval_name=${EVAL_NAME}"
@@ -170,6 +172,10 @@ if [ -n "${DATA_CURRICULUM}" ]; then
 fi
 if [ "${MILES_ALLOW_NON_GCC_CURRICULUM:-0}" = "1" ]; then
   BUILD_DATA_ARGS+=(--allow-non-gcc-curriculum)
+fi
+if [ "${ROLLOUT_ONLY}" != "0" ] && [ "${ROLLOUT_ONLY}" != "1" ]; then
+  echo "MILES_ROLLOUT_ONLY must be 0 or 1, got: ${ROLLOUT_ONLY}" >&2
+  exit 2
 fi
 if [ -n "${TRAIN_LIMIT}" ]; then
   BUILD_DATA_ARGS+=(--train-limit "${TRAIN_LIMIT}")
@@ -264,6 +270,7 @@ data_dir=${DATA_DIR}
 tasks_dir=${TASKS_DIR}
 data_build_module=${DATA_BUILD_MODULE}
 data_curriculum=${DATA_CURRICULUM}
+rollout_only=${ROLLOUT_ONLY}
 custom_rm_path=${CUSTOM_RM_PATH}
 expected_dataset_kind=${EXPECTED_DATASET_KIND}
 data_manifest_sha256=$(sha256sum "${DATA_DIR}/manifest.json" | awk '{print $1}')
@@ -593,6 +600,9 @@ MISC_ARGS=(
   --attention-softmax-in-fp32
   --save-debug-rollout-data "${ROLLOUT_DUMP_TEMPLATE}"
 )
+if [ "${ROLLOUT_ONLY}" = "1" ]; then
+  MISC_ARGS+=(--debug-rollout-only)
+fi
 # Raw passthrough for experiments (e.g. --sglang-disable-cuda-graph); appended last.
 if [ -n "${MILES_EXTRA_ARGS:-}" ]; then
   read -r -a EXTRA_ARGS <<< "${MILES_EXTRA_ARGS}"
@@ -660,7 +670,9 @@ set -e
 cleanup
 TRAINING_GATE_STATUS="not_requested"
 GATE_STATUS=0
-if [ "${RAY_STATUS}" -eq 0 ] && [ "${EXPECTED_DATASET_KIND}" = "aider-polyglot-cpp-shadow-grpo" ]; then
+if [ "${RAY_STATUS}" -eq 0 ] && [ "${ROLLOUT_ONLY}" = "1" ]; then
+  TRAINING_GATE_STATUS="not_applicable_rollout_only"
+elif [ "${RAY_STATUS}" -eq 0 ] && [ "${EXPECTED_DATASET_KIND}" = "aider-polyglot-cpp-shadow-grpo" ]; then
   TRAINING_GATE_STATUS="failed"
   set +e
   PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" \

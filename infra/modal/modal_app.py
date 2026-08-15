@@ -39,6 +39,13 @@ AIDER_1211_ADAPTER = (
     "sft_lora_r16/iter_0000036/adapter"
 )
 AIDER_MERGED_ADAPTER = f"{RUNS_DIR}/glm47-aider-1211-530-equal-delta-merge-r32"
+BANK_ACCOUNT_ADAPTER = (
+    f"{RUNS_DIR}/glm47-synth-memorization-v1-100ep-20260731T071000Z/"
+    "checkpoints/sft_lora_r16/iter_0000649/adapter"
+)
+BANK_ACCOUNT_ADAPTER_SHA256 = (
+    "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a"
+)
 
 app = modal.App(APP_NAME)
 models = modal.Volume.from_name("glm47-models", create_if_missing=True)
@@ -363,6 +370,59 @@ def _stage_env(
             env["MILES_LORA_RANK"] = lora_rank
         if lora_alpha:
             env["MILES_LORA_ALPHA"] = lora_alpha
+    elif stage == "bank_account_rollout":
+        env.update(
+            {
+                "MILES_CPP_TASKS_DIR": (
+                    f"{REMOTE_REPO}/benchmarks/cpp/bank-account-equivalent-v1"
+                ),
+                "MILES_CPP_DATA_DIR": f"{RUNS_DIR}/{run_id}/data",
+                "MILES_DATA_BUILD_MODULE": (
+                    "glm47_posttraining.integrations.miles_aider_polyglot"
+                ),
+                "MILES_DATA_CURRICULUM": "bank-account-v1",
+                "MILES_CUSTOM_RM_PATH": (
+                    "glm47_posttraining.integrations.miles_aider_polyglot.reward_func"
+                ),
+                "MILES_REWARD_PREFLIGHT_MODULE": (
+                    "glm47_posttraining.integrations.miles_aider_polyglot"
+                ),
+                "MILES_EXPECTED_DATASET_KIND": AIDER_DATASET_KIND,
+                "MILES_EXPECTED_TRAIN_COUNT": "32",
+                "MILES_EVAL_NAME": "bank_account_validation",
+                "MILES_LORA_ADAPTER_PATH": adapter_path,
+                "MILES_EXPECTED_SOURCE_ADAPTER_SHA256": BANK_ACCOUNT_ADAPTER_SHA256,
+                "MILES_EXPECTED_SOURCE_TENSORS": "9741",
+                "MILES_EXPECTED_STRIPPED_TENSORS": "207",
+                "MILES_EXPECTED_NATIVE_SHARDS": "8",
+                "MILES_ROLLOUT_ONLY": "1",
+                "MILES_NUM_ROLLOUT": "1",
+                "MILES_ROLLOUT_BATCH_SIZE": "32",
+                "MILES_N_SAMPLES_PER_PROMPT": "8",
+                "MILES_GLOBAL_BATCH_SIZE": "256",
+                "MILES_EVAL_INTERVAL": "1",
+                "MILES_EVAL_N_SAMPLES_PER_PROMPT": "8",
+                "MILES_SEQ_LENGTH": "6144",
+                "MILES_ROLLOUT_MAX_RESPONSE_LEN": "4096",
+                "MILES_EVAL_MAX_RESPONSE_LEN": "4096",
+                "MILES_MAX_TOKENS_PER_GPU": "12288",
+                "MILES_RECOMPUTE_GRANULARITY": "full",
+                "MILES_ROLLOUT_TEMPERATURE": "0.7",
+                "MILES_ROLLOUT_STOP_TOKEN_IDS": "154820 154827 154829",
+                "MILES_ROLLOUT_SKIP_SPECIAL_TOKENS": "1",
+                "MILES_APPLY_CHAT_TEMPLATE_KWARGS": '{"enable_thinking": false}',
+                "MILES_NO_REF": "1",
+                "GLM47_CPP_REWARD_WORKERS": "8",
+                "MILES_WANDB_PROJECT": "glm47-bank-account-execution-rl",
+                "MILES_WANDB_GROUP": run_id,
+                "MILES_WANDB_RUN_ID": run_id,
+                "MILES_WANDB_JOB_TYPE": "rollout-only",
+                "WANDB_RUN_GROUP": run_id,
+                "WANDB_JOB_TYPE": "rollout-only",
+                "WANDB_TAGS": "bank-account,modal,8xh100,no-update,issue-110",
+                "GLM47_TIMING_STATUS": "rollout-only",
+            }
+        )
     return env
 
 
@@ -382,7 +442,14 @@ def run_stage(
     num_rollout: str = "",
 ) -> str:
     """Run conversion, SFT, or GRPO on one Modal 8x H100 container."""
-    if stage not in {"convert", "sft", "grpo", "aider_profile", "aider_grpo"}:
+    if stage not in {
+        "convert",
+        "sft",
+        "grpo",
+        "aider_profile",
+        "aider_grpo",
+        "bank_account_rollout",
+    }:
         raise ValueError(f"unsupported stage: {stage}")
 
     resolved_run_id = run_id or f"glm47-modal-{stage}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
@@ -400,8 +467,9 @@ def run_stage(
         lora_alpha=lora_alpha,
         num_rollout=num_rollout,
     )
-    if stage in {"aider_profile", "aider_grpo"} and Path(RUNS_DIR, resolved_run_id).exists():
-        raise FileExistsError(f"refusing to reuse Aider run ID: {resolved_run_id}")
+    unique_run_stages = {"aider_profile", "aider_grpo", "bank_account_rollout"}
+    if stage in unique_run_stages and Path(RUNS_DIR, resolved_run_id).exists():
+        raise FileExistsError(f"refusing to reuse run ID: {resolved_run_id}")
     _run("python3 -m pip install --no-deps -e .")
     _run("python3 scripts/check_runtime.py")
     _run("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader")
@@ -410,8 +478,17 @@ def run_stage(
         if stage == "convert":
             _run("bash scripts/convert_checkpoint.sh", env=env)
         else:
-            script_stage = "grpo" if stage in {"aider_profile", "aider_grpo"} else stage
+            if stage == "bank_account_rollout":
+                script_stage = "grpo_bank_account"
+            else:
+                script_stage = "grpo" if stage in {"aider_profile", "aider_grpo"} else stage
             _run(f"bash examples/{script_stage}.sh", env=env)
+            if stage == "bank_account_rollout":
+                _run(
+                    "python3 scripts/rl_curriculum/finalize_bank_account_rollout.py "
+                    f"{RUNS_DIR}/{resolved_run_id}",
+                    env=env,
+                )
     finally:
         models.commit()
         assets.commit()
@@ -522,5 +599,21 @@ def aider_grpo(
             lora_rank=lora_rank,
             lora_alpha=lora_alpha,
             num_rollout=num_rollout,
+        )
+    )
+
+
+@app.local_entrypoint()
+def bank_account_rollout(
+    run_id: str = "",
+    adapter_path: str = BANK_ACCOUNT_ADAPTER,
+    source_commit: str = "",
+) -> None:
+    print(
+        run_stage.remote(
+            "bank_account_rollout",
+            run_id=run_id,
+            adapter_path=adapter_path,
+            source_commit=source_commit or _local_source_commit(),
         )
     )
