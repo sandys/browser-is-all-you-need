@@ -1,0 +1,1243 @@
+{
+  "contract": {
+    "additional_assertions_per_variant": 2,
+    "assertions_per_variant": 19,
+    "compiler_flags": [
+      "-Wall",
+      "-Wextra",
+      "-Wpedantic",
+      "-Werror",
+      "-pthread"
+    ],
+    "language": "C++17",
+    "parent_assertions_per_variant": 17,
+    "runtime_timeout_seconds_per_variant": 30,
+    "total_assertions": 190,
+    "total_concurrent_threads": 10000,
+    "variant_count": 10
+  },
+  "created_date": "2026-07-30",
+  "generator": {
+    "path": "scripts/build_bank_account_equivalent_benchmarks.py",
+    "sha256": "80e2b79754411ae474a8585739192abf582bde3435cc50063fa157d0d8427a55"
+  },
+  "id": "bank-account-equivalent-v1",
+  "kind": "cpp_benchmark_variant_suite",
+  "lineage": {
+    "construction_issue": "https://github.com/tokenbender/browser-is-all-you-need/issues/92",
+    "contract_audit_issue": "https://github.com/tokenbender/browser-is-all-you-need/issues/89",
+    "corrected_contract_sha256": "c6aa125fa8dff54144e72d55165f75689bc3919f3a4947fc98b97c2861471d95",
+    "failure_taxonomy": [
+      {
+        "attempt": 1,
+        "category": "execution_deadlock",
+        "cause": "pending counter decremented without increment or notification"
+      },
+      {
+        "attempt": 2,
+        "category": "historical_prompt_omission",
+        "cause": "restart did not reset value because the July 27 prompt omitted that rule"
+      },
+      {
+        "attempt": 3,
+        "category": "missing_definitions",
+        "cause": "header declared the API while the source file was empty"
+      },
+      {
+        "attempt": 4,
+        "category": "undefined_constructor",
+        "cause": "default constructor was declared but never defined"
+      },
+      {
+        "attempt": 5,
+        "category": "class_redefinition",
+        "cause": "source file defined a second class instead of member definitions"
+      },
+      {
+        "attempt": 6,
+        "category": "qualification_error",
+        "cause": "namespace was used where namespace plus class qualification was required"
+      },
+      {
+        "attempt": 7,
+        "category": "default_constructor_suppressed",
+        "cause": "a deleted copy constructor removed implicit default construction"
+      },
+      {
+        "attempt": 8,
+        "category": "class_redefinition",
+        "cause": "source file defined a second class instead of member definitions"
+      }
+    ],
+    "historical_prompt_sha256": "c1faf70cf9fdbd2e7e4493850787168e2d940b6291ee0d70c9b94e267d2d7e81",
+    "historical_single_turn_failures": 8,
+    "mapping": "complete_behavioral_api_and_test_case_mapping",
+    "parent_api": {
+      "class": "Bankaccount",
+      "constructor": "Bankaccount",
+      "credit": "deposit",
+      "debit": "withdraw",
+      "namespace": "Bankaccount",
+      "start": "open",
+      "stop": "close",
+      "value": "balance"
+    },
+    "parent_contract": "fixed26-contract-v2",
+    "parent_task": "Aider Polyglot C++ fixed26/bank-account",
+    "parent_test_sha256": "3696b9383f62ab639ad0a26610410fb662b6b927f2fe1dee956b849ff8dcf5c8"
+  },
+  "role": "benchmark_and_evaluation_only",
+  "root_files": {
+    "README.md": {
+      "bytes": 3530,
+      "sha256": "a58e1d3d49bb589cd75a8db3e267d9fc99942f4490e8210d00249b8c2c8aa0c6"
+    }
+  },
+  "schema_version": 1,
+  "training_exclusion": {
+    "excluded_uses": [
+      "supervised_fine_tuning",
+      "reinforcement_learning",
+      "distillation",
+      "training_data_augmentation"
+    ],
+    "trainable": false
+  },
+  "variants": [
+    {
+      "api": {
+        "class": "wallet_account",
+        "constructor": "wallet_account",
+        "credit": "deposit",
+        "debit": "withdraw",
+        "namespace": "secure_wallet",
+        "start": "activate",
+        "stop": "deactivate",
+        "value": "balance"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "secure_wallet"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "wallet_account"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "wallet_account"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "activate"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "deposit"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "withdraw"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "deactivate"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "balance"
+        }
+      ],
+      "directory": "variants/secure-wallet",
+      "domain": {
+        "resource": "wallet",
+        "unit": "credits"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 501,
+          "sha256": "7b88be364b59bf6bb439da18b324e4fdc5559790bb392399e110658788ab02c7"
+        },
+        "PROMPT.md": {
+          "bytes": 2289,
+          "sha256": "cc7d1dda8af96c4c6180afbdbb673996683dacf17e68cf2fbce1b43e5c5f33cc"
+        },
+        "secure_wallet.cpp": {
+          "bytes": 1461,
+          "sha256": "91f35731a080f554e3751db98260b18d975530dd2f11df4f864454813448f7b7"
+        },
+        "secure_wallet.h": {
+          "bytes": 349,
+          "sha256": "edbdb63722aac927431376eedd5ba766118bd70d96f46d870ac83c8466f5acd9"
+        },
+        "secure_wallet_test.cpp": {
+          "bytes": 6161,
+          "sha256": "d43c9c4a5399505e3cd3e137595274b5fa3cf7621b98ee076fcb3a20d4e7bae2"
+        }
+      },
+      "id": "secure-wallet",
+      "reference_style": "defaulted_out_of_line",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Secure wallet"
+    },
+    {
+      "api": {
+        "class": "reserve_meter",
+        "constructor": "reserve_meter",
+        "credit": "add_units",
+        "debit": "consume_units",
+        "namespace": "energy_reserve",
+        "start": "enable",
+        "stop": "disable",
+        "value": "remaining_units"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "energy_reserve"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "reserve_meter"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "reserve_meter"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "enable"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "add_units"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "consume_units"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "disable"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "remaining_units"
+        }
+      ],
+      "directory": "variants/energy-reserve",
+      "domain": {
+        "resource": "reserve meter",
+        "unit": "energy units"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 510,
+          "sha256": "eb67d10bc7b5e207f6463ad232151068422a498f482c6f292f1b59fad592b81c"
+        },
+        "PROMPT.md": {
+          "bytes": 2370,
+          "sha256": "238a8f7ce85035298a06673b8332bd013968e55a39c508a70d55340f2427ae82"
+        },
+        "energy_reserve.cpp": {
+          "bytes": 1511,
+          "sha256": "5773dd8d22de23c4929b797593b201c7a722d0a94d8f74cc0f88d7b9ffde1e2d"
+        },
+        "energy_reserve.h": {
+          "bytes": 349,
+          "sha256": "1fa0a9ba76f922a93871a529f994c014212e8b5a4dda666dbb4dd30bca3180d0"
+        },
+        "energy_reserve_test.cpp": {
+          "bytes": 6263,
+          "sha256": "ec8acbfaf05742b18a2a4393c8060757b0d5fa0112013f60c305c11fd82020ad"
+        }
+      },
+      "id": "energy-reserve",
+      "reference_style": "explicit_constructor",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Energy reserve"
+    },
+    {
+      "api": {
+        "class": "player_card",
+        "constructor": "player_card",
+        "credit": "load",
+        "debit": "spend",
+        "namespace": "arcade_card",
+        "start": "issue",
+        "stop": "revoke",
+        "value": "credits"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "arcade_card"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "player_card"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "player_card"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "issue"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "load"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "spend"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "revoke"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "credits"
+        }
+      ],
+      "directory": "variants/arcade-card",
+      "domain": {
+        "resource": "player card",
+        "unit": "arcade credits"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 483,
+          "sha256": "1fe634dfeda82ad2a9db6cd65d2c31e3623bcdfa890406123ad8891909c92020"
+        },
+        "PROMPT.md": {
+          "bytes": 2251,
+          "sha256": "4a619a8e5387da945f3de853732b78dbbb83435568ec8d1e2bd7c721fab48d32"
+        },
+        "arcade_card.cpp": {
+          "bytes": 1291,
+          "sha256": "731a3fd0e24cf2505da21d4af3c26e94dfd1b0829802a7abc42c86c236ae7c4c"
+        },
+        "arcade_card.h": {
+          "bytes": 406,
+          "sha256": "0d4a780931107b52d0090d4e1057e1e0bfa79e9bf43ab96c35a5e491a89ddf2a"
+        },
+        "arcade_card_test.cpp": {
+          "bytes": 5909,
+          "sha256": "cc39f15f5fb8a03381639c5f332ce478195a4d0bdd6524e1940c5db86b6de35a"
+        }
+      },
+      "id": "arcade-card",
+      "reference_style": "validation_helpers",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Arcade card"
+    },
+    {
+      "api": {
+        "class": "stock_ledger",
+        "constructor": "stock_ledger",
+        "credit": "receive",
+        "debit": "dispatch",
+        "namespace": "inventory_ledger",
+        "start": "begin",
+        "stop": "end",
+        "value": "quantity"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "inventory_ledger"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "stock_ledger"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "stock_ledger"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "begin"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "receive"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "dispatch"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "end"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "quantity"
+        }
+      ],
+      "directory": "variants/inventory-ledger",
+      "domain": {
+        "resource": "stock ledger",
+        "unit": "items"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 528,
+          "sha256": "75322e46294ff3c63e0f7e001560e7dfc3989c3ef858b32c119914e6d130090b"
+        },
+        "PROMPT.md": {
+          "bytes": 2303,
+          "sha256": "7c390f02a4c5f54256ecbfc07143ec3c730665e1966738df741bb4d786e628fb"
+        },
+        "inventory_ledger.cpp": {
+          "bytes": 30,
+          "sha256": "b0ef5b268f54402e05a2f6d7583fbd9d6177ab72d541a6a4402be29f3011424c"
+        },
+        "inventory_ledger.h": {
+          "bytes": 1493,
+          "sha256": "831f81f6c4ce04d426b400b3245585e606a576079ee3850d451ce63b77217b73"
+        },
+        "inventory_ledger_test.cpp": {
+          "bytes": 6100,
+          "sha256": "48fb0b64de139a7c6785148097337e3f27ea34b1c7ca955a85cc56bcff9beb16"
+        }
+      },
+      "id": "inventory-ledger",
+      "reference_style": "inline_header",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Inventory ledger"
+    },
+    {
+      "api": {
+        "class": "fare_pass",
+        "constructor": "fare_pass",
+        "credit": "top_up",
+        "debit": "charge",
+        "namespace": "transit_pass",
+        "start": "activate",
+        "stop": "suspend",
+        "value": "funds"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "transit_pass"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "fare_pass"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "fare_pass"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "activate"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "top_up"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "charge"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "suspend"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "funds"
+        }
+      ],
+      "directory": "variants/transit-pass",
+      "domain": {
+        "resource": "fare pass",
+        "unit": "fare credits"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 492,
+          "sha256": "456de73a9ecb4b967f1431fde58f8237306c58242fa10c6db9b1b7835f4838f5"
+        },
+        "PROMPT.md": {
+          "bytes": 2259,
+          "sha256": "9a236d89a69c52191f042fc0c6ec27e4021f36507a639380575d46baa394084f"
+        },
+        "transit_pass.cpp": {
+          "bytes": 1491,
+          "sha256": "32b85124339126adf2493a948b7aeb8cc5828061f5ade770b8cd97607642b392"
+        },
+        "transit_pass.h": {
+          "bytes": 388,
+          "sha256": "044325ed05e08bf58a7a82032e99de1a165bb29287784a9a51e46a5f6b944f0f"
+        },
+        "transit_pass_test.cpp": {
+          "bytes": 5977,
+          "sha256": "55b4ad209a34d94fd56c3050d5270da31a2739064b2780e58e88e41d32750812"
+        }
+      },
+      "id": "transit-pass",
+      "reference_style": "enum_state",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Transit pass"
+    },
+    {
+      "api": {
+        "class": "quota_bucket",
+        "constructor": "quota_bucket",
+        "credit": "grant",
+        "debit": "consume",
+        "namespace": "cloud_quota",
+        "start": "provision",
+        "stop": "retire",
+        "value": "available"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "cloud_quota"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "quota_bucket"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "quota_bucket"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "provision"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "grant"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "consume"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "retire"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "available"
+        }
+      ],
+      "directory": "variants/cloud-quota",
+      "domain": {
+        "resource": "quota bucket",
+        "unit": "quota units"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 483,
+          "sha256": "58b293d5c915dc71049f109f5a99643b4f3608d7f1123340651e5c17e51d6836"
+        },
+        "PROMPT.md": {
+          "bytes": 2287,
+          "sha256": "3f0d6abdb959482725c105989cea64b9624819928f3f5c890c3ba83cb5cc29ff"
+        },
+        "cloud_quota.cpp": {
+          "bytes": 1442,
+          "sha256": "fb78daba352948afac066ce8c5af90d9e8f0f3fc464fe1631ae0a38f208d2e6b"
+        },
+        "cloud_quota.h": {
+          "bytes": 337,
+          "sha256": "ebc12ea671c1cca802bd3f15bebfd3c35e7b6efaf7398e6ce87eec8e5a8a8ea9"
+        },
+        "cloud_quota_test.cpp": {
+          "bytes": 6058,
+          "sha256": "b5117cf78fed2a05f63a6238b6b93aaf19c3282786e9df070eca0fb02dc73f33"
+        }
+      },
+      "id": "cloud-quota",
+      "reference_style": "unique_lock",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Cloud quota"
+    },
+    {
+      "api": {
+        "class": "patron_account",
+        "constructor": "patron_account",
+        "credit": "add_credit",
+        "debit": "use_credit",
+        "namespace": "library_credit",
+        "start": "enroll",
+        "stop": "close",
+        "value": "credit"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "library_credit"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "patron_account"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "patron_account"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "enroll"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "add_credit"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "use_credit"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "close"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "credit"
+        }
+      ],
+      "directory": "variants/library-credit",
+      "domain": {
+        "resource": "patron account",
+        "unit": "borrowing credits"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 510,
+          "sha256": "72e26fd4edda9db56f6c20176bafbd3e2e8fdeb08da9892fb829767938a62eed"
+        },
+        "PROMPT.md": {
+          "bytes": 2340,
+          "sha256": "0cdf561913566a5bcaf042c0305bf908f48dc5fd089af4506e9a91f5ec546271"
+        },
+        "library_credit.cpp": {
+          "bytes": 1466,
+          "sha256": "7dffa0a4cb43d698fee1604a8fb429aa6d3ba86ee22aadbae00a0d6b63f4ef8b"
+        },
+        "library_credit.h": {
+          "bytes": 348,
+          "sha256": "4a7865c0fbc62ef5b07d9fbe5bc39cc89d584b20fda9065e04ffceca5786fd75"
+        },
+        "library_credit_test.cpp": {
+          "bytes": 6177,
+          "sha256": "e045f7438c39df9122ef2e5747315a2133d87040e9fa6b61ce48eca94bec1af5"
+        }
+      },
+      "id": "library-credit",
+      "reference_style": "scoped_lock",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Library credit"
+    },
+    {
+      "api": {
+        "class": "reward_account",
+        "constructor": "reward_account",
+        "credit": "earn",
+        "debit": "redeem",
+        "namespace": "reward_points",
+        "start": "open",
+        "stop": "close",
+        "value": "points"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "reward_points"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "reward_account"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "reward_account"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "open"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "earn"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "redeem"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "close"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "points"
+        }
+      ],
+      "directory": "variants/reward-points",
+      "domain": {
+        "resource": "reward account",
+        "unit": "points"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 501,
+          "sha256": "7e1da35c7e116e9333fbfeaf7dfec169f2b42b135df299879b9e4f018359136c"
+        },
+        "PROMPT.md": {
+          "bytes": 2273,
+          "sha256": "f1908ad396d4a931077571ddf3e2b43f3ca51b5075e84ea77a54921a0b3bbd9c"
+        },
+        "reward_points.cpp": {
+          "bytes": 1518,
+          "sha256": "a17958d71702ff96687041faadd18cae08c5e4c84518b80f411b06904f0d46fa"
+        },
+        "reward_points.h": {
+          "bytes": 387,
+          "sha256": "293f54ba9f0a5d73f846d000a17c89829a238271621b1ec993aa883b9c115fd7"
+        },
+        "reward_points_test.cpp": {
+          "bytes": 5983,
+          "sha256": "9426222fe76565ce14ecfe47c32b099ee87c72d8fc2efff51377a0266f34bc9d"
+        }
+      },
+      "id": "reward-points",
+      "reference_style": "nested_state",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Reward points"
+    },
+    {
+      "api": {
+        "class": "data_wallet",
+        "constructor": "data_wallet",
+        "credit": "add_megabytes",
+        "debit": "use_megabytes",
+        "namespace": "prepaid_data",
+        "start": "connect",
+        "stop": "disconnect",
+        "value": "remaining_megabytes"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "prepaid_data"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "data_wallet"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "data_wallet"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "connect"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "add_megabytes"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "use_megabytes"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "disconnect"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "remaining_megabytes"
+        }
+      ],
+      "directory": "variants/prepaid-data",
+      "domain": {
+        "resource": "data wallet",
+        "unit": "megabytes"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 492,
+          "sha256": "8bfa8c335fdcab3b88aa1be1e5a88549913325558fa933ff1b32450395bd32e9"
+        },
+        "PROMPT.md": {
+          "bytes": 2378,
+          "sha256": "3f3bbe6082313bf5f950d975087e2ffc8adcf500ed11a540dc3311f68f13ff49"
+        },
+        "prepaid_data.cpp": {
+          "bytes": 1420,
+          "sha256": "b24386642a7d6a666f621ef4cde9af44e2b3e05d6f3fc121eafbf35535f8c385"
+        },
+        "prepaid_data.h": {
+          "bytes": 373,
+          "sha256": "d1285ccb9032790c38980f9159eb09db824fa6cff0e5b050f10db09dbe3dde94"
+        },
+        "prepaid_data_test.cpp": {
+          "bytes": 6319,
+          "sha256": "0ed9ed6416363fa2daa1156f235c9b71fbf78aa44e5e8f0e54f4c7720cc408bf"
+        }
+      },
+      "id": "prepaid-data",
+      "reference_style": "defaulted_in_header",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Prepaid data"
+    },
+    {
+      "api": {
+        "class": "token_box",
+        "constructor": "token_box",
+        "credit": "add_tokens",
+        "debit": "take_tokens",
+        "namespace": "workshop_tokens",
+        "start": "unlock",
+        "stop": "lock",
+        "value": "token_count"
+      },
+      "api_mapping": [
+        {
+          "parent": "Bankaccount",
+          "role": "namespace",
+          "variant": "workshop_tokens"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "class",
+          "variant": "token_box"
+        },
+        {
+          "parent": "Bankaccount",
+          "role": "constructor",
+          "variant": "token_box"
+        },
+        {
+          "parent": "open",
+          "role": "start",
+          "variant": "unlock"
+        },
+        {
+          "parent": "deposit",
+          "role": "credit",
+          "variant": "add_tokens"
+        },
+        {
+          "parent": "withdraw",
+          "role": "debit",
+          "variant": "take_tokens"
+        },
+        {
+          "parent": "close",
+          "role": "stop",
+          "variant": "lock"
+        },
+        {
+          "parent": "balance",
+          "role": "value",
+          "variant": "token_count"
+        }
+      ],
+      "directory": "variants/workshop-tokens",
+      "domain": {
+        "resource": "token box",
+        "unit": "tokens"
+      },
+      "files": {
+        "CMakeLists.txt": {
+          "bytes": 519,
+          "sha256": "c21a2f815c68b02f95a6476f972218c3dd9dce37c4c6e3f5717bd65ff0bde2f0"
+        },
+        "PROMPT.md": {
+          "bytes": 2318,
+          "sha256": "92000bb723d27315be68e855ffc84ffb3267341f6e21d34c3de2de4d5f733247"
+        },
+        "workshop_tokens.cpp": {
+          "bytes": 1470,
+          "sha256": "c5b0476ef5fe9c32cb0653aafafa4caa6d10da8c27201cbbc601b1f4fcbc64ea"
+        },
+        "workshop_tokens.h": {
+          "bytes": 335,
+          "sha256": "d64a1b63873362859de95a52b78c027a7597e410357e56fcb90d99abf52162af"
+        },
+        "workshop_tokens_test.cpp": {
+          "bytes": 6152,
+          "sha256": "dd999ff6e7fe14490cd45ab6ceaf6db71d1add497850802e99a52491e5a7b532"
+        }
+      },
+      "id": "workshop-tokens",
+      "reference_style": "plain_out_of_line",
+      "tests": {
+        "additional_count": 2,
+        "concurrent_threads": 1000,
+        "contract_completion": [
+          "zero_debit_throws",
+          "zero_credit_throws"
+        ],
+        "parent_count": 17,
+        "parent_mapped": [
+          "newly_started_zero",
+          "single_credit",
+          "multiple_credits",
+          "single_debit",
+          "multiple_debits",
+          "sequential_operations",
+          "value_after_stop_throws",
+          "credit_after_stop_throws",
+          "credit_before_start_throws",
+          "debit_after_stop_throws",
+          "stop_before_start_throws",
+          "start_twice_throws",
+          "restart_resets_zero",
+          "overdraft_throws",
+          "negative_debit_throws",
+          "negative_credit_throws",
+          "concurrent_transactions"
+        ],
+        "total": 19
+      },
+      "title": "Workshop tokens"
+    }
+  ],
+  "verification": {
+    "command": "python3 benchmarks/cpp/bank-account-equivalent-v1/verify.py",
+    "receipt": "verification_receipt.json",
+    "status": "verified_by_committed_receipt"
+  }
+}

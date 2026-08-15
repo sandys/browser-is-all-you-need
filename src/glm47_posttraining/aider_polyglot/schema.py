@@ -35,6 +35,8 @@ class AiderPolyglotTask(BaseModel):
     source_revision: str | None = None
     family: str | None = None
     category: str | None = None
+    lineage_id: str | None = None
+    episode_kind: str | None = None
     tags: list[str] = Field(default_factory=list)
     hidden_test_sha256: str | None = None
     source_prompt_sha256: str | None = None
@@ -122,6 +124,7 @@ class AiderShadowRubric(BaseModel):
     schema_version: Literal[1] = 1
     task_id: str
     language: Literal["cpp"] = "cpp"
+    split: Literal["train", "validation"] = "train"
     editable_files: list[str]
     hidden_test_file: str
     hidden_test_sha256: str
@@ -131,6 +134,8 @@ class AiderShadowRubric(BaseModel):
     verification_gate: str
     family: str
     category: str
+    lineage_id: str | None = None
+    episode_kind: str | None = None
     tags: list[str] = Field(default_factory=list)
 
     @field_validator("editable_files")

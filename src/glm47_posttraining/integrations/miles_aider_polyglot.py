@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import threading
 from typing import Any, Sequence
 
+from glm47_posttraining.aider_polyglot.bank_account_curriculum import (
+    CURRICULUM_NAME as BANK_ACCOUNT_CURRICULUM,
+)
+from glm47_posttraining.aider_polyglot.bank_account_curriculum import (
+    build_bank_account_curriculum,
+)
 from glm47_posttraining.aider_polyglot.dataset import build_aider_polyglot_datasets
 from glm47_posttraining.aider_polyglot.harness import (
     DEFAULT_AIDER_DOCKER_IMAGE,
@@ -27,6 +36,8 @@ SANDBOX_IMAGE_ENV = "GLM47_CPP_SANDBOX_IMAGE"
 REWARD_WORKERS_ENV = "GLM47_CPP_REWARD_WORKERS"
 INCLUDE_LOGS_ENV = "MILES_CPP_INCLUDE_LOGS"
 DEFAULT_REWARD_WORKERS = 8
+_ACTIVE_REWARD_WORKERS = 0
+_ACTIVE_REWARD_WORKERS_LOCK = threading.Lock()
 
 
 def run_response_contract_preflight() -> None:
@@ -51,18 +62,40 @@ async def reward_func(
 
         async def score(item: Any) -> dict[str, Any]:
             async with semaphore:
-                return await asyncio.to_thread(_score_sample, item)
+                return await asyncio.to_thread(_score_sample_with_worker_load, item)
 
         return list(await asyncio.gather(*(score(item) for item in sample)))
-    return await asyncio.to_thread(_score_sample, sample)
+    return await asyncio.to_thread(_score_sample_with_worker_load, sample)
 
 
-def _score_sample(sample: Any) -> dict[str, Any]:
+@contextmanager
+def _active_reward_worker():
+    global _ACTIVE_REWARD_WORKERS
+    with _ACTIVE_REWARD_WORKERS_LOCK:
+        _ACTIVE_REWARD_WORKERS += 1
+        worker_load = _ACTIVE_REWARD_WORKERS
+    try:
+        yield worker_load
+    finally:
+        with _ACTIVE_REWARD_WORKERS_LOCK:
+            _ACTIVE_REWARD_WORKERS -= 1
+
+
+def _score_sample_with_worker_load(sample: Any) -> dict[str, Any]:
+    with _active_reward_worker() as worker_load:
+        return _score_sample(sample, reward_worker_load=worker_load)
+
+
+def _score_sample(sample: Any, *, reward_worker_load: int = 1) -> dict[str, Any]:
     metadata = _sample_metadata(sample)
     task_path_value = metadata.get("task_path")
     if not task_path_value:
         return _exception_record(
-            sample, metadata, "missing_task_path", "metadata.task_path is required"
+            sample,
+            metadata,
+            "missing_task_path",
+            "metadata.task_path is required",
+            reward_worker_load=reward_worker_load,
         )
     try:
         task_path = _resolve_task_path(str(task_path_value), metadata)
@@ -84,15 +117,25 @@ def _score_sample(sample: Any) -> dict[str, Any]:
         breakdown = compute_aider_reward(
             task, exercise_dir, _sample_response(sample), runner=runner
         )
-        return reward_record(sample, task, breakdown)
+        return reward_record(
+            sample, task, breakdown, reward_worker_load=reward_worker_load
+        )
     except Exception as exc:  # pragma: no cover - protects remote rollout workers
-        return _exception_record(sample, metadata, "reward_exception", str(exc))
+        return _exception_record(
+            sample,
+            metadata,
+            "reward_exception",
+            str(exc),
+            reward_worker_load=reward_worker_load,
+        )
 
 
 def reward_record(
     sample: Any,
     task: AiderPolyglotTask,
     breakdown: AiderRewardBreakdown,
+    *,
+    reward_worker_load: int = 1,
 ) -> dict[str, Any]:
     harness = breakdown.harness
     parsed = breakdown.parsed
@@ -115,6 +158,7 @@ def reward_record(
         "timeout": bool(harness and harness.status == "candidate_timeout"),
         "candidate_returncode": harness.candidate_returncode if harness else None,
         "infrastructure_error": breakdown.infrastructure_error,
+        "reward_worker_load": reward_worker_load,
         "hidden_test_sha256": task.hidden_test_sha256,
         "verification_gate": task.verification_gate,
     }
@@ -126,7 +170,12 @@ def reward_record(
 
 
 def _exception_record(
-    sample: Any, metadata: dict[str, Any], reason: str, exception: str
+    sample: Any,
+    metadata: dict[str, Any],
+    reason: str,
+    exception: str,
+    *,
+    reward_worker_load: int = 1,
 ) -> dict[str, Any]:
     return {
         "score": 0.0,
@@ -146,6 +195,7 @@ def _exception_record(
         "compile_error": False,
         "timeout": False,
         "infrastructure_error": True,
+        "reward_worker_load": reward_worker_load,
         "exception": exception,
     }
 
@@ -204,6 +254,8 @@ def _parser() -> argparse.ArgumentParser:
     build = subparsers.add_parser("build-data")
     build.add_argument("--tasks-dir", required=True, help="checked-in Aider shadow rubric tree")
     build.add_argument("--out", required=True)
+    build.add_argument("--curriculum", choices=[BANK_ACCOUNT_CURRICULUM])
+    build.add_argument("--allow-non-gcc-curriculum", action="store_true")
     build.add_argument("--train-limit", type=int)
     build.add_argument("--eval-limit", type=int, help="training-task monitor size")
     build.add_argument("--eval-splits", default="validation,test")
@@ -234,16 +286,31 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.filter_train_oracle_full_marks:
         raise ValueError("the packaged shadow corpus is already restricted to terminal oracle passes")
-    paths = build_aider_polyglot_datasets(
-        args.tasks_dir,
-        args.out,
-        train_limit=args.train_limit,
-        monitor_limit=args.eval_limit or 32,
-        profile=args.profile,
-        run_id=args.run_id,
-        sort_by_size=args.sort_by_size,
-        force=args.force,
-    )
+    tasks_dir = args.tasks_dir
+    temporary: TemporaryDirectory[str] | None = None
+    if args.curriculum == BANK_ACCOUNT_CURRICULUM:
+        temporary = TemporaryDirectory(prefix="glm47-bank-account-rubrics-")
+        tasks_dir = temporary.name
+        build_bank_account_curriculum(
+            args.tasks_dir,
+            tasks_dir,
+            compiler=os.environ.get("CXX", "c++"),
+            require_gcc=not args.allow_non_gcc_curriculum,
+        )
+    try:
+        paths = build_aider_polyglot_datasets(
+            tasks_dir,
+            args.out,
+            train_limit=args.train_limit,
+            monitor_limit=args.eval_limit or 32,
+            profile=args.profile,
+            run_id=args.run_id,
+            sort_by_size=args.sort_by_size,
+            force=args.force,
+        )
+    finally:
+        if temporary is not None:
+            temporary.cleanup()
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2, sort_keys=True))
 
 

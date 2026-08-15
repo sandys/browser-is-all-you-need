@@ -14,7 +14,6 @@ from typing import Iterable
 from .schema import AiderPolyglotTask, AiderShadowRubric
 
 
-EXPECTED_SHADOW_TASKS = 253
 DATASET_KIND = "aider-polyglot-cpp-shadow-grpo"
 SOURCE_MANIFEST_KIND = "aider-polyglot-cpp-shadow-rubrics"
 
@@ -134,7 +133,7 @@ def build_aider_messages(exercise_dir: Path, editable_files: list[str]) -> list[
     ]
 
 
-def discover_shadow_exercises(tasks_root: str | Path) -> list[Path]:
+def discover_shadow_exercises(tasks_root: str | Path, expected_tasks: int) -> list[Path]:
     root = Path(tasks_root).resolve()
     candidates = [root / "cpp" / "exercises" / "practice", root / "exercises" / "practice", root]
     practice = next(
@@ -150,9 +149,9 @@ def discover_shadow_exercises(tasks_root: str | Path) -> list[Path]:
     exercises = sorted(
         path for path in practice.iterdir() if path.is_dir() and (path / ".rubric.json").is_file()
     )
-    if len(exercises) != EXPECTED_SHADOW_TASKS:
+    if len(exercises) != expected_tasks:
         raise ValueError(
-            f"expected {EXPECTED_SHADOW_TASKS} Aider C++ shadow exercises, found {len(exercises)}"
+            f"expected {expected_tasks} Aider C++ shadow exercises, found {len(exercises)}"
         )
     return exercises
 
@@ -172,8 +171,11 @@ def _validate_source_manifest(tasks_root: Path) -> tuple[Path, dict[str, object]
     if manifest.get("kind") != SOURCE_MANIFEST_KIND:
         raise ValueError(f"unexpected shadow manifest kind: {manifest.get('kind')!r}")
     counts = manifest.get("counts")
-    if not isinstance(counts, dict) or counts.get("tasks") != EXPECTED_SHADOW_TASKS:
-        raise ValueError("shadow manifest does not bind exactly 253 tasks")
+    if not isinstance(counts, dict):
+        raise ValueError("shadow manifest is missing task counts")
+    expected_tasks = counts.get("tasks")
+    if not isinstance(expected_tasks, int) or expected_tasks < 1:
+        raise ValueError("shadow manifest task count must be a positive integer")
     contract = manifest.get("contract")
     if not isinstance(contract, dict) or contract.get("official_task_id_overlap") != []:
         raise ValueError("shadow manifest does not prove zero official task-ID overlap")
@@ -206,6 +208,8 @@ def _load_verified_rubric(exercise: Path) -> AiderShadowRubric:
         or (exercise / ".docs").is_symlink()
     ):
         raise ValueError(f"missing instructions: {exercise.name}")
+    if sha256_path(instructions) != rubric.source_prompt_sha256:
+        raise ValueError(f"source-prompt hash mismatch: {exercise.name}")
     _assert_regular_file(exercise / "CMakeLists.txt", exercise)
 
     expected = {
@@ -267,7 +271,7 @@ def _materialize_task(
     task = AiderPolyglotTask(
         task_id=f"aider-shadow-cpp/{exercise.name}",
         exercise=exercise.name,
-        split="train",
+        split=rubric.split,
         harness_kind="shadow_cpp17",
         exercise_dir=f"shadow/{exercise.name}",
         editable_files=rubric.editable_files,
@@ -275,12 +279,14 @@ def _materialize_task(
         source_revision=rubric.hidden_test_sha256,
         family=rubric.family,
         category=rubric.category,
+        lineage_id=rubric.lineage_id,
+        episode_kind=rubric.episode_kind,
         tags=rubric.tags,
         hidden_test_sha256=rubric.hidden_test_sha256,
         source_prompt_sha256=rubric.source_prompt_sha256,
         verification_gate=rubric.verification_gate,
     )
-    descriptor = task.write_json(output / "tasks" / "train" / f"{exercise.name}.json")
+    descriptor = task.write_json(output / "tasks" / rubric.split / f"{exercise.name}.json")
     return task, descriptor
 
 
@@ -304,6 +310,8 @@ def _prompt_row(task: AiderPolyglotTask, task_path: str) -> dict[str, object]:
             "verification_gate": task.verification_gate,
             "family": task.family,
             "category": task.category,
+            "lineage_id": task.lineage_id,
+            "episode_kind": task.episode_kind,
             "tags": task.tags,
         },
     }
@@ -336,6 +344,31 @@ def _safe_output(tasks_root: Path, output: Path) -> None:
         raise ValueError("data output must not contain or be contained by the source task tree")
 
 
+def _validate_hidden_test_sharing(
+    rubrics: list[tuple[Path, AiderShadowRubric]], source_manifest: dict[str, object]
+) -> None:
+    by_hash: dict[str, list[AiderShadowRubric]] = {}
+    for _, rubric in rubrics:
+        by_hash.setdefault(rubric.hidden_test_sha256, []).append(rubric)
+    shared = [group for group in by_hash.values() if len(group) > 1]
+    if not shared:
+        return
+
+    contract = source_manifest.get("contract")
+    sharing_allowed = isinstance(contract, dict) and contract.get(
+        "shared_hidden_tests_within_lineage"
+    ) is True
+    if not sharing_allowed:
+        raise ValueError("shadow hidden-test hashes must be unique")
+    for group in shared:
+        lineages = {rubric.lineage_id for rubric in group}
+        if None in lineages or len(lineages) != 1:
+            task_ids = sorted(rubric.task_id for rubric in group)
+            raise ValueError(
+                "a shared hidden test crosses lineage boundaries: " + ", ".join(task_ids)
+            )
+
+
 def build_aider_polyglot_datasets(
     tasks_root: str | Path,
     output_dir: str | Path,
@@ -347,26 +380,34 @@ def build_aider_polyglot_datasets(
     sort_by_size: bool = False,
     force: bool = False,
 ) -> dict[str, Path]:
-    """Validate all 253 tasks, then atomically materialize trainer-safe data."""
+    """Validate a manifest-bound task set, then materialize trainer-safe data."""
 
     source = Path(tasks_root).resolve()
     output = Path(output_dir).resolve()
     _safe_output(source, output)
     manifest_path, source_manifest = _validate_source_manifest(source)
-    exercises = discover_shadow_exercises(source)
+    source_counts = source_manifest["counts"]
+    assert isinstance(source_counts, dict)
+    expected_tasks = int(source_counts["tasks"])
+    exercises = discover_shadow_exercises(source, expected_tasks)
     rubrics = [(exercise, _load_verified_rubric(exercise)) for exercise in exercises]
 
     task_ids = [rubric.task_id for _, rubric in rubrics]
-    hidden_hashes = [rubric.hidden_test_sha256 for _, rubric in rubrics]
     if len(task_ids) != len(set(task_ids)):
         raise ValueError("shadow task IDs must be unique")
-    if len(hidden_hashes) != len(set(hidden_hashes)):
-        raise ValueError("shadow hidden-test hashes must be unique")
-    if train_limit is not None and not 1 <= train_limit <= len(rubrics):
-        raise ValueError(f"train_limit must be within 1..{len(rubrics)}")
+    _validate_hidden_test_sharing(rubrics, source_manifest)
+    train_rubrics = [(exercise, rubric) for exercise, rubric in rubrics if rubric.split == "train"]
+    validation_rubrics = [
+        (exercise, rubric) for exercise, rubric in rubrics if rubric.split == "validation"
+    ]
+    if not train_rubrics:
+        raise ValueError("shadow manifest contains no train tasks")
+    if train_limit is not None and not 1 <= train_limit <= len(train_rubrics):
+        raise ValueError(f"train_limit must be within 1..{len(train_rubrics)}")
     if monitor_limit < 1:
         raise ValueError("monitor_limit must be positive")
-    selected = rubrics[:train_limit] if train_limit is not None else rubrics
+    selected_train = train_rubrics[:train_limit] if train_limit is not None else train_rubrics
+    selected = [*selected_train, *validation_rubrics]
 
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists() and any(output.iterdir()) and not force:
@@ -375,39 +416,56 @@ def build_aider_polyglot_datasets(
     with TemporaryDirectory(prefix=f".{output.name}-preparing-", dir=output.parent) as temporary:
         staging = Path(temporary)
         train_rows: list[dict[str, object]] = []
+        validation_rows: list[dict[str, object]] = []
         prompt_hashes: list[str] = []
         for exercise, rubric in selected:
             task, descriptor = _materialize_task(exercise, rubric, staging)
             row = _prompt_row(task, descriptor.relative_to(staging).as_posix())
-            train_rows.append(row)
+            if task.split == "train":
+                train_rows.append(row)
+            else:
+                validation_rows.append(row)
             canonical_prompt = json.dumps(row["prompt"], sort_keys=True, ensure_ascii=False)
             prompt_hashes.append(hashlib.sha256(canonical_prompt.encode()).hexdigest())
         if sort_by_size:
             train_rows.sort(key=lambda row: (len(str(row["prompt"])), str(row["problem_id"])))
+            validation_rows.sort(
+                key=lambda row: (len(str(row["prompt"])), str(row["problem_id"]))
+            )
         monitor_rows = _monitor_rows(train_rows, min(monitor_limit, len(train_rows)))
+        effective_validation = validation_rows or monitor_rows
 
         write_jsonl(staging / "grpo" / "train.jsonl", train_rows)
         write_jsonl(staging / "eval" / "train_monitor.jsonl", monitor_rows)
+        write_jsonl(staging / "eval" / "validation.jsonl", effective_validation)
         source_manifest_sha256 = sha256_path(manifest_path)
+        source_contract = source_manifest.get("contract")
+        assert isinstance(source_contract, dict)
         data_manifest = {
             "kind": DATASET_KIND,
-            "schema_version": 4,
+            "schema_version": 5,
             "profile": profile,
             "run_id": run_id,
-            "source_root": str(source),
+            "source_root": source_manifest.get("source_locator", str(source)),
             "source_manifest_kind": source_manifest.get("kind"),
             "source_manifest_sha256": source_manifest_sha256,
             "source_tree_sha256": _source_tree_sha256(exercises),
             "split_contract": {
-                "train": "253 independently authored executable shadow tasks",
+                "train": "manifest-declared executable shadow tasks",
+                "validation": (
+                    "complete held-out lineages"
+                    if validation_rows
+                    else "training-task monitor fallback; not checkpoint-selection evidence"
+                ),
                 "monitor": "training-task trend monitor only",
                 "official_26": "external fixed evaluation only",
-                "official_task_id_overlap": [],
+                "official_task_id_overlap": source_contract["official_task_id_overlap"],
                 "reference_answers_packaged": False,
             },
             "counts": {
                 "available_shadow": len(rubrics),
                 "train": len(train_rows),
+                "validation": len(validation_rows),
                 "monitor": len(monitor_rows),
             },
             "composition": {
@@ -419,6 +477,7 @@ def build_aider_polyglot_datasets(
             "prompt_sha256": sorted(prompt_hashes),
             "files": {
                 "grpo_train": "grpo/train.jsonl",
+                "validation": "eval/validation.jsonl",
                 "train_monitor": "eval/train_monitor.jsonl",
             },
         }
@@ -434,6 +493,6 @@ def build_aider_polyglot_datasets(
 
     return {
         "grpo_train": output / "grpo" / "train.jsonl",
-        "eval": output / "eval" / "train_monitor.jsonl",
+        "eval": output / "eval" / "validation.jsonl",
         "manifest": output / "manifest.json",
     }

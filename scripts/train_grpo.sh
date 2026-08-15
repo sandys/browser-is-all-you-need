@@ -15,6 +15,7 @@ RUN_ROOT="${MILES_RUN_ROOT:-${REPO_ROOT}/.glm47-posttraining/miles/glm47-h100-cp
 DATA_DIR="${MILES_CPP_DATA_DIR:-${RUN_ROOT}/data}"
 TASKS_DIR="${MILES_CPP_TASKS_DIR:-${REPO_ROOT}/.glm47-posttraining/data/tasks-small}"
 DATA_BUILD_MODULE="${MILES_DATA_BUILD_MODULE:-glm47_posttraining.integrations.miles_cpp_perf}"
+DATA_CURRICULUM="${MILES_DATA_CURRICULUM:-}"
 CUSTOM_RM_PATH="${MILES_CUSTOM_RM_PATH:-glm47_posttraining.integrations.miles_cpp_perf.reward_func}"
 REWARD_PREFLIGHT_MODULE="${MILES_REWARD_PREFLIGHT_MODULE:-}"
 EXPECTED_DATASET_KIND="${MILES_EXPECTED_DATASET_KIND:-}"
@@ -110,6 +111,7 @@ echo "run_id=${RUN_ID}"
 echo "run_root=${RUN_ROOT}"
 echo "tasks_dir=${TASKS_DIR}"
 echo "data_build_module=${DATA_BUILD_MODULE}"
+echo "data_curriculum=${DATA_CURRICULUM}"
 echo "custom_rm_path=${CUSTOM_RM_PATH}"
 echo "expected_dataset_kind=${EXPECTED_DATASET_KIND}"
 echo "eval_name=${EVAL_NAME}"
@@ -163,6 +165,12 @@ BUILD_DATA_ARGS=(
   --run-id "${RUN_ID}"
   --force
 )
+if [ -n "${DATA_CURRICULUM}" ]; then
+  BUILD_DATA_ARGS+=(--curriculum "${DATA_CURRICULUM}")
+fi
+if [ "${MILES_ALLOW_NON_GCC_CURRICULUM:-0}" = "1" ]; then
+  BUILD_DATA_ARGS+=(--allow-non-gcc-curriculum)
+fi
 if [ -n "${TRAIN_LIMIT}" ]; then
   BUILD_DATA_ARGS+=(--train-limit "${TRAIN_LIMIT}")
 fi
@@ -178,8 +186,10 @@ fi
 
 # Reuse a prepared dataset when available.
 if [ ! -f "${DATA_DIR}/grpo/train.jsonl" ]; then
+  export GLM47_DATA_DIR="${GLM47_DATA_DIR:-${DATA_DIR}}"
   PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" "${BUILD_DATA_ARGS[@]}"
 fi
+export GLM47_DATA_DIR="${GLM47_DATA_DIR:-${DATA_DIR}}"
 if [ ! -f "${DATA_DIR}/grpo/train.jsonl" ]; then
   echo "Missing GRPO train data: ${DATA_DIR}/grpo/train.jsonl" >&2
   exit 2
@@ -253,6 +263,7 @@ max_memory_used_mib=${max_memory_used_mib}
 data_dir=${DATA_DIR}
 tasks_dir=${TASKS_DIR}
 data_build_module=${DATA_BUILD_MODULE}
+data_curriculum=${DATA_CURRICULUM}
 custom_rm_path=${CUSTOM_RM_PATH}
 expected_dataset_kind=${EXPECTED_DATASET_KIND}
 data_manifest_sha256=$(sha256sum "${DATA_DIR}/manifest.json" | awk '{print $1}')

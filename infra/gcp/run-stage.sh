@@ -57,6 +57,7 @@ write_launch_receipt() {
 status=${status}
 exit_code=${exit_code}
 stage=${GLM47_STAGE}
+grpo_profile=${GLM47_GRPO_PROFILE:-default}
 run_id=${MILES_RUN_ID}
 run_root=${RUN_ROOT}
 source_commit=${GLM47_SOURCE_COMMIT}
@@ -85,8 +86,20 @@ case "${GLM47_STAGE}" in
       echo "Missing GRPO warm-start adapter: ${MILES_LORA_ADAPTER_PATH}" >&2
       STAGE_STATUS=2
     else
-      bash examples/grpo.sh
-      STAGE_STATUS=$?
+      case "${GLM47_GRPO_PROFILE:-}" in
+        "")
+          bash examples/grpo.sh
+          STAGE_STATUS=$?
+          ;;
+        bank-account-v1)
+          bash examples/grpo_bank_account.sh
+          STAGE_STATUS=$?
+          ;;
+        *)
+          echo "Unsupported GLM47_GRPO_PROFILE: ${GLM47_GRPO_PROFILE}" >&2
+          STAGE_STATUS=2
+          ;;
+      esac
     fi
     ;;
 esac
