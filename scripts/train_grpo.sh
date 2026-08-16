@@ -594,9 +594,14 @@ WANDB_ARGS=(
   --wandb-project "${WANDB_PROJECT}"
   --wandb-group "${WANDB_GROUP}"
   --wandb-run-id "${WANDB_RUN_ID}"
-  --log-passrate
-  --log-correct-samples
 )
+# Correct-sample logging reads actor log_probs, which --debug-rollout-only
+# never computes; in rollout-only mode the ray job dies with
+# KeyError: 'log_probs' after the rollout finishes (also present in the r3
+# gate log, masked there because the SSH flow ignored the ray exit status).
+if [ "${ROLLOUT_ONLY}" = "0" ]; then
+  WANDB_ARGS+=(--log-passrate --log-correct-samples)
+fi
 
 SGLANG_ARGS=(
   --rollout-num-gpus-per-engine "${GPUS_PER_NODE}"
