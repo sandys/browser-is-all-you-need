@@ -93,7 +93,7 @@ config:
     - --volume=/tmp:/tmp
 
 file_mounts:
-  /root/models:
+  /workspace/models:
     source: gs://skypilot-filemounts-ubuntu-f0048940-17eetwow
     mode: MOUNT_CACHED
     type: MODEL_CHECKPOINT_RO
@@ -132,7 +132,7 @@ setup: |
   for gpu_name in "${gpu_names[@]}"; do [[ "${gpu_name}" == *H100* ]]; done
   # ---- stage all weights to local NVMe (the r3 lesson: never train off gcsfuse) ----
   mkdir -p /workspace/local-models /workspace/local-checkpoints /workspace/local-runs
-  rsync -a /root/models/GLM-4.7-Flash/ /workspace/local-models/GLM-4.7-Flash/
+  rsync -a /workspace/models/GLM-4.7-Flash/ /workspace/local-models/GLM-4.7-Flash/
   test -f "${MILES_HF_CHECKPOINT}/config.json"
   test "$(tr -d '[:space:]' < "${MILES_HF_CHECKPOINT}/MODEL_REVISION")" = "${GLM47_MODEL_REVISION}"
   rsync -a /workspace/runs/shared/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8/ /workspace/local-checkpoints/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8/
