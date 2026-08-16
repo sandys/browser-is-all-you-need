@@ -70,7 +70,11 @@ export MILES_EXPERTS_SHARED_OUTER_LORAS="${MILES_EXPERTS_SHARED_OUTER_LORAS:-1}"
 export MILES_LORA_BASE_CPU_BACKUP="${MILES_LORA_BASE_CPU_BACKUP:-1}"
 export MILES_NO_GRADIENT_ACCUMULATION_FUSION="${MILES_NO_GRADIENT_ACCUMULATION_FUSION:-1}"
 export MILES_SGLANG_LORA_USE_VIRTUAL_EXPERTS="${MILES_SGLANG_LORA_USE_VIRTUAL_EXPERTS:-1}"
-export MILES_APPLY_CHAT_TEMPLATE_KWARGS="${MILES_APPLY_CHAT_TEMPLATE_KWARGS:-{\"enable_thinking\": false}}"
+# The default must not contain a literal `}` inside ${:-}: when the variable is
+# already set, bash ends the expansion at the inner brace and appends the last
+# `}` to the value, producing invalid JSON ('{"enable_thinking": false}}').
+_default_chat_template_kwargs='{"enable_thinking": false}'
+export MILES_APPLY_CHAT_TEMPLATE_KWARGS="${MILES_APPLY_CHAT_TEMPLATE_KWARGS:-${_default_chat_template_kwargs}}"
 export MILES_TRAIN_MODULE="${MILES_TRAIN_MODULE:-glm47_posttraining.integrations.miles_train_with_glm47_bridge}"
 export GLM47_REGISTER_BRIDGE="${GLM47_REGISTER_BRIDGE:-1}"
 
