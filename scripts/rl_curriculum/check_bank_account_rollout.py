@@ -58,7 +58,11 @@ def _load_rows(path: Path) -> list[dict[str, Any]]:
 
 
 def evaluate_gate(
-    rows: list[dict[str, Any]], *, expected_groups: int = EXPECTED_GROUPS
+    rows: list[dict[str, Any]],
+    *,
+    expected_groups: int = EXPECTED_GROUPS,
+    expected_samples: int = EXPECTED_SAMPLES,
+    minimum_mixed_fraction: float = MINIMUM_MIXED_FRACTION,
 ) -> dict[str, Any]:
     bank_rows = [
         row
@@ -75,7 +79,7 @@ def evaluate_gate(
         groups[str(row.get("task_id"))].append(row)
 
     malformed_groups = {
-        task_id: len(group) for task_id, group in groups.items() if len(group) != EXPECTED_SAMPLES
+        task_id: len(group) for task_id, group in groups.items() if len(group) != expected_samples
     }
     mixed_groups = 0
     all_pass_groups = 0
@@ -132,8 +136,8 @@ def evaluate_gate(
         reasons.append("all-prompt-groups-pass")
     elif groups and all_fail_groups == len(groups):
         reasons.append("all-prompt-groups-fail")
-    elif mixed_fraction < MINIMUM_MIXED_FRACTION:
-        reasons.append("mixed-prompt-group-fraction-below-0.30")
+    elif mixed_fraction < minimum_mixed_fraction:
+        reasons.append("mixed-prompt-group-fraction-below-minimum")
     if load_correlated:
         reasons.append("concurrency-failures-correlate-with-worker-load")
 
@@ -147,7 +151,7 @@ def evaluate_gate(
         action = "stop-environment-too-easy"
     elif groups and all_fail_groups == len(groups):
         action = "use-atomic-repair-tier-only"
-    elif mixed_fraction < MINIMUM_MIXED_FRACTION:
+    elif mixed_fraction < minimum_mixed_fraction:
         action = "stop-insufficient-correctness-variance"
     else:
         action = "continue-to-bounded-training"
@@ -163,10 +167,11 @@ def evaluate_gate(
         "infrastructure_invalid_records": len(infrastructure),
         "prompt_groups": len(groups),
         "expected_prompt_groups": expected_groups,
+        "expected_samples_per_group": expected_samples,
         "malformed_groups": malformed_groups,
         "mixed_groups": mixed_groups,
         "mixed_prompt_group_fraction": mixed_fraction,
-        "minimum_mixed_prompt_group_fraction": MINIMUM_MIXED_FRACTION,
+        "minimum_mixed_prompt_group_fraction": minimum_mixed_fraction,
         "all_pass_groups": all_pass_groups,
         "all_fail_groups": all_fail_groups,
         "concurrency_load_check": {
@@ -193,10 +198,23 @@ def main() -> int:
     parser.add_argument("rewards", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--expected-groups", type=int, default=EXPECTED_GROUPS)
+    parser.add_argument("--expected-samples", type=int, default=EXPECTED_SAMPLES)
+    parser.add_argument(
+        "--minimum-mixed-fraction", type=float, default=MINIMUM_MIXED_FRACTION
+    )
     args = parser.parse_args()
     if args.expected_groups < 1:
         raise SystemExit("--expected-groups must be positive")
-    result = evaluate_gate(_load_rows(args.rewards), expected_groups=args.expected_groups)
+    if args.expected_samples < 1:
+        raise SystemExit("--expected-samples must be positive")
+    if not 0.0 < args.minimum_mixed_fraction <= 1.0:
+        raise SystemExit("--minimum-mixed-fraction must be within (0, 1]")
+    result = evaluate_gate(
+        _load_rows(args.rewards),
+        expected_groups=args.expected_groups,
+        expected_samples=args.expected_samples,
+        minimum_mixed_fraction=args.minimum_mixed_fraction,
+    )
     payload = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

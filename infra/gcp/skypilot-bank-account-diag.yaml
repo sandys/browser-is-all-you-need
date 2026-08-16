@@ -72,6 +72,10 @@ envs:
   MILES_ROLLOUT_SKIP_SPECIAL_TOKENS: '1'
   GLM47_CPP_REWARD_WORKERS: '24'
   GLM47_GATE_EXPECTED_GROUPS: '32'
+  GLM47_GATE_EXPECTED_SAMPLES: '32'
+  # The bounded diagnostic needs correctness contrast, not an arbitrary 30%
+  # curriculum-wide density. One mixed group is the minimum useful signal.
+  GLM47_GATE_MINIMUM_MIXED_FRACTION: '0.03125'
   GLM47_CPP_SANDBOX_BACKEND: docker
   GLM47_CPP_SANDBOX_IMAGE: glm47-aider-polyglot-cpp:latest
   GLM47_CPP_TSAN_PREFLIGHT_REQUIRED: '1'
