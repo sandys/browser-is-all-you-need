@@ -1,0 +1,27 @@
+{
+  "action": "continue-to-bounded-training",
+  "all_fail_groups": 17,
+  "all_pass_groups": 0,
+  "concurrency_load_check": {
+    "correlated": false,
+    "correlation_rule": "at least two high-load failures and high-load rate exceeds low-load rate by at least 0.10",
+    "high_load_failure_rate": 0.0,
+    "high_load_records": 0,
+    "load_split_median": 32.0,
+    "low_load_failure_rate": 0.0,
+    "low_load_records": 320,
+    "observed_failures": 0
+  },
+  "expected_prompt_groups": 40,
+  "gate": "issue-110-bank-account-no-update-rollout-v1",
+  "infrastructure_invalid_records": 0,
+  "malformed_groups": {},
+  "minimum_mixed_prompt_group_fraction": 0.3,
+  "mixed_groups": 23,
+  "mixed_prompt_group_fraction": 0.575,
+  "passed": true,
+  "prompt_groups": 40,
+  "reasons": [],
+  "records": 320,
+  "valid_records": 320
+}

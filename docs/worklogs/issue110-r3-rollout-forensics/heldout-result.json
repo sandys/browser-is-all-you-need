@@ -1,0 +1,65 @@
+{
+  "adapter_sha256": "662b04d913ec97a4a022f1cd4e05049766e3f07cd48498f563f4afaac8e62968",
+  "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+  "completed_at_utc": "2026-08-16T09:44:31.991493+00:00",
+  "eval_set_version": "fixed26-contract-v2",
+  "failure_class": "compilation",
+  "failure_summary": "The response retained a C++ name collision between method balance() and data member balance after three built-in reflection passes.",
+  "infra_valid": true,
+  "kind": "fixed26-bank-account-heldout-pass1",
+  "model_revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+  "pass_at_1": 0,
+  "polyglot_commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+  "raw_result": {
+    "chat_hashes": [
+      [
+        "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+        "7c7c1d3ce392e09c3814760855157187b6e00d0c"
+      ],
+      [
+        "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+        "7c7c1d3ce392e09c3814760855157187b6e00d0c"
+      ],
+      [
+        "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+        "7c7c1d3ce392e09c3814760855157187b6e00d0c"
+      ],
+      [
+        "a8b3ad2359674f71bf6257dd463de04d9c907ff7",
+        "2715d5da2c3d8af29c9d1e3788ca46b6b3ae8861"
+      ]
+    ],
+    "commit_hash": "5dc9490",
+    "completion_tokens": 20018,
+    "cost": 0.0,
+    "duration": 260.79711651802063,
+    "edit_format": "whole",
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "model": "openai/glm-4.7-flash-grpo",
+    "num_error_outputs": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "num_user_asks": 4,
+    "prompt_tokens": 13172,
+    "reasoning_effort": null,
+    "syntax_errors": 0,
+    "test_timeouts": 0,
+    "testcase": "bank-account",
+    "testdir": "tmp.benchmarks/2026-08-16-09-37-58--issue110-bankacct-pass1-20260816/cpp/exercises/practice/bank-account",
+    "tests_outcomes": [
+      false
+    ],
+    "thinking_tokens": null
+  },
+  "schema_version": 1,
+  "status": "complete",
+  "task": "bank-account",
+  "temperature": 0.7,
+  "tests_outcomes": [
+    false
+  ],
+  "thinking_disabled": false,
+  "top_p": 1.0,
+  "tries": 1
+}
