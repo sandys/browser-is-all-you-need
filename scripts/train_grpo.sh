@@ -367,33 +367,42 @@ finalize_wandb() {
     "${REPO_ROOT}/scripts/publish_results.py" "${finalize_args[@]}"
 }
 
-# Tenant-safe Ray lifecycle. This script can run under a supervisor that is
-# itself a Ray cluster (SkyPilot jobs are children of sky's Ray); a broadcast
-# `ray stop --force` / `pkill ray` kills that supervisor, the job dies with it,
-# and the idle autostop then deletes the VM out from under any surviving work
-# (issue #110 diag50 launch). Our Ray gets a private session dir and
-# non-default ports, and only processes bound to that session dir are killed.
-# Ray session sockets live under the temp dir and AF_UNIX caps the socket path
-# at 107 bytes, so the session dir must stay short: tag it with a hash of the
-# run id rather than the id itself.
+# Ray lifecycle MECHANISM only. Tenancy POLICY (private session dir, port
+# assignments, scoped cleanup, submit retries) is owned by the infra layer —
+# see infra/gcp/ — and injected via MILES_RAY_* variables. With nothing set,
+# behavior is the legacy machine-owner default: broadcast cleanup, stock Ray
+# ports. Session dirs are tagged with a hash of the run id because AF_UNIX
+# caps socket paths (which live under the temp dir) at 107 bytes.
 RAY_SESSION_TAG="$(printf %s "${RUN_ID}" | sha256sum | cut -c1-8)"
-RAY_TMPDIR="${MILES_RAY_TMPDIR:-/tmp/ray-g47-${RAY_SESSION_TAG}}"
-RAY_PORT="${MILES_RAY_PORT:-6479}"
-# The dashboard/runtime-env agents also bind fixed default ports (52365 etc.)
-# that a host Ray already owns; every fixed port must move off default.
-RAY_AGENT_LISTEN_PORT="${MILES_RAY_AGENT_LISTEN_PORT:-52415}"
-RAY_AGENT_GRPC_PORT="${MILES_RAY_AGENT_GRPC_PORT:-52416}"
-RAY_RUNTIME_ENV_AGENT_PORT="${MILES_RAY_RUNTIME_ENV_AGENT_PORT:-52417}"
-RAY_METRICS_EXPORT_PORT="${MILES_RAY_METRICS_EXPORT_PORT:-52418}"
+RAY_SCOPED_CLEANUP="${MILES_RAY_SCOPED_CLEANUP:-0}"
+RAY_TMPDIR="${MILES_RAY_TMPDIR:-}"
+if [ "${RAY_SCOPED_CLEANUP}" = "1" ] && [ -z "${RAY_TMPDIR}" ]; then
+  RAY_TMPDIR="/tmp/ray-g47-${RAY_SESSION_TAG}"
+fi
+RAY_PORT="${MILES_RAY_PORT:-}"
+RAY_AGENT_LISTEN_PORT="${MILES_RAY_AGENT_LISTEN_PORT:-}"
+RAY_AGENT_GRPC_PORT="${MILES_RAY_AGENT_GRPC_PORT:-}"
+RAY_RUNTIME_ENV_AGENT_PORT="${MILES_RAY_RUNTIME_ENV_AGENT_PORT:-}"
+RAY_METRICS_EXPORT_PORT="${MILES_RAY_METRICS_EXPORT_PORT:-}"
 pkill -9 sglang >/dev/null 2>&1 || true
-pkill -9 -f "ray-g47-${RAY_SESSION_TAG}" >/dev/null 2>&1 || true
-mkdir -p "${RAY_TMPDIR}"
+if [ "${RAY_SCOPED_CLEANUP}" = "1" ]; then
+  # Shared machine: only ever touch processes bound to this run's session.
+  pkill -9 -f "ray-g47-${RAY_SESSION_TAG}" >/dev/null 2>&1 || true
+else
+  # Sole owner of the machine: legacy broadcast cleanup.
+  ray stop --force >/dev/null 2>&1 || true
+  pkill -9 ray >/dev/null 2>&1 || true
+  pkill -9 redis >/dev/null 2>&1 || true
+fi
+if [ -n "${RAY_TMPDIR}" ]; then
+  mkdir -p "${RAY_TMPDIR}"
+fi
 
 export PYTHONBUFFERED=16
 export MASTER_ADDR="${MILES_MASTER_ADDR:-${MASTER_ADDR:-127.0.0.1}}"
 RAY_NODE_IP_ADDRESS="${MILES_RAY_NODE_IP_ADDRESS:-127.0.0.1}"
 RAY_DASHBOARD_HOST="${MILES_RAY_DASHBOARD_HOST:-127.0.0.1}"
-RAY_DASHBOARD_PORT="${MILES_RAY_DASHBOARD_PORT:-8280}"
+RAY_DASHBOARD_PORT="${MILES_RAY_DASHBOARD_PORT:-8265}"
 export no_proxy="127.0.0.1,${MASTER_ADDR},${RAY_NODE_IP_ADDRESS},${RAY_DASHBOARD_HOST}"
 export GLM47_DATA_DIR="${DATA_DIR}"
 export GLM47_CPP_SANDBOX_IMAGE="${GLM47_CPP_SANDBOX_IMAGE:-glm47-cpp-perf:latest}"
@@ -654,18 +663,21 @@ if [ -n "${MILES_EXTRA_ARGS:-}" ]; then
   MISC_ARGS+=("${EXTRA_ARGS[@]}")
 fi
 
-ray start --head \
-  --node-ip-address "${RAY_NODE_IP_ADDRESS}" \
-  --num-gpus "${GPUS_PER_NODE}" \
-  --disable-usage-stats \
-  --temp-dir "${RAY_TMPDIR}" \
-  --port "${RAY_PORT}" \
-  --dashboard-agent-listen-port "${RAY_AGENT_LISTEN_PORT}" \
-  --dashboard-agent-grpc-port "${RAY_AGENT_GRPC_PORT}" \
-  --runtime-env-agent-port "${RAY_RUNTIME_ENV_AGENT_PORT}" \
-  --metrics-export-port "${RAY_METRICS_EXPORT_PORT}" \
-  --dashboard-host="${RAY_DASHBOARD_HOST}" \
+RAY_START_ARGS=(
+  --head
+  --node-ip-address "${RAY_NODE_IP_ADDRESS}"
+  --num-gpus "${GPUS_PER_NODE}"
+  --disable-usage-stats
+  --dashboard-host="${RAY_DASHBOARD_HOST}"
   --dashboard-port="${RAY_DASHBOARD_PORT}"
+)
+[ -n "${RAY_TMPDIR}" ] && RAY_START_ARGS+=(--temp-dir "${RAY_TMPDIR}")
+[ -n "${RAY_PORT}" ] && RAY_START_ARGS+=(--port "${RAY_PORT}")
+[ -n "${RAY_AGENT_LISTEN_PORT}" ] && RAY_START_ARGS+=(--dashboard-agent-listen-port "${RAY_AGENT_LISTEN_PORT}")
+[ -n "${RAY_AGENT_GRPC_PORT}" ] && RAY_START_ARGS+=(--dashboard-agent-grpc-port "${RAY_AGENT_GRPC_PORT}")
+[ -n "${RAY_RUNTIME_ENV_AGENT_PORT}" ] && RAY_START_ARGS+=(--runtime-env-agent-port "${RAY_RUNTIME_ENV_AGENT_PORT}")
+[ -n "${RAY_METRICS_EXPORT_PORT}" ] && RAY_START_ARGS+=(--metrics-export-port "${RAY_METRICS_EXPORT_PORT}")
+ray start "${RAY_START_ARGS[@]}"
 
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
@@ -700,10 +712,11 @@ if [ -n "${TRAIN_MODULE}" ]; then
 fi
 # The dashboard's job agent registers asynchronously after `ray start`
 # returns, and a submit racing it fails with "No available agent to submit
-# job" (HTTP 500). Retry only fast failures so a genuine training error is
-# never rerun.
+# job" (HTTP 500). The infra layer sets MILES_RAY_SUBMIT_RETRIES to tolerate
+# that race; only fast failures retry, so a genuine training error is never
+# rerun. Legacy default is a single attempt.
 RAY_STATUS=1
-for submit_attempt in 1 2 3 4 5; do
+for submit_attempt in $(seq 1 "${MILES_RAY_SUBMIT_RETRIES:-1}"); do
   SUBMIT_STARTED_AT=${SECONDS}
   ray job submit --address="http://${RAY_DASHBOARD_HOST}:${RAY_DASHBOARD_PORT}" \
     --runtime-env-json="${RUNTIME_ENV_JSON}" \
