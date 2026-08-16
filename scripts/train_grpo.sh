@@ -373,10 +373,14 @@ finalize_wandb() {
 # and the idle autostop then deletes the VM out from under any surviving work
 # (issue #110 diag50 launch). Our Ray gets a private session dir and
 # non-default ports, and only processes bound to that session dir are killed.
-RAY_TMPDIR="${MILES_RAY_TMPDIR:-/tmp/ray-glm47-${RUN_ID}}"
+# Ray session sockets live under the temp dir and AF_UNIX caps the socket path
+# at 107 bytes, so the session dir must stay short: tag it with a hash of the
+# run id rather than the id itself.
+RAY_SESSION_TAG="$(printf %s "${RUN_ID}" | sha256sum | cut -c1-8)"
+RAY_TMPDIR="${MILES_RAY_TMPDIR:-/tmp/ray-g47-${RAY_SESSION_TAG}}"
 RAY_PORT="${MILES_RAY_PORT:-6479}"
 pkill -9 sglang >/dev/null 2>&1 || true
-pkill -9 -f "ray-glm47-${RUN_ID}" >/dev/null 2>&1 || true
+pkill -9 -f "ray-g47-${RAY_SESSION_TAG}" >/dev/null 2>&1 || true
 mkdir -p "${RAY_TMPDIR}"
 
 export PYTHONBUFFERED=16
