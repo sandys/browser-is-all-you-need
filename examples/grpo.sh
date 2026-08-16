@@ -96,9 +96,12 @@ if [ -n "${MILES_LORA_ADAPTER_PATH:-}" ] && [ "${MILES_AUTO_PREPARE_GRPO_ADAPTER
   TRAINER_ADAPTER_PATH="${MILES_LORA_ADAPTER_PATH}"
   HYBRID_ADAPTER_PATH="${MILES_GRPO_ADAPTER_DIR:-${MILES_RUN_ROOT}/adapter_hybrid}"
   export MILES_LORA_SOURCE_ADAPTER_PATH="${TRAINER_ADAPTER_PATH}"
+  # The staging count is the SOURCE adapter's shard count (EP8 warm starts have
+  # 8 per-rank files), which can differ from MILES_EXPECTED_NATIVE_SHARDS — the
+  # trained OUTPUT's shard count checked by the training receipt (TP4 -> 4).
   PREPARE_ARGS=(
     --include-native
-    --expected-native-shards "${MILES_EXPECTED_NATIVE_SHARDS:-${MILES_TENSOR_MODEL_PARALLEL_SIZE}}"
+    --expected-native-shards "${MILES_EXPECTED_SOURCE_NATIVE_SHARDS:-${MILES_EXPECTED_NATIVE_SHARDS:-${MILES_TENSOR_MODEL_PARALLEL_SIZE}}}"
   )
   if [ -n "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256:-}" ]; then
     PREPARE_ARGS+=(--expected-source-sha256 "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}")
