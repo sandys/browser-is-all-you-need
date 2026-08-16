@@ -138,6 +138,20 @@ setup: |
   test "$(tr -d '[:space:]' < "${MILES_HF_CHECKPOINT}/MODEL_REVISION")" = "${GLM47_MODEL_REVISION}"
   rsync -a /workspace/runs/shared/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8/ /workspace/local-checkpoints/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8/
   test -f "${MILES_REF_LOAD_DIR}/latest_checkpointed_iteration.txt"
+  ref_iteration="$(tr -d '[:space:]' < "${MILES_REF_LOAD_DIR}/latest_checkpointed_iteration.txt")"
+  if [ "${ref_iteration}" = release ]; then
+    ref_checkpoint_dir="${MILES_REF_LOAD_DIR}/release"
+  elif [[ "${ref_iteration}" =~ ^[0-9]+$ ]]; then
+    printf -v ref_checkpoint_dir '%s/iter_%07d' "${MILES_REF_LOAD_DIR}" "${ref_iteration}"
+  else
+    echo "Invalid reference checkpoint pointer: ${ref_iteration}" >&2
+    exit 2
+  fi
+  test -s "${ref_checkpoint_dir}/.metadata"
+  test -s "${ref_checkpoint_dir}/metadata.json"
+  test -s "${ref_checkpoint_dir}/common.pt"
+  find "${ref_checkpoint_dir}" -maxdepth 1 -type f -name '*.distcp' | wc -l | grep -qx 16
+  echo "REFERENCE_CHECKPOINT_READY pointer=${ref_iteration} shards=16"
   rsync -a /workspace/assets/checkpoints/glm47-synth-v1-100ep/checkpoints/iter_0000649/adapter/ /workspace/local-checkpoints/synth-v1-ep50-adapter/
   test "$(sha256sum "${MILES_LORA_ADAPTER_PATH}/adapter_model.bin" | awk '{print $1}')" = "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}"
   ls "${MILES_LORA_ADAPTER_PATH}"/adapter_megatron_tp*_pp0_ep*.pt | wc -l | grep -qx 8
