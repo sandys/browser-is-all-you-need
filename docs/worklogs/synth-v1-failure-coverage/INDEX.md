@@ -4,7 +4,11 @@
   [atomic ledger](atomic-ledger.jsonl)
 - Ledger: 286 task-trial rows, 370 tested turns; 273 causal-grade records and
   13 outcome-only records
-- SHA-256: `d0517317f6074a27c31bd75afd39aa842cb57efec7a44993c7ea0fe6107f72cd`
+- SHA-256: `248d7cb4f959c3b74b3bbfa57bd8d235c441264034b1c32a366e51a3409e4514`
+  (supersedes `d0517317…` — 2026-08-16 provenance migration of the 26
+  healthcheck rows from Modal refs to
+  `TokenBender/glm47-synth-v1-fixed26-evals@2056a4c1`; see the migration note
+  in [01-evidence-admissibility.md](01-evidence-admissibility.md))
 - Step 2: complete — [mechanism coverage](mechanism-coverage.jsonl)
 - Exact SFT corpus: `TokenBender/glm47-synth-v1-dataset@c586446fd309a1c2488b2953f77f3f370a73913c`,
   260 rows / 26 families; train SHA-256

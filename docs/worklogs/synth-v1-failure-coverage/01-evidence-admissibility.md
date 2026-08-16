@@ -1,7 +1,21 @@
 # Step 1 — Hard Evidence Gate
 
 Accepted records are frozen in [atomic-ledger.jsonl](atomic-ledger.jsonl),
-SHA-256 `d0517317f6074a27c31bd75afd39aa842cb57efec7a44993c7ea0fe6107f72cd`.
+SHA-256 `248d7cb4f959c3b74b3bbfa57bd8d235c441264034b1c32a366e51a3409e4514`.
+
+> Provenance migration (2026-08-16): supersedes SHA-256
+> `d0517317f6074a27c31bd75afd39aa842cb57efec7a44993c7ea0fe6107f72cd`. The only
+> change is the `source_ref` field of the 26 healthcheck-20260815 rows, which
+> pointed at a private Modal volume and at Modal function logs. The 13 shard-0
+> artifact sets were hash-verified against the ledger, archived to
+> `TokenBender/glm47-synth-v1-fixed26-evals@2056a4c1691911d642ee4bdb31d21e840238906f`
+> under `groups/epoch-50-healthcheck-20260815/attempts/a1/`, re-downloaded from
+> that revision, and re-verified 13/13 before the refs were rewritten. The 13
+> shard-1 rows were always outcome-only; their Modal function logs are no
+> longer retrievable, so their refs now point at the archived group manifest,
+> which records each task's original `modal-log://` id and evidence status. No
+> outcome, grade, hash, or note field changed; `analysis.py` output is
+> byte-identical across the migration.
 
 ## Hard accept
 
