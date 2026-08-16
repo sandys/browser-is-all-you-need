@@ -16,6 +16,7 @@ resources:
   infra: gcp/us-central1
   instance_type: a3-highgpu-8g
   accelerators: H100:8
+  image_id: docker:ghcr.io/tokenbender/glm47-runtime@sha256:b4f67ba1519bf276fe1dcb6fcb457600e4a256bc0d5c3011fcbd9cc05f240d43
   use_spot: true
   disk_size: 500
   disk_tier: high
