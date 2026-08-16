@@ -1,0 +1,72 @@
+{
+  "checkpoints": [
+    {
+      "adapter_config_sha256": "0bd6d85f88fc42fefa52627b3c261f1ad58bb2c9519332ae8034dd5dffe2498e",
+      "adapter_model_sha256": "662b04d913ec97a4a022f1cd4e05049766e3f07cd48498f563f4afaac8e62968",
+      "adapter_path": "/tmp/issue110-t3/checkpoints/grpo_lora_r16/iter_0000000/adapter",
+      "iteration": 0,
+      "layer_47_tensor_count": 207,
+      "native_shards": {
+        "adapter_megatron_tp0_pp0.pt": "8b4bd6ada2145e3b2a1c028067aa87f2711b0fc29e39731287869053de14c242",
+        "adapter_megatron_tp1_pp0.pt": "6211264b564c4db6e39af71b760a8752e361108445217c77c51a9aed92924cc8",
+        "adapter_megatron_tp2_pp0.pt": "d21b652374a2500e01a3c2222a839c41ebfd9507be5ffa1617841a84d31a3226",
+        "adapter_megatron_tp3_pp0.pt": "01b3f3be73c3bc791838dd8f0e9b641caf4b49c7e25128ba341e397cac50b3d6"
+      },
+      "tensor_count": 9741,
+      "training_state_files": [
+        "training_state_rank0.pt",
+        "training_state_rank1.pt",
+        "training_state_rank2.pt",
+        "training_state_rank3.pt",
+        "training_state_rank4.pt",
+        "training_state_rank5.pt",
+        "training_state_rank6.pt",
+        "training_state_rank7.pt"
+      ]
+    }
+  ],
+  "data_manifest_path": "/tmp/issue110-t1/manifest.json",
+  "data_manifest_sha256": "6a0db0ab0dc4fcfca238b2f841704fc636a47c81f98957e2cde54fb6c3ce751d",
+  "data_source_tree_sha256": "3113bbbfb57dafa5706e7bb3eea5cb5438ede6051e59a7e40391dd6dc41b234f",
+  "expected_native_shards": 4,
+  "expected_source_native_shards": 8,
+  "gpus_per_node": 8,
+  "hybrid_manifest_path": "/tmp/issue110-t3/adapter-hybrid-trusted/mtp_strip_manifest.json",
+  "hybrid_manifest_sha256": "261b798fa09aa8d0ccbaa2c851c637b5a609da96aa5dc5cb0306f319fc70ed1c",
+  "kind": "glm47-aider-grpo-training-gate",
+  "latest_checkpoint": {
+    "adapter_config_sha256": "0bd6d85f88fc42fefa52627b3c261f1ad58bb2c9519332ae8034dd5dffe2498e",
+    "adapter_model_sha256": "662b04d913ec97a4a022f1cd4e05049766e3f07cd48498f563f4afaac8e62968",
+    "adapter_path": "/tmp/issue110-t3/checkpoints/grpo_lora_r16/iter_0000000/adapter",
+    "iteration": 0,
+    "layer_47_tensor_count": 207,
+    "native_shards": {
+      "adapter_megatron_tp0_pp0.pt": "8b4bd6ada2145e3b2a1c028067aa87f2711b0fc29e39731287869053de14c242",
+      "adapter_megatron_tp1_pp0.pt": "6211264b564c4db6e39af71b760a8752e361108445217c77c51a9aed92924cc8",
+      "adapter_megatron_tp2_pp0.pt": "d21b652374a2500e01a3c2222a839c41ebfd9507be5ffa1617841a84d31a3226",
+      "adapter_megatron_tp3_pp0.pt": "01b3f3be73c3bc791838dd8f0e9b641caf4b49c7e25128ba341e397cac50b3d6"
+    },
+    "tensor_count": 9741,
+    "training_state_files": [
+      "training_state_rank0.pt",
+      "training_state_rank1.pt",
+      "training_state_rank2.pt",
+      "training_state_rank3.pt",
+      "training_state_rank4.pt",
+      "training_state_rank5.pt",
+      "training_state_rank6.pt",
+      "training_state_rank7.pt"
+    ]
+  },
+  "num_rollout": 1,
+  "official_26_role": "external fixed evaluation only",
+  "phase": "one-update",
+  "run_id": "issue110-bankacct-grpo-r3-20260816t090200z",
+  "run_root": "/tmp/issue110-t3",
+  "schema_version": 1,
+  "source_adapter_path": "/tmp/issue110-t3/source-adapter",
+  "source_adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+  "source_commit": "5d3f9c70aeda1c351ff6f6a58dc67b5134307604",
+  "status": "passed",
+  "training_task_count": 32
+}

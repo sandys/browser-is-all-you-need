@@ -13,6 +13,8 @@ Usage:
 ``--include-training-state`` additionally includes same-stage optimizer state.
 """
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json

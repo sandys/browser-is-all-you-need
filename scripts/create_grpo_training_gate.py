@@ -83,9 +83,15 @@ def create_gate(
     num_rollout: int,
     gpus_per_node: int,
     expected_native_shards: int,
+    expected_source_native_shards: int | None = None,
     expected_train_count: int = 253,
     output: Path,
 ) -> dict[str, Any]:
+    # The warm-start hybrid adapter and the trained output need not shard the
+    # same way: r3 warmed from an EP8 adapter (8 native files) and saved TP4
+    # checkpoints (4 shards). One shared expectation failed a successful run.
+    if expected_source_native_shards is None:
+        expected_source_native_shards = expected_native_shards
     data_manifest = json.loads(data_manifest_path.read_text(encoding="utf-8"))
     if data_manifest.get("kind") != "aider-polyglot-cpp-shadow-grpo":
         raise RuntimeError("training data is not the Aider shadow GRPO corpus")
@@ -101,7 +107,7 @@ def create_gate(
     if (
         hybrid_manifest.get("source_adapter_model_sha256") != source_sha256
         or hybrid_manifest.get("source") != str(source_adapter_path.resolve())
-        or len(hybrid_manifest.get("native_files", {})) != expected_native_shards
+        or len(hybrid_manifest.get("native_files", {})) != expected_source_native_shards
         or hybrid_manifest.get("training_state_files") != {}
     ):
         raise RuntimeError("hybrid adapter is not bound to the selected SFT warm start")
@@ -135,6 +141,8 @@ def create_gate(
         "source_commit": source_commit,
         "gpus_per_node": gpus_per_node,
         "num_rollout": num_rollout,
+        "expected_native_shards": expected_native_shards,
+        "expected_source_native_shards": expected_source_native_shards,
         "data_manifest_path": str(data_manifest_path),
         "data_manifest_sha256": sha256_path(data_manifest_path),
         "data_source_tree_sha256": data_manifest["source_tree_sha256"],
@@ -164,10 +172,20 @@ def main() -> None:
     parser.add_argument("--expected-source-adapter-sha256", required=True)
     parser.add_argument("--hybrid-manifest", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
-    parser.add_argument("--phase", choices=("profile", "full"), required=True)
+    parser.add_argument("--phase", choices=("profile", "full", "one-update"), required=True)
     parser.add_argument("--num-rollout", type=int, required=True)
     parser.add_argument("--gpus-per-node", type=int, required=True)
     parser.add_argument("--expected-native-shards", type=int, required=True)
+    parser.add_argument(
+        "--expected-source-native-shards",
+        type=int,
+        default=None,
+        help=(
+            "Native-file count of the warm-start hybrid adapter when it differs "
+            "from the trained output's shard count (e.g. EP8 source, TP4 output). "
+            "Defaults to --expected-native-shards."
+        ),
+    )
     parser.add_argument("--expected-train-count", type=int, default=253)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -184,6 +202,7 @@ def main() -> None:
         num_rollout=args.num_rollout,
         gpus_per_node=args.gpus_per_node,
         expected_native_shards=args.expected_native_shards,
+        expected_source_native_shards=args.expected_source_native_shards,
         expected_train_count=args.expected_train_count,
         output=args.output,
     )

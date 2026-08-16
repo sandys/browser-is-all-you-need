@@ -271,6 +271,8 @@ tasks_dir=${TASKS_DIR}
 data_build_module=${DATA_BUILD_MODULE}
 data_curriculum=${DATA_CURRICULUM}
 rollout_only=${ROLLOUT_ONLY}
+post_update_eval=${POST_UPDATE_EVAL:-unknown}
+post_update_eval_max_id=${POST_UPDATE_EVAL_MAX_ID:-}
 custom_rm_path=${CUSTOM_RM_PATH}
 expected_dataset_kind=${EXPECTED_DATASET_KIND}
 data_manifest_sha256=$(sha256sum "${DATA_DIR}/manifest.json" | awk '{print $1}')
@@ -668,6 +670,31 @@ RAY_STATUS=$?
 set -e
 
 cleanup
+
+# An eval dump at rollout id k reflects the policy after k optimizer updates,
+# so the trained final state is only ever measured by an eval with id >=
+# NUM_ROLLOUT. Issue #110 r3 shipped eval_0 (the frozen pre-update policy) as
+# "post-update validation"; record the truth in the receipt so that mislabel
+# cannot recur, and let launch profiles hard-require the post-update eval.
+POST_UPDATE_EVAL="absent"
+POST_UPDATE_EVAL_MAX_ID=""
+ROLLOUT_DUMP_DIR="$(dirname -- "${ROLLOUT_DUMP_TEMPLATE}")"
+if [ -d "${ROLLOUT_DUMP_DIR}" ]; then
+  POST_UPDATE_EVAL_MAX_ID="$(find "${ROLLOUT_DUMP_DIR}" -maxdepth 1 -name 'grpo_eval_*.pt' 2>/dev/null \
+    | sed -E 's/.*grpo_eval_([0-9]+)\.pt$/\1/' | sort -n | tail -n 1)"
+  if [ -n "${POST_UPDATE_EVAL_MAX_ID}" ] && [ "${POST_UPDATE_EVAL_MAX_ID}" -ge "${NUM_ROLLOUT}" ]; then
+    POST_UPDATE_EVAL="present"
+  fi
+fi
+EVAL_REQUIREMENT_STATUS=0
+if [ "${MILES_REQUIRE_POST_UPDATE_EVAL:-0}" = "1" ] \
+  && [ "${ROLLOUT_ONLY}" = "0" ] \
+  && [ "${RAY_STATUS}" -eq 0 ] \
+  && [ "${POST_UPDATE_EVAL}" != "present" ]; then
+  echo "MILES_REQUIRE_POST_UPDATE_EVAL=1 but no eval dump with rollout id >= ${NUM_ROLLOUT} exists in ${ROLLOUT_DUMP_DIR}; the trained policy was never evaluated" >&2
+  EVAL_REQUIREMENT_STATUS=1
+fi
+
 TRAINING_GATE_STATUS="not_requested"
 GATE_STATUS=0
 if [ "${RAY_STATUS}" -eq 0 ] && [ "${ROLLOUT_ONLY}" = "1" ]; then
@@ -689,6 +716,7 @@ elif [ "${RAY_STATUS}" -eq 0 ] && [ "${EXPECTED_DATASET_KIND}" = "aider-polyglot
     --num-rollout "${NUM_ROLLOUT}" \
     --gpus-per-node "${GPUS_PER_NODE}" \
     --expected-native-shards "${MILES_EXPECTED_NATIVE_SHARDS:-${TP_SIZE}}" \
+    --expected-source-native-shards "${MILES_EXPECTED_SOURCE_NATIVE_SHARDS:-${MILES_EXPECTED_NATIVE_SHARDS:-${TP_SIZE}}}" \
     --expected-train-count "${MILES_EXPECTED_TRAIN_COUNT:-253}" \
     --output "${TRAINING_GATE}"
   GATE_STATUS=$?
@@ -697,7 +725,7 @@ elif [ "${RAY_STATUS}" -eq 0 ] && [ "${EXPECTED_DATASET_KIND}" = "aider-polyglot
     TRAINING_GATE_STATUS="passed"
   fi
 fi
-if [ "${RAY_STATUS}" -eq 0 ] && [ "${GATE_STATUS}" -eq 0 ]; then
+if [ "${RAY_STATUS}" -eq 0 ] && [ "${GATE_STATUS}" -eq 0 ] && [ "${EVAL_REQUIREMENT_STATUS}" -eq 0 ]; then
   STAGE_STATUS="success"
 else
   STAGE_STATUS="failed"
@@ -712,5 +740,8 @@ if [ "${RAY_STATUS}" -ne 0 ]; then
 fi
 if [ "${GATE_STATUS}" -ne 0 ]; then
   exit "${GATE_STATUS}"
+fi
+if [ "${EVAL_REQUIREMENT_STATUS}" -ne 0 ]; then
+  exit "${EVAL_REQUIREMENT_STATUS}"
 fi
 exit "${FINALIZE_STATUS}"
