@@ -122,6 +122,9 @@ def evaluate(task: str, files: dict[str, str]) -> tuple[str, str]:
 def _normalize(text: str, work: pathlib.Path, task: str) -> str:
     """Canonicalise the scratch directory so diagnostics are run-stable."""
     root = f"/aider/{task}"
-    for variant in {str(work.resolve()), str(work)}:
+    # Longest first: on macOS the resolved path is /private/var/folders/... while
+    # str(work) is /var/folders/..., so replacing the short form first would match
+    # the tail of the long one and leave a /private/aider/... stub behind.
+    for variant in sorted({str(work.resolve()), str(work)}, key=len, reverse=True):
         text = text.replace(variant, root)
     return text
