@@ -22,6 +22,7 @@ BASE_DOCKER_IMAGE = "gcc:13"
 DEFAULT_DOCKER_IMAGE = DEFAULT_CPP_SANDBOX_IMAGE
 DEFAULT_CPU = "3"
 DEFAULT_MEMORY = "2g"
+DEFAULT_PIDS_LIMIT = 128
 DEFAULT_RUN_TIMEOUT_S = 5
 DEFAULT_RUNTIME_WARMUPS = 1
 DEFAULT_RUNTIME_REPEATS = 3
@@ -147,8 +148,15 @@ def docker_base_args(
     *,
     image: str = DEFAULT_DOCKER_IMAGE,
     memory: str = DEFAULT_MEMORY,
+    pids_limit: int = DEFAULT_PIDS_LIMIT,
 ) -> list[str]:
-    """Return the locked-down Docker prefix used by compile, test, and timing steps."""
+    """Return the locked-down Docker prefix used by compile, test, and timing steps.
+
+    ``pids_limit`` must be sized for the workload: every thread costs one pid,
+    so an oracle that spawns N threads needs headroom above N or pthread_create
+    fails with EAGAIN mid-run (issue #110 r3 forensics: 121/320 rollouts died
+    this way under the previous unconditional 128 cap).
+    """
 
     return [
         "docker",
@@ -163,7 +171,7 @@ def docker_base_args(
         "--memory",
         memory,
         "--pids-limit",
-        "128",
+        str(pids_limit),
         "--read-only",
         "--tmpfs",
         "/tmp:rw,noexec,nosuid,size=64m,mode=1777",

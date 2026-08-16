@@ -58,12 +58,18 @@ All 121 were classified `tests_failed` with reward **0.0** — *above* a compile
 failure's −0.5 — because `_is_infrastructure_error`
 (`src/glm47_posttraining/aider_polyglot/harness.py:40`) matches only four
 Docker-daemon strings. This violates the issue contract: "sandbox failure …
-infrastructure-invalid and produce no model gradient." The repo sets no rlimits
-of its own (no `prlimit`/`setrlimit`/`--pids-limit` anywhere in `src/`,
-`scripts/`, `infra/`); the ceiling comes from the training image's container
-runtime. The same 10-variant suite passed 10/10 with 10,000 concurrent threads
-on the plain CPU proof instance, so the ceiling is specific to the GPU training
-environment.
+infrastructure-invalid and produce no model gradient."
+
+**Correction (post-forensics):** the ceiling is the repo's own
+`--pids-limit 128` in `docker_base_args`
+(`src/glm47_posttraining/cpp_perf/sandbox.py`), applied to every docker
+sandbox stage. A 1,000-thread oracle under a 128-pid budget survives only when
+thread exit outpaces thread spawn — a scheduler race, which is why the failure
+was flaky (~60% of test-stage rollouts) rather than deterministic, and why the
+recorded worker load did not grade it. The CPU proof passed because it ran the
+local bubblewrap backend, which sets no pid cap. An earlier revision of this
+report blamed the training image's container runtime; that was wrong — the
+grep that "found no rlimits" did not cover `src/glm47_posttraining/cpp_perf/`.
 
 ## F3 — Both halves of hard gate 2 were vacuous
 
@@ -137,17 +143,17 @@ C++. The SFT variants consistently use accessor≠member naming (`funds()` /
 collision. The habit did not transfer through the single near-null update; the
 RL batch did not cause the failure. See `heldout-bank_account.h`.
 
-## Consequences for T2/T5 (proposed, not yet adopted in the issue)
+## Consequences for T2/T5
 
 1. **Before any further GPU spend:** classify pthread-EAGAIN aborts
    (`std::system_error` + rc 134) as `SandboxInfrastructureError` in
-   `harness.py`, raise and pin the container thread/pid budget for the
-   1,000-thread oracle, and fix both gate-2 defects (EAGAIN-aware detector,
-   non-degenerate load split).
-2. **Add a reward-path canary:** run one reference solution through the full
-   reward sandbox at full worker concurrency before every rollout batch. It
-   would have caught this failure immediately (a reference dying EAGAIN is an
-   unambiguous infra alarm).
+   `harness.py`, raise and pin the sandbox pids budget for the 1,000-thread
+   oracle, and fix both gate-2 defects (EAGAIN-aware detector, non-degenerate
+   load split). *Implemented in the infra-fix commit accompanying this report;
+   see `tests/`.*
+2. **Add a reward-path canary:** prove the sandbox can hold the oracle's peak
+   thread count before any rollout batch. *Implemented: the sandbox preflight
+   now holds 1,000 concurrent threads and fails closed.*
 3. **Rerun the admission gate after the fix** — true pass rates roughly double,
    so the mixture/difficulty picture (and the 57.5% figure) changes.
 4. **Warm-start the T5 multi-update run from the epoch-50 adapter, not

@@ -43,6 +43,17 @@ INFRASTRUCTURE_MARKERS = (
     "failed to create shim task",
     "no such image",
 )
+# Concurrency oracles spawn up to 1,000 threads and every thread costs one pid,
+# so the sandbox budget needs headroom above the largest oracle plus the shell,
+# timeout, and grader processes. Issue #110 r3: the previous shared 128 cap made
+# pthread_create race thread exit and killed 121/320 rollouts with EAGAIN.
+SANDBOX_PIDS_LIMIT = 2048
+PREFLIGHT_CONCURRENT_THREADS = 1000
+THREAD_EXHAUSTION_MARKERS = (
+    "resource temporarily unavailable",
+    "thread constructor failed",
+    "pthread_create failed",
+)
 FORBIDDEN_CANDIDATE_PATTERNS = (
     re.compile(r"#\s*(?:define|undef)\s+(?:main|return|if|for|while|switch)\b"),
     re.compile(r"\b(?:std::)?(?:_Exit|_exit|exit|quick_exit|abort|terminate)\s*\("),
@@ -142,6 +153,10 @@ def run_aider_tests(
         logs = {"configure": configure_logs, "build_and_test": build_logs}
         if _is_infrastructure_error(build_logs):
             raise SandboxInfrastructureError(build_logs)
+        if _is_thread_exhaustion(build_logs) and not FAIL_RE.search(build_logs):
+            # Catch-suite runs abort mid-binary on pthread EAGAIN; without a
+            # failure tally the verdict would be a sandbox artifact.
+            raise SandboxInfrastructureError(build_logs)
 
         passed = PASS_RE.search(build_logs)
         if passed:
@@ -238,6 +253,9 @@ def run_shadow_tests(
         compile_logs = _combined_logs(compile_result)
         if _is_infrastructure_error(compile_logs):
             raise SandboxInfrastructureError(compile_logs)
+        if _is_thread_exhaustion(compile_logs):
+            # A toolchain fork/thread failure is the sandbox, never the candidate.
+            raise SandboxInfrastructureError(compile_logs)
         if compile_result.returncode == 124 or "timed out" in compile_logs.lower():
             return AiderTestResult(
                 status="candidate_timeout",
@@ -263,6 +281,8 @@ def run_shadow_tests(
         test_logs = _combined_logs(test_result)
         logs = {"compile": compile_logs, "test": test_logs}
         if _is_infrastructure_error(test_logs):
+            raise SandboxInfrastructureError(test_logs)
+        if is_test_stage_infrastructure_failure(test_logs):
             raise SandboxInfrastructureError(test_logs)
         total = ordinal_total or 1
         if test_result.returncode == 124 or "timed out" in test_logs.lower():
@@ -309,7 +329,9 @@ def _run_stage(
     if sandbox_backend() == "local":
         command = _local_sandbox_command(scratch, script)
     else:
-        docker_args = docker_base_args(scratch, image=image, memory="4g")
+        docker_args = docker_base_args(
+            scratch, image=image, memory="4g", pids_limit=SANDBOX_PIDS_LIMIT
+        )
         # TSan reserves a fixed shadow-memory range. High-entropy ASLR can place
         # the executable inside that range, while Docker's default seccomp profile
         # blocks the personality syscall TSan uses to recover. Scope the proven
@@ -416,21 +438,51 @@ def assert_local_sandbox_ready() -> None:
 
 
 def run_sandbox_preflight() -> None:
-    """Compile and execute harmless probes through the selected isolation path."""
+    """Compile and execute probes proving the sandbox can host a full oracle run.
+
+    The thread probe holds ``PREFLIGHT_CONCURRENT_THREADS`` threads alive
+    simultaneously — the peak-pid shape of the largest concurrency oracle — so
+    an undersized pids budget fails here, before any rollout, instead of
+    killing scored candidates mid-run with pthread EAGAIN (issue #110 r3).
+    """
 
     assert_local_sandbox_ready()
     with TemporaryDirectory(prefix="aider_sandbox_preflight_") as scratch_value:
         scratch = Path(scratch_value)
         (scratch / "probe.cpp").write_text(
+            "#include <condition_variable>\n"
+            "#include <mutex>\n"
             "#include <thread>\n"
-            "int main() { int value = 0; std::thread worker([&] { value = 1; }); "
-            "worker.join(); return value == 1 ? 0 : 1; }\n",
+            "#include <vector>\n"
+            f"int main() {{ constexpr int kThreads = {PREFLIGHT_CONCURRENT_THREADS};\n"
+            "  std::mutex gate; std::condition_variable cv;\n"
+            "  int arrived = 0; bool release = false;\n"
+            "  std::vector<std::thread> pool; pool.reserve(kThreads);\n"
+            "  for (int i = 0; i < kThreads; ++i) pool.emplace_back([&] {\n"
+            "    std::unique_lock<std::mutex> lock(gate);\n"
+            "    if (++arrived == kThreads) cv.notify_all();\n"
+            "    cv.wait(lock, [&] { return release; }); });\n"
+            "  { std::unique_lock<std::mutex> lock(gate);\n"
+            "    cv.wait(lock, [&] { return arrived == kThreads; });\n"
+            "    release = true; }\n"
+            "  cv.notify_all();\n"
+            "  for (auto& worker : pool) worker.join();\n"
+            "  return arrived == kThreads ? 0 : 1; }\n",
             encoding="utf-8",
         )
         require_tsan = os.environ.get(TSAN_PREFLIGHT_REQUIRED_ENV, "0") == "1"
+        if require_tsan:
+            # TSan keeps its own probe: shadow memory for a thousand mostly
+            # blocked threads proves nothing extra and risks the memory cap.
+            (scratch / "probe_tsan.cpp").write_text(
+                "#include <thread>\n"
+                "int main() { int value = 0; std::thread worker([&] { value = 1; }); "
+                "worker.join(); return value == 1 ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
         compile_tsan = (
             " && c++ -std=c++17 -Wall -Wextra -Werror -pedantic -pthread "
-            "-fsanitize=thread probe.cpp -o probe_tsan"
+            "-fsanitize=thread probe_tsan.cpp -o probe_tsan"
             if require_tsan
             else ""
         )
@@ -439,7 +491,7 @@ def run_sandbox_preflight() -> None:
             "c++ -std=c++17 -Wall -Wextra -Werror -pedantic -pthread probe.cpp -o probe "
             "&& ./probe" + compile_tsan,
             image=DEFAULT_AIDER_DOCKER_IMAGE,
-            timeout_s=90,
+            timeout_s=180,
         )
         if result.returncode != 0:
             raise SandboxInfrastructureError(_combined_logs(result) or "sandbox preflight failed")
@@ -477,3 +529,22 @@ def _text(value: str | bytes | None) -> str:
 def _is_infrastructure_error(logs: str) -> bool:
     lowered = logs.lower()
     return any(marker in lowered for marker in INFRASTRUCTURE_MARKERS)
+
+
+def _is_thread_exhaustion(logs: str) -> bool:
+    """Detect pthread-create EAGAIN aborts: the sandbox ran out of pids/threads."""
+    lowered = logs.lower()
+    return any(marker in lowered for marker in THREAD_EXHAUSTION_MARKERS)
+
+
+def is_test_stage_infrastructure_failure(test_logs: str) -> bool:
+    """True when a test-stage log must be scored as sandbox failure, not the model.
+
+    A thread-exhaustion abort with no prior ``FAILED:`` assertion means every
+    functional check had passed when the sandbox killed the grader; scoring it
+    as a candidate failure both robs a probable pass and, worse, feeds the
+    optimizer a gradient against likely-correct code. When at least one
+    assertion already failed the semantic verdict stands and the EAGAIN only
+    truncated the remainder, so the record stays a valid test failure.
+    """
+    return _is_thread_exhaustion(test_logs) and "FAILED:" not in test_logs

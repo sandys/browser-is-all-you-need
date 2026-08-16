@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import defaultdict
 from contextlib import contextmanager
 import json
 import os
@@ -64,8 +65,43 @@ async def reward_func(
             async with semaphore:
                 return await asyncio.to_thread(_score_sample_with_worker_load, item)
 
-        return list(await asyncio.gather(*(score(item) for item in sample)))
+        records = list(await asyncio.gather(*(score(item) for item in sample)))
+        return neutralize_infrastructure_scores(records)
     return await asyncio.to_thread(_score_sample_with_worker_load, sample)
+
+
+def neutralize_infrastructure_scores(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Zero the GRPO advantage of infrastructure-invalid samples in place.
+
+    Miles trains on ``record["score"]`` (``--reward-key score``) and exposes no
+    channel for a custom reward to drop a sample, so an infrastructure-invalid
+    sample's 0.0 would enter its prompt group's advantage baseline as if the
+    policy had earned it (issue #110 r3: 61/256 training samples were sandbox
+    EAGAIN deaths scored this way). Setting the invalid sample's score to the
+    mean score of its group's valid members makes its group-normalized
+    advantage exactly zero while preserving every valid sample's ordering; a
+    group with no valid members collapses to identical scores, which likewise
+    yields zero advantage. The audited ``reward`` field keeps the original
+    value and ``score_neutralized`` marks the substitution.
+    """
+
+    groups: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        groups[(record.get("rollout_id"), record.get("problem_id"))].append(record)
+    for group in groups.values():
+        invalid = [record for record in group if record.get("infrastructure_error")]
+        if not invalid:
+            continue
+        valid_scores = [
+            float(record.get("score") or 0.0)
+            for record in group
+            if not record.get("infrastructure_error")
+        ]
+        anchor = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
+        for record in invalid:
+            record["score"] = anchor
+            record["score_neutralized"] = True
+    return records
 
 
 @contextmanager
