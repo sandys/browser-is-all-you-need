@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -59,7 +60,7 @@ def main() -> int:
             "--out",
             str(gate_path),
             "--expected-groups",
-            "40",
+            os.environ.get("GLM47_GATE_EXPECTED_GROUPS", "40"),
         ],
         check=True,
     )
