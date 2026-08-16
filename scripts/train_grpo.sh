@@ -683,24 +683,37 @@ TRAIN_ENTRYPOINT=(python3 train.py)
 if [ -n "${TRAIN_MODULE}" ]; then
   TRAIN_ENTRYPOINT=(python3 -m "${TRAIN_MODULE}")
 fi
-ray job submit --address="http://${RAY_DASHBOARD_HOST}:${RAY_DASHBOARD_PORT}" \
-  --runtime-env-json="${RUNTIME_ENV_JSON}" \
-  -- "${TRAIN_ENTRYPOINT[@]}" \
-  --actor-num-nodes 1 \
-  --actor-num-gpus-per-node "${GPUS_PER_NODE}" \
-  --colocate \
-  "${MODEL_ARGS[@]}" \
-  "${CKPT_ARGS[@]}" \
-  "${ROLLOUT_ARGS[@]}" \
-  "${OPTIMIZER_ARGS[@]}" \
-  "${GRPO_ARGS[@]}" \
-  "${WANDB_ARGS[@]}" \
-  "${PERF_ARGS[@]}" \
-  "${EVAL_ARGS[@]}" \
-  "${SGLANG_ARGS[@]}" \
-  "${MISC_ARGS[@]}" \
-  "${LORA_ARGS[@]}"
-RAY_STATUS=$?
+# The dashboard's job agent registers asynchronously after `ray start`
+# returns, and a submit racing it fails with "No available agent to submit
+# job" (HTTP 500). Retry only fast failures so a genuine training error is
+# never rerun.
+RAY_STATUS=1
+for submit_attempt in 1 2 3 4 5; do
+  SUBMIT_STARTED_AT=${SECONDS}
+  ray job submit --address="http://${RAY_DASHBOARD_HOST}:${RAY_DASHBOARD_PORT}" \
+    --runtime-env-json="${RUNTIME_ENV_JSON}" \
+    -- "${TRAIN_ENTRYPOINT[@]}" \
+    --actor-num-nodes 1 \
+    --actor-num-gpus-per-node "${GPUS_PER_NODE}" \
+    --colocate \
+    "${MODEL_ARGS[@]}" \
+    "${CKPT_ARGS[@]}" \
+    "${ROLLOUT_ARGS[@]}" \
+    "${OPTIMIZER_ARGS[@]}" \
+    "${GRPO_ARGS[@]}" \
+    "${WANDB_ARGS[@]}" \
+    "${PERF_ARGS[@]}" \
+    "${EVAL_ARGS[@]}" \
+    "${SGLANG_ARGS[@]}" \
+    "${MISC_ARGS[@]}" \
+    "${LORA_ARGS[@]}"
+  RAY_STATUS=$?
+  if [ "${RAY_STATUS}" -eq 0 ] || [ $((SECONDS - SUBMIT_STARTED_AT)) -ge 60 ]; then
+    break
+  fi
+  echo "ray job submit failed within 60s (attempt ${submit_attempt}); waiting for the dashboard job agent" >&2
+  sleep 10
+done
 set -e
 
 cleanup
