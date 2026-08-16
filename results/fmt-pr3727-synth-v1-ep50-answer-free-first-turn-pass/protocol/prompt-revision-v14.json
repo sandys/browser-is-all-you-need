@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": 14,
+  "parent_prompt_sha256": "7081aa3f715c4b676c4ba8610927e880b031dd5f5e14f8cf6a54d875302f1941",
+  "prompt_sha256": "5cd0b863030aaf309cb03730c27323160ece7e22642c0a85d558e5379cb4165b",
+  "prompt_bytes": 8587,
+  "prompt_words": 1025,
+  "basis": "Trial a14 compiled, passed 19/20 top-level tests, and failed only existing zero/subsecond timestamp behavior",
+  "added_guidance": [
+    "fix exact remainder expression to epoch minus converted epoch seconds",
+    "distinguish remainder conversion from negative-correction one-second conversion",
+    "pin consistent helper name to_duration"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

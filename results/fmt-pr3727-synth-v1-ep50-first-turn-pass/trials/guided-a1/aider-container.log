@@ -1,0 +1,660 @@
+Warning: Input is not a terminal (fd=0).
+Aider v0.86.3.dev53+g5dc9490bb
+Model: openai/glm-4.7-flash-grpo with whole edit format
+Git repo: none
+Repo-map: disabled
+Added chrono.h to the chat.
+
+--------------
+► **THINKING**
+
+1.  **Analyze the Request:**
+    *   **Goal:** Fix large-date chrono time-point formatting in 
+`include/fmt/chrono.h`.
+    *   **Problem:** Narrowing 
+`std::chrono::time_point<std::chrono::system_clock, Duration>` through 
+`system_clock::time_point` (native duration) causes overflow before conversion 
+to `std::tm`.
+    *   **Solution:** Directly convert `time_since_epoch()` to 
+`std::chrono::duration<std::time_t>` using a unified helper that respects 
+`FMT_SAFE_DURATION_CAST`.
+    *   **Test Cases:** The evaluator adds tests for specific large timestamps 
+(milliseconds and years) to ensure the fix works and safe casting fails 
+gracefully.
+    *   **Constraints:** Only modify `chrono.h`. C++11 compatible. Preserve 
+existing structure/guards. Use specific helper names 
+(`detail::is_same_arithmetic_type`, `detail::fmt_duration_cast`, 
+`detail::to_time_t`).
+
+2.  **Step-by-Step Implementation Plan:**
+
+    *   **Step 1: Add Unified Duration Cast Helper (`detail` namespace)**
+        *   Need `is_same_arithmetic_type` (integral/integral or 
+floating/floating).
+        *   Need `fmt_duration_cast`:
+            *   If same category: use `safe_duration_cast` if enabled, else 
+`std::chrono::duration_cast`.
+            *   If mixed category: use `std::chrono::duration_cast`.
+        *   Need `to_time_t`: input `time_point<system_clock, Duration>`, 
+convert epoch to `std::time_t`.
+
+    *   **Step 2: Route Calendar Conversion Through Helper**
+        *   `gmtime(std::chrono::time_point<std::chrono::system_clock, 
+Duration>)`: Template it, call `detail::to_time_t`.
+        *   `localtime(std::chrono::local_time<Duration>)`: Call 
+`detail::to_time_t(std::chrono::current_zone()->to_sys(time))`.
+
+    *   **Step 3: Use Unified Cast in Duration Formatting**
+        *   `write_fractional_seconds`: Use `fmt_duration_cast` for seconds and 
+fractional remainder.
+        *   `get_milliseconds`: Use `fmt_duration_cast` for intermediate steps.
+        *   `chrono_formatter::write`: Use `fmt_duration_cast` for seconds 
+conversion.
+        *   Remove standalone `fmt_safe_duration_cast` helper (replaced by 
+`fmt_duration_cast`).
+
+    *   **Step 4: Stop Narrowing Time Points**
+        *   `formatter<time_point<system_clock, Duration>>`: Compute 
+seconds/subseconds using `fmt_duration_cast`. Pass raw `val` to `gmtime`. Handle
+negative subseconds.
+        *   `formatter<local_time<Duration>>`: Compute remainder using 
+`fmt_duration_cast`. Pass raw `val` to `localtime`.
+
+3.  **Drafting the Code Changes (Mental or Scratchpad):**
+
+    *   *Helper Definition:*
+        ```cpp
+        namespace detail {
+        template <typename Rep1, typename Rep2>
+        struct is_same_arithmetic_type : std::false_type {};
+        template <typename Rep>
+        struct is_same_arithmetic_type<Rep, Rep> : std::true_type {};
+        template <typename Rep1, typename Rep2>
+        struct is_same_arithmetic_type<std::chrono::duration<Rep1>, 
+std::chrono::duration<Rep2>>
+            : is_same_arithmetic_type<Rep1, Rep2> {};
+
+        template <typename To, typename From>
+        To fmt_duration_cast(From from) {
+            using FromRep = typename From::rep;
+            using ToRep = typename To::rep;
+            if (is_same_arithmetic_type<FromRep, ToRep>::value) {
+#if FMT_SAFE_DURATION_CAST
+                int ec = 0;
+                To to = safe_duration_cast::safe_duration_cast<To>(from, ec);
+                if (ec) FMT_THROW(format_error("cannot format duration"));
+                return to;
+#else
+                return std::chrono::duration_cast<To>(from);
+#endif
+            }
+            return std::chrono::duration_cast<To>(from);
+        }
+
+        template <typename Duration>
+        std::time_t to_time_t(std::chrono::time_point<std::chrono::system_clock,
+Duration> time_point) {
+            using seconds = std::chrono::seconds;
+            using from_duration = typename Duration::duration;
+            using to_duration = std::chrono::duration<std::time_t>;
+            auto duration = std::chrono::time_point<std::chrono::system_clock, 
+from_duration>::time_since_epoch(time_point);
+            auto converted = fmt_duration_cast<to_duration>(duration);
+            return converted.count();
+        }
+        }
+        ```
+
+    *   *Calendar Functions:*
+        ```cpp
+        inline std::tm gmtime(std::chrono::time_point<std::chrono::system_clock,
+Duration> time_point) {
+            std::time_t time = detail::to_time_t(time_point);
+            // ... dispatcher logic ...
+        }
+        ```
+
+    *   *Time Point Formatters:*
+        Need to update the `do_format` private method of 
+`formatter<time_point<system_clock, Duration>, Char>` to take `Duration` and use
+the new helpers.
+
+4.  **Refining the Implementation:**
+
+    *   *Location of Helpers:* Place them in the `detail` namespace, likely near
+the existing `localtime_r/gmtime_r` definitions or near the `safe_duration_cast`
+definitions.
+    *   *Formatter Logic:*
+        The existing code does:
+        ```cpp
+        const auto epoch = val.time_since_epoch();
+        auto subsecs = std::chrono::duration_cast<Duration>(
+            epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+        ```
+        This casts `epoch` (native duration) to seconds first. This is the 
+overflow bug.
+        Fix:
+        ```cpp
+        using seconds = std::chrono::seconds;
+        using from_duration = typename Duration::duration;
+        using to_seconds = std::chrono::duration<std::time_t>;
+        auto epoch = val.time_since_epoch();
+        auto whole = fmt_duration_cast<to_seconds>(epoch);
+        auto subsecs = std::chrono::duration<from_duration::rep, 
+std::ratio<1>>(epoch - whole);
+        ```
+
+    *   *Formatting Local Time:*
+        The existing code calls 
+`gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val))`.
+        Fix: Call `detail::to_time_t(val)` directly.
+
+    *   *Formatting UTC Time (if enabled):*
+        This inherits from system_clock formatter, so `do_format` change handles
+it.
+
+    *   *Formatting Duration (subseconds):*
+        `write_fractional_seconds` needs to accept `Duration` and use 
+`fmt_duration_cast`.
+
+5.  **Executing the Code Modification:**
+
+    *   *Scan `chrono.h` for insertion points.*
+    *   *Insert `is_same_arithmetic_type` and `fmt_duration_cast` and 
+`to_time_t` into `detail` namespace.*
+
+    *   *Update `gmtime` overload:*
+        ```cpp
+        template <typename Duration>
+        inline std::tm gmtime(std::chrono::time_point<std::chrono::system_clock,
+Duration> time_point) {
+            std::time_t time = detail::to_time_t(time_point);
+            // dispatcher logic remains same, but needs to handle Duration 
+template to call to_time_t logic? No, dispatcher logic is static std::tm.
+            // The dispatcher logic uses localtime_r/gmtime_s. It doesn't take 
+Duration.
+            // So we just convert time_point to time_t and call the existing 
+non-template gmtime(time_t).
+        }
+        ```
+
+    *   *Update `localtime` overload:*
+        ```cpp
+        template <typename Duration>
+        inline auto localtime(std::chrono::local_time<Duration> time) -> std::tm
+{
+            return localtime(std::chrono::system_clock::to_time_t(
+                std::chrono::current_zone()->to_sys(time)));
+        }
+        ```
+
+    *   *Update `write_fractional_seconds`:*
+        Change signature to take `Duration`. Use `fmt_duration_cast`.
+        ```cpp
+        template <typename OutputIt, typename Duration>
+        void write_fractional_seconds(OutputIt& out, Duration d, int precision =
+-1) {
+            using rep = typename Duration::rep;
+            using seconds = std::chrono::seconds;
+            using subsecond_precision = std::chrono::duration<
+                typename std::common_type<typename Duration::rep,
+                                        seconds::rep>::type,
+                std::ratio<1, detail::pow10(num_fractional_digits)>>;
+
+            const auto fractional =
+                d - std::chrono::duration_cast<seconds>(d);
+            // Use fmt_duration_cast for seconds
+            const auto whole = fmt_duration_cast<seconds>(d);
+            const auto subseconds =
+                std::chrono::treat_as_floating_point<
+                    typename subsecond_precision::rep>::value
+                    ? fractional.count()
+                    : 
+std::chrono::duration_cast<subsecond_precision>(fractional).count();
+            // ... rest of logic ...
+        }
+        ```
+
+    *   *Update `chrono_formatter::write`:*
+        Change `s = std::chrono::duration_cast<seconds>(...)` to `s = 
+fmt_duration_cast<seconds>(...)`.
+
+    *   *Update `get_milliseconds`:*
+        Use `fmt_duration_cast` for intermediate casts.
+
+    *   *Update `formatter<time_point<system_clock, Duration>>`:*
+        Update `do_format` to extract seconds and subseconds using 
+`fmt_duration_cast` before passing to `gmtime`.
+        Update `format` to do the same.
+
+    *   *Update `formatter<local_time<Duration>>`:*
+        Update `do_format` to extract remainder using `fmt_duration_cast` before
+passing to `localtime`.
+        Update `format` to do the same.
+
+    *   *Cleanup:* Remove `fmt_safe_duration_cast` helper since it's replaced by
+`fmt_duration_cast`.
+
+6.  **Final Code Construction & Verification:**
+
+    *   Need to ensure `detail::fmt_duration_cast` is defined before it's used.
+    *   Check namespace boundaries (FMT_BEGIN_NAMESPACE, detail, 
+FMT_END_NAMESPACE).
+    *   Check `#if FMT_SAFE_DURATION_CAST` guards.
+
+    *(Self-Correction during drafting)*:
+    The existing `gmtime(time_t)` function signature in the public API needs to 
+remain. The new overload must be distinct.
+    The `localtime(std::chrono::local_time<Duration>)` overload calls 
+`std::chrono::system_clock::to_time_t(...)`. This is safe because `local_time` 
+is typically stored in seconds or milliseconds, but checking the duration type 
+isn't strictly necessary here as `to_time_t` handles arbitrary durations. 
+However, the prompt specifically asks to call 
+`detail::to_time_t(std::chrono::current_zone()->to_sys(time))`. I will follow 
+the prompt's explicit instruction for the calendar functions to route through 
+the generic helper.
+
+    *Specific check on `write_fractional_seconds`:*
+    The original code has:
+    ```cpp
+    const auto fractional =
+        d - std::chrono::duration_cast<std::chrono::seconds>(d);
+    ```
+    I need to change this to use `fmt_duration_cast` to avoid narrowing 
+overflow.
+
+    *Specific check on `chrono_formatter::write`:*
+    ```cpp
+    s = std::chrono::duration_cast<seconds>(
+        std::chrono::duration<rep, Period>(val));
+    ```
+    Change to `fmt_duration_cast<seconds>(...)`.
+
+    *Specific check on `formatter<time_point...>`:*
+    The `do_format` method signature is `do_format(const std::tm& tm, 
+FormatContext& ctx, const Duration* subsecs) const`.
+    The `format` method is `format(std::chrono::time_point<...> val, 
+FormatContext& ctx) const`.
+    I need to modify both to use the new helper for seconds extraction.
+
+    *Specific check on `formatter<local_time...>`:*
+    Similar modifications.
+
+    *Removing `fmt_safe_duration_cast`:*
+    Look for it in the file. It's defined near the end of the detail namespace 
+before the formatter specializations. I will remove it.
+
+7.  **Final Output Generation:** Produce the full `chrono.h` content with the 
+implemented changes. I will perform a text search and replace mentally to ensure
+I catch all instances.
+
+    *Insertion Point 1: Detail helpers.*
+    Insert `is_same_arithmetic_type`, `fmt_duration_cast`, `to_time_t` after the
+existing safe duration cast helpers and before `null_chrono_spec_handler`.
+
+    *Modification 1: Calendar functions.*
+    Update `gmtime` overload and `localtime` overload.
+
+    *Modification 2: Duration writers.*
+    Update `write_fractional_seconds`.
+
+    *Modification 3: Milliseconds helper.*
+    Update `get_milliseconds`.
+
+    *Modification 4: Chrono formatter.*
+    Update `chrono_formatter::write`.
+
+    *Modification 5: System clock formatter.*
+    Update `formatter<time_point<system_clock...>>::do_format` and `format`.
+
+    *Modification 6: Local clock formatter.*
+    Update `formatter<local_time<...>>::do_format` and `format`.
+
+    *Deletion:* Remove `fmt_safe_duration_cast`.
+
+    *Double Check:* The prompt says "Do not touch unrelated calls...". I must be
+careful not to break the standard 
+`std::chrono::time_point<std::chrono::system_clock>` formatting which defaults 
+to seconds. The new `template <typename Duration>` overload must coexist with 
+the existing non-template one.
+
+    The existing `gmtime(std::chrono::time_point<std::chrono::system_clock> 
+time_point)` is essentially 
+`gmtime(std::chrono::time_point<std::chrono::system_clock, std::chrono::seconds>
+time_point)`. So the new template overload will correctly hide the old one when 
+given a specific duration type, but the old one remains for the default case. 
+This is correct.
+
+    Let's assemble the file.
+
+    *Inserting helpers:*
+    ```cpp
+    namespace detail {
+    // ... existing safe_duration_cast stuff ...
+    }  // namespace detail
+
+    namespace detail {
+    template <typename Rep1, typename Rep2>
+    struct is_same_arithmetic_type : std::false_type {};
+    template <typename Rep>
+    struct is_same_arithmetic_type<Rep, Rep> : std::true_type {};
+    template <typename Rep1, typename Rep2>
+    struct is_same_arithmetic_type<std::chrono::duration<Rep1>, 
+std::chrono::duration<Rep2>>
+        : is_same_arithmetic_type<Rep1, Rep2> {};
+
+    template <typename To, typename From>
+    To fmt_duration_cast(From from) {
+        using FromRep = typename From::rep;
+        using ToRep = typename To::rep;
+        if (is_same_arithmetic_type<FromRep, ToRep>::value) {
+#if FMT_SAFE_DURATION_CAST
+            int ec = 0;
+            To to = safe_duration_cast::safe_duration_cast<To>(from, ec);
+            if (ec) FMT_THROW(format_error("cannot format duration"));
+            return to;
+#else
+            return std::chrono::duration_cast<To>(from);
+#endif
+        }
+        return std::chrono::duration_cast<To>(from);
+    }
+
+    template <typename Duration>
+    std::time_t to_time_t(std::chrono::time_point<std::chrono::system_clock, 
+Duration> time_point) {
+        using seconds = std::chrono::seconds;
+        using from_duration = typename Duration::duration;
+        using to_duration = std::chrono::duration<std::time_t>;
+        auto duration = std::chrono::time_point<std::chrono::system_clock, 
+from_duration>::time_since_epoch(time_point);
+        auto converted = fmt_duration_cast<to_duration>(duration);
+        return converted.count();
+    }
+    }  // namespace detail
+    ```
+
+    *Updating Calendar Functions:*
+    Move `gmtime` and `localtime` templates to follow the new helper.
+
+    *Updating `write_fractional_seconds`:*
+    Use `fmt_duration_cast`.
+
+    *Updating `get_milliseconds`:*
+    Use `fmt_duration_cast`.
+
+    *Updating `chrono_formatter::write`:*
+    Use `fmt_duration_cast`.
+
+    *Updating Formatters:*
+    Update `do_format` and `format` in `formatter<time_point<...>>` and 
+`formatter<local_time<...>>` to use the new helpers.
+
+    *Removing `fmt_safe_duration_cast`:*
+    Found in detail namespace. Delete.
+
+    *Wait, let's check where to insert.*
+    The prompt says: "Near the early time-formatting helpers, before the public 
+`localtime` and `gmtime` overloads, add..."
+    So after the safe_duration_cast namespace block, before the 
+`null_chrono_spec_handler` or similar.
+
+    Let's re-read the prompt specific test cases.
+    `std::chrono::time_point<std::chrono::system_clock, 
+std::chrono::milliseconds> t5(std::chrono::seconds(32503680000));`
+    `std::chrono::time_point<std::chrono::system_clock, years> 
+t6(years(std::numeric_limits<std::int64_t>::max()));`
+    The fix must handle these.
+
+    One tricky part: `detail::to_time_t` converts `time_since_epoch()` to 
+`std::time_t`.
+    `std::time_t` is typically 64-bit on Linux, but the native system_clock 
+duration might be 32-bit seconds or similar on some platforms. The cast 
+`fmt_duration_cast` handles the narrowing check.
+
+    Let's verify the `write_fractional_seconds` change.
+    Original:
+    ```cpp
+    const auto fractional =
+        d - std::chrono::duration_cast<std::chrono::seconds>(d);
+    ```
+    New:
+    ```cpp
+    using seconds = std::chrono::seconds;
+    using from_duration = typename Duration::duration;
+    using to_seconds = std::chrono::duration<std::time_t>;
+    const auto whole = fmt_duration_cast<to_seconds>(d);
+    const auto fractional = d - whole;
+    ```
+
+    Let's verify `chrono_formatter::write`.
+    Original:
+    ```cpp
+    s = std::chrono::duration_cast<seconds>(
+        std::chrono::duration<rep, Period>(val));
+    ```
+    New:
+    ```cpp
+    s = fmt_duration_cast<seconds>(
+        std::chrono::duration<rep, Period>(val));
+    ```
+
+    Let's verify `get_milliseconds`.
+    Original:
+    ```cpp
+    auto s = std::chrono::duration_cast<std::chrono::seconds>(d);
+    return std::chrono::duration_cast<std::chrono::milliseconds>(d - s);
+    ```
+    New:
+    ```cpp
+    auto s = fmt_duration_cast<std::chrono::seconds>(d);
+    return std::chrono::duration_cast<std::chrono::milliseconds>(d - s);
+    ```
+
+    Let's verify `formatter<time_point...>`.
+    Original:
+    ```cpp
+    const auto epoch = val.time_since_epoch();
+    auto subsecs = std::chrono::duration_cast<Duration>(
+        epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+    ```
+    New:
+    ```cpp
+    using seconds = std::chrono::seconds;
+    using from_duration = typename Duration::duration;
+    using to_seconds = std::chrono::duration<std::time_t>;
+    auto epoch = val.time_since_epoch();
+    auto whole = fmt_duration_cast<to_seconds>(epoch);
+    auto subsecs = std::chrono::duration<from_duration::rep, 
+std::ratio<1>>(epoch - whole);
+    ```
+
+    Everything seems consistent. I will now generate the full file.
+
+    *One final check on the namespace placement.*
+    The prompt says: "Near the early time-formatting helpers, before the public 
+`localtime` and `gmtime` overloads, add..."
+    The public overloads are:
+    `inline std::tm localtime(std::time_t time)`
+    `inline std::tm gmtime(std::time_t time)`
+    Inside `FMT_BEGIN_EXPORT` and `FMT_BEGIN_NAMESPACE`.
+    The helpers must be added inside `detail` namespace, before the public 
+functions.
+
+    The file structure is:
+    ...
+    `namespace detail { ... safe_duration_cast ... }`
+    `FMT_BEGIN_EXPORT`
+    `FMT_BEGIN_NAMESPACE`
+    ...
+    `namespace detail { ... helpers ... }`
+    `public: gmtime(time_t) ...` (Wait, gmtime(time_t) is public)
+    ...
+    So I need to insert the new helpers inside `detail` namespace, before the 
+public functions.
+
+    The current `detail` namespace has:
+    `null_chrono_spec_handler`
+    `tm_format_checker`
+    `write_digit2_separated`
+    `get_units`
+    `pad_type`
+    `write_padding`
+    `parse_chrono_format`
+    `null_chrono_spec_handler` etc are handlers.
+    `write_digit2_separated` is utility.
+    `get_units` is constant lookup.
+    `pad_type` is enum.
+    `write_padding` is utility.
+    `parse_chrono_format` is parser.
+    Then `get_locale`.
+    Then `chrono_formatter`.
+    Then `formatter<weekday>`, `formatter<duration>`, 
+`formatter<time_point<system_clock>>`, `formatter<local_time>`, 
+`formatter<utc_clock>`, `formatter<std::tm>`.
+
+    The public functions `localtime(std::time_t)` and `gmtime(std::time_t)` are 
+inside `FMT_BEGIN_EXPORT` -> `FMT_BEGIN_NAMESPACE`.
+
+    The prompt says: "Near the early time-formatting helpers, before the public 
+`localtime` and `gmtime` overloads, add..."
+    So I will put the helpers in the `detail` namespace, right before the 
+`get_locale` class or `chrono_formatter` class? Or just before the public 
+functions.
+    Actually, the prompt says "before the public `localtime` and `gmtime` 
+overloads".
+    The public overloads are at the end of the file (or near the end).
+    So I will insert the helpers into `detail` namespace, near the existing 
+helpers (like `safe_duration_cast`), and then ensure the public functions are 
+updated to use them.
+
+    Wait, the prompt says: "Use the following plan... 1. Add a unified 
+duration-cast helper in the early `detail` namespace".
+    So Step 1 is to add them.
+    Step 2 is to "Route calendar conversion through the generic helper".
+    Step 3 is to "Use the unified cast helper throughout duration formatting".
+    Step 4 is to "Stop narrowing time points before `gmtime` and `localtime`".
+
+    I will perform these steps on the file content.
+
+    *Refining the `detail::fmt_duration_cast` implementation:*
+    The prompt mentions: "For the same arithmetic category, use 
+`safe_duration_cast::safe_duration_cast` when `FMT_SAFE_DURATION_CAST` is 
+enabled."
+    The existing code has `safe_duration_cast` namespace defined earlier. I must
+use that.
+
+    *Refining `detail::to_time_t`:*
+    This is a new function.
+
+    *Refining `gmtime` and `localtime` public overloads:*
+    I need to add the template overloads.
+
+    *Refining `write_fractional_seconds`:*
+    Change signature to accept `Duration`.
+
+    *Refining `chrono_formatter::write`:*
+    Use `fmt_duration_cast`.
+
+    *Refining `get_milliseconds`:*
+    Use `fmt_duration_cast`.
+
+    *Refining System/Local clock formatters:*
+    Use `fmt_duration_cast` for seconds extraction and `detail::to_time_t` for 
+calendar conversion (for system clock).
+
+    *Cleanup:* Remove `fmt_safe_duration_cast`.
+
+    Okay, ready to generate the response. I will output the full `chrono.h` 
+file.
+
+------------
+► **ANSWER**
+
+chrono.h
+
+```diff
+@@ -233,11 +233,11 @@
+   auto tocount = lossless_integral_conversion<typename To::rep>(count, ec);
+   return ec ? To() : To(tocount);
+ }
+ 
+ /**
+- * safe duration_cast between floating point durations
++ * safe duration cast between floating point durations
+  */
+ template <typename To, typename FromRep, typename FromPeriod,
+           FMT_ENABLE_IF(std::is_floating_point<FromRep>::value),
+           FMT_ENABLE_IF(std::is_floating_point<typename To::rep>::value)>
+ To safe_duration_cast(std::chrono::duration<FromRep, FromPeriod> from,
+@@ -521,13 +521,50 @@
+   // Too big time values may be unsupported.
+   if (!gt.run()) FMT_THROW(format_error("time_t value out of range"));
+   return gt.tm_;
+ }
+ 
++template <typename Duration>
++inline std::tm gmtime(
++    std::chrono::time_point<std::chrono::system_clock, Duration> time_point) {
++  std::time_t time = detail::to_time_t(time_point);
++  struct dispatcher {
++    std::time_t time_;
++    std::tm tm_;
++
++    dispatcher(std::time_t t) : time_(t) {}
++
++    bool run() {
++      using namespace fmt::detail;
++      return handle(gmtime_r(&time_, &tm_));
++    }
++
++    bool handle(std::tm* tm) { return tm != nullptr; }
++
++    bool handle(detail::null<>) {
++      using namespace fmt::detail;
++      return fallback(gmtime_s(&tm_, &time_));
++    }
++
++    bool fallback(int res) { return res == 0; }
++
++#if !FMT_MSC_VERSION
++    bool fallback(detail::null<>) {
++      std::tm* tm = std::gmtime(&time_);
++      if (tm) tm_ = *tm;
++      return tm != nullptr;
++    }
++#endif
++  };
++  auto gt = dispatcher(time);
++  if (!gt.run()) FMT_THROW(format_error("time_t value out of range"));
++  return gt.tm_;
++}
++
+ inline std::tm gmtime(
+     std::chrono::time_point<std::chrono::system_clock> time_point) {
+-  return gmtime(std::chrono::system_clock::to_time_t(time_point));
++  return 
+gmtime(std::chrono::time_point_cast<std::chrono::seconds>(time_point));
+ }
+ 
+ namespace detail {
+ 
+ // Writes two-digit numbers a, b and c separated by sep to buf.
+@@ -1683,11 +1720,11 @@
+   return std::copy(u.c_str(), u.c_str() + u.size(), out);
+ }
+ 
+ template <typename Char, typename Period, typename OutputIt>
+ OutputIt format_duration_unit(OutputIt out) {
+-  if (const char* unit = get_units<Period>())
++  if (const char* unit = get_units<Period>)
+     return copy_unit(string_view(unit), out, Char());
+   *out++ = '[';
+   out = write<Char>(out, Period::num);
+   if (const_check(Period::den != 1)) {
+     *out++ = '/';
+```
+
+
+Tokens: 22k sent, 25k received.
+Applied edit to chrono.h

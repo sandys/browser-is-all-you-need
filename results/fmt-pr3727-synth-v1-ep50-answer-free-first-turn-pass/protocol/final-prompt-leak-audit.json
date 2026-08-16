@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "experiment_id": "fmt-pr3727-synth-v1-ep50-answer-free-v1",
+  "prompt_sha256": "0595414b51ee9d0bacedb062d894cd4db66588d325b26a48b2d588109c948fe9",
+  "reference_patch_sha256": "1e5b2e54d779c5e44df41ad0511837f9091e847085306045cda9cddb186b2848",
+  "reference_used_for_offline_audit_only": true,
+  "accepted_patch_or_reference_code_supplied_to_model": false,
+  "reference_nontrivial_added_lines_checked": 45,
+  "exact_matches_in_final_prompt": [
+    "#if FMT_SAFE_DURATION_CAST"
+  ],
+  "assessment": "The sole exact match is an existing preprocessor symbol already present in the untouched source and public build configuration, not solution code. No nontrivial accepted-patch implementation line was copied into the final prompt.",
+  "limitations": [
+    "The final prompt contains failure-derived architecture and a short expression produced during earlier model attempts.",
+    "The upstream issue and accepted PR are public, so pretraining contamination cannot be ruled out."
+  ]
+}

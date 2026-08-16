@@ -1,0 +1,9 @@
+{
+  "accepted_implementation_code_disclosed": false,
+  "exact_nontrivial_added_line_matches": [],
+  "forbidden_solution_term_hits": [],
+  "model_mount_policy": "audit report and reference patch remain outside model-visible experiment root until inference is complete",
+  "prompt_sha256": "3b0423917a6a4f88719a11d2c498eef7806ca1705cd166abd6c18a3d868ad3f0",
+  "reference_used_for_local_audit_only": true,
+  "schema_version": 1
+}

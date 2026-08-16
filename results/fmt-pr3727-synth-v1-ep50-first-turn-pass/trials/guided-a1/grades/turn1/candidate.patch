@@ -1,0 +1,70 @@
+diff --git a/include/fmt/chrono.h b/include/fmt/chrono.h
+index 7bd4206d..20405915 100644
+--- a/include/fmt/chrono.h
++++ b/include/fmt/chrono.h
+@@ -235,7 +235,7 @@ To safe_duration_cast(std::chrono::duration<FromRep, FromPeriod> from,
+ }
+ 
+ /**
+- * safe duration_cast between floating point durations
++ * safe duration cast between floating point durations
+  */
+ template <typename To, typename FromRep, typename FromPeriod,
+           FMT_ENABLE_IF(std::is_floating_point<FromRep>::value),
+@@ -523,9 +523,46 @@ inline std::tm gmtime(std::time_t time) {
+   return gt.tm_;
+ }
+ 
++template <typename Duration>
++inline std::tm gmtime(
++    std::chrono::time_point<std::chrono::system_clock, Duration> time_point) {
++  std::time_t time = detail::to_time_t(time_point);
++  struct dispatcher {
++    std::time_t time_;
++    std::tm tm_;
++
++    dispatcher(std::time_t t) : time_(t) {}
++
++    bool run() {
++      using namespace fmt::detail;
++      return handle(gmtime_r(&time_, &tm_));
++    }
++
++    bool handle(std::tm* tm) { return tm != nullptr; }
++
++    bool handle(detail::null<>) {
++      using namespace fmt::detail;
++      return fallback(gmtime_s(&tm_, &time_));
++    }
++
++    bool fallback(int res) { return res == 0; }
++
++#if !FMT_MSC_VERSION
++    bool fallback(detail::null<>) {
++      std::tm* tm = std::gmtime(&time_);
++      if (tm) tm_ = *tm;
++      return tm != nullptr;
++    }
++#endif
++  };
++  auto gt = dispatcher(time);
++  if (!gt.run()) FMT_THROW(format_error("time_t value out of range"));
++  return gt.tm_;
++}
++
+ inline std::tm gmtime(
+     std::chrono::time_point<std::chrono::system_clock> time_point) {
+-  return gmtime(std::chrono::system_clock::to_time_t(time_point));
++  return gmtime(std::chrono::time_point_cast<std::chrono::seconds>(time_point));
+ }
+ 
+ namespace detail {
+@@ -1685,7 +1722,7 @@ OutputIt copy_unit(string_view unit, OutputIt out, wchar_t) {
+ 
+ template <typename Char, typename Period, typename OutputIt>
+ OutputIt format_duration_unit(OutputIt out) {
+-  if (const char* unit = get_units<Period>())
++  if (const char* unit = get_units<Period>)
+     return copy_unit(string_view(unit), out, Char());
+   *out++ = '[';
+   out = write<Char>(out, Period::num);

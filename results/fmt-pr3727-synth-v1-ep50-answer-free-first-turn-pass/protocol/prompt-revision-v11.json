@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "revision": 11,
+  "parent_prompt_sha256": "16dfd2cabae44c4ae904917ba237967f98621de7b85bcfa0475d45895282c6d8",
+  "prompt_sha256": "5601514fd9bebf390d400e2903749bb745d279ad353807e4d5da594b9bf2f070",
+  "prompt_bytes": 12012,
+  "prompt_words": 1512,
+  "basis": "Trial a11 applied patch and repair output plus exact pre-fix insertion anchor",
+  "added_guidance": [
+    "complete helper insertion anchor including Usage comment",
+    "existing inline-namespace placement without nested fmt/detail namespace",
+    "exact C++11 FMT_ENABLE_IF declaration shape and floating-category predicates",
+    "safe-macro conditional body and deduced gmtime calls",
+    "five-block output contract"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

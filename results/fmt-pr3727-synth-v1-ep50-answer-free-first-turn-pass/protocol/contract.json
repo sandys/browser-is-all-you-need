@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "experiment_id": "fmt-pr3727-synth-v1-ep50-answer-free-v1",
+  "objective": "Demonstrate that the published Synth v1 epoch-50 checkpoint can produce an executable fix for fmt issue 3725 without the model prompt disclosing the accepted implementation.",
+  "claim_boundary": {
+    "target_claim": "prompt-answer-free checkpoint capability on this task",
+    "not_claimed": "training-data contamination-free discovery; the issue and PR are public and may have existed in pretraining data",
+    "success": "at least one fresh first-turn candidate passes the official executable evaluator",
+    "reporting": "report every attempted first-turn candidate and the exact pass-at-k denominator"
+  },
+  "task": {
+    "repository": "https://github.com/fmtlib/fmt",
+    "issue": "https://github.com/fmtlib/fmt/issues/3725",
+    "base_commit": "06f1c0d725855861535e9e65cd4d502aca7c61ed",
+    "editable_file": "include/fmt/chrono.h",
+    "editable_file_sha256": "2416673e284a28b63596e68e8a917cf136e64c0f63293007759bc8eb99f898c6",
+    "official_image": "mswebench/fmtlib_m_fmt:pr-3727",
+    "official_image_id": "sha256:855d772196ea6554f59c98415689d73f91dcaf47df484bcf0fbcce9aad884a6a",
+    "hidden_test_patch_sha256": "76eac48ef70cf13f40a9d99390ec7decc840451c0bae1aedaa93dd2ba7b77002"
+  },
+  "checkpoint": {
+    "identity": "Synth v1 epoch 50",
+    "iteration": 649,
+    "lora_rank": 16,
+    "base_repository": "zai-org/GLM-4.7-Flash",
+    "base_revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+    "adapter_repository": "TokenBender/glm47-synth-v1-100ep",
+    "adapter_revision": "a8d386d6b5bedf761cbe4effe2fdc36a97ad62bc",
+    "adapter_path": "checkpoints/iter_0000649/adapter",
+    "source_adapter_sha256": "4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a",
+    "serving_adapter_sha256": "6de1aeba533a5bfef26a73286fc32b47f403c022bd7467e2b3dc32cf18a35f48"
+  },
+  "model_context": {
+    "task_prompt_path": "task-prompt.md",
+    "task_prompt_sha256": "3b0423917a6a4f88719a11d2c498eef7806ca1705cd166abd6c18a3d868ad3f0",
+    "task_prompt_bytes": 3401,
+    "task_prompt_words": 411,
+    "source_context": "complete unmodified pre-fix include/fmt/chrono.h supplied by Aider",
+    "allowed": [
+      "upstream issue-body reproduction and expected output",
+      "externally observable regression behavior",
+      "repository language, scope, compatibility, and build constraints",
+      "general instructions to inspect existing code and minimize unrelated edits"
+    ],
+    "forbidden": [
+      "accepted PR diff or any implementation code from it",
+      "reference-derived helper names or exact call-site substitutions",
+      "reference-derived implementation map",
+      "previous candidate patches, prior model responses, or their compiler diagnostics on the first turn",
+      "gold patch similarity guidance",
+      "evaluator source or hidden test files"
+    ]
+  },
+  "inference": {
+    "aider_commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "primary_edit_format": "diff",
+    "fallback_edit_format": "whole",
+    "repository_map": false,
+    "thinking_disabled": false,
+    "streaming": false,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "max_completion_tokens": 32768,
+    "explicit_seed": null,
+    "auto_lint": false,
+    "git_integration": false,
+    "fresh_first_turn_attempt_budget": 8,
+    "primary_diff_attempts": 6,
+    "fallback_whole_attempts": 2,
+    "repair_feedback": "one optional second turn containing only verbatim official compiler/test output; repair passes do not count as first-turn passes"
+  },
+  "isolation": {
+    "model_mount_contains_reference_patch": false,
+    "model_mount_contains_hidden_tests": false,
+    "model_container_has_docker_socket": false,
+    "grader_runs_after_model_response": true,
+    "grader_uses_fresh_official_container": true,
+    "candidate_workspace_reset_from_base_for_each_trial": true
+  },
+  "run_state": "prepared_only_no_task_inference"
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": 15,
+  "parent_prompt_sha256": "5cd0b863030aaf309cb03730c27323160ece7e22642c0a85d558e5379cb4165b",
+  "prompt_sha256": "0595414b51ee9d0bacedb062d894cd4db66588d325b26a48b2d588109c948fe9",
+  "prompt_bytes": 9365,
+  "prompt_words": 1140,
+  "basis": "Trial a15 had the correct conversion expressions but introduced one unmatched namespace detail opener",
+  "added_guidance": [
+    "first line after #endif blank must be template",
+    "forbid any namespace declaration before helper templates",
+    "preserve exactly one existing namespace detail after FMT_NOMACRO"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

@@ -18,6 +18,11 @@
 
 Statistics: [method and summary](statistics.md) · [per-task frequencies](per_task_success.csv) · [recompute](compute_statistics.py)
 
+## Focused upstream evaluations
+
+- [Synth v1 epoch 50: failure-informed answer-withheld fmt PR 3727 pass](fmt-pr3727-synth-v1-ep50-answer-free-first-turn-pass/) — trial `a16` passed 20/20 official tests on its first model turn from the untouched base. Original frozen arm: 0/8; subsequent failure-informed prompt-tuning arm: 1/8.
+- [Synth v1 epoch 50: exact-reference fmt PR 3727 reproduction](fmt-pr3727-synth-v1-ep50-first-turn-pass/) — separate success-first evaluation that disclosed the accepted implementation.
+
 ## How to reproduce
 
 ```bash

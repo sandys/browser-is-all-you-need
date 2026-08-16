@@ -1,0 +1,95 @@
+diff --git a/include/fmt/chrono.h b/include/fmt/chrono.h
+index 7bd4206d..3d528e02 100644
+--- a/include/fmt/chrono.h
++++ b/include/fmt/chrono.h
+@@ -530,6 +530,37 @@ inline std::tm gmtime(
+ 
+ namespace detail {
+ 
++static std::pair<std::chrono::seconds, std::chrono::seconds> split_seconds(
++    std::chrono::seconds duration) {
++  return {duration, std::chrono::seconds::zero()};
++}
++
++template <typename Duration>
++static std::pair<std::chrono::seconds, Duration> split_duration(Duration duration) {
++  using seconds = std::chrono::seconds;
++  using rep = typename Duration::rep;
++
++  if (std::is_floating_point<rep>::value) {
++    auto sec = std::chrono::duration_cast<seconds>(duration);
++    auto remainder = duration - sec;
++    return {sec, remainder};
++  }
++
++  using signed_rep = typename std::make_signed<rep>::type;
++  using to_sec = std::chrono::duration<signed_rep, std::ratio<1>>;
++  using from_sec = std::chrono::duration<signed_rep, typename Duration::period>;
++
++#if FMT_SAFE_DURATION_CAST
++  int ec;
++  auto sec = safe_duration_cast::safe_duration_cast<seconds>(duration, ec);
++  if (ec) throw fmt::format_error("cannot format duration");
++#else
++  auto sec = std::chrono::duration_cast<seconds>(duration);
++#endif
++  auto remainder = duration - sec;
++  return {sec, remainder};
++}
++
+ // Writes two-digit numbers a, b and c separated by sep to buf.
+ // The method by Pavel Novikov based on
+ // https://johnnylee-sde.github.io/Fast-unsigned-integer-to-time-string/.
+@@ -2077,30 +2108,11 @@ struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+   template <typename FormatContext>
+   auto format(std::chrono::time_point<std::chrono::system_clock, Duration> val,
+               FormatContext& ctx) const -> decltype(ctx.out()) {
+-    using period = typename Duration::period;
+-    if (detail::const_check(
+-            period::num != 1 || period::den != 1 ||
+-            std::is_floating_point<typename Duration::rep>::value)) {
+-      const auto epoch = val.time_since_epoch();
+-      auto subsecs = std::chrono::duration_cast<Duration>(
+-          epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
+-
+-      if (subsecs.count() < 0) {
+-        auto second =
+-            std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+-        if (epoch.count() < ((Duration::min)() + second).count())
+-          FMT_THROW(format_error("duration is too small"));
+-        subsecs += second;
+-        val -= second;
+-      }
+-
+-      return formatter<std::tm, Char>::do_format(
+-          gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
+-          &subsecs);
+-    }
+-
+-    return formatter<std::tm, Char>::format(
+-        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx);
++    const auto epoch = val.time_since_epoch();
++    auto [sec, subsecs] = split_duration(epoch);
++    std::time_t time = sec.count();
++    std::tm tm = gmtime(time);
++    return formatter<std::tm, Char>::do_format(tm, ctx, &subsecs);
+   }
+ };
+ 
+@@ -2112,6 +2124,16 @@ struct formatter<std::chrono::local_time<Duration>, Char>
+     this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 'T'>{};
+   }
+ 
++  template <typename FormatContext>
++  auto format(std::chrono::local_time<Duration> val, FormatContext& ctx) const
++      -> decltype(ctx.out()) {
++    const auto epoch = val.time_since_epoch();
++    auto [sec, subsecs] = split_duration(epoch);
++    std::time_t time = sec.count();
++    std::tm tm = localtime(time);
++    return formatter<std::tm, Char>::do_format(tm, ctx, &subsecs);
++  }
++
+   template <typename FormatContext>
+   auto format(std::chrono::local_time<Duration> val, FormatContext& ctx) const
+       -> decltype(ctx.out()) {

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "revision": 3,
+  "parent_prompt_sha256": "3996e9f3068b4319cc0f5c89797337500b3ebcfc5c0f78c4125fb94d46a05a49",
+  "prompt_sha256": "bf699c4d134691bd96a20c7e88bbb00e2ac491b5c9ab99a2cb98b7ad810f2fb5",
+  "prompt_bytes": 5364,
+  "prompt_words": 698,
+  "basis": "Observed Aider application failure and repair compiler diagnostics from trial a2 only",
+  "added_guidance": [
+    "preserve leading indentation byte-for-byte in SEARCH blocks",
+    "include enough exact context for unique matches",
+    "verify new helpers have applied call sites and old narrowing code is replaced",
+    "respect the visible checked-cast overload domain for integral/integral and floating/floating representations",
+    "avoid instantiating invalid mixed-representation template branches in C++11"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

@@ -1,0 +1,808 @@
+Warning: Input is not a terminal (fd=0).
+Aider v0.86.3.dev53+g5dc9490bb
+Model: openai/glm-4.7-flash-grpo with whole edit format
+Git repo: none
+Repo-map: disabled
+Added chrono.h to the chat.
+
+--------------
+► **THINKING**
+
+1.  **Analyze the Request:**
+    *   **Problem:** Formating 
+`std::chrono::time_point<std::chrono::system_clock, coarse_duration>` (e.g., 
+milliseconds) fails for dates beyond ~2262 due to an implicit conversion to 
+seconds (nanosecond resolution) which overflows.
+    *   **Reproduction:**
+        ```cpp
+        using time_point =
+            std::chrono::time_point<std::chrono::system_clock,
+                                    std::chrono::milliseconds>;
+        time_point value(std::chrono::seconds(32503680000));
+        auto result = fmt::format("{:%Y-%m-%d}", value);
+        // Expected: "3000-01-01"
+        ```
+    *   **Constraint 1 (General Fix):** Don't hardcode specific dates. Convert 
+the duration *before* calling the underlying `gmtime`/`localtime` C API.
+    *   **Constraint 2 (Safe Duration Cast):** If `FMT_SAFE_DURATION_CAST` is 
+enabled, ensure that an unrepresentable extreme integral duration throws 
+`fmt::format_error` with "cannot format duration".
+    *   **Constraint 3 (Existing Behavior):** Keep everything else working 
+(fractional seconds, negative subseconds, local-time, existing duration 
+formatting).
+    *   **Constraint 4 (File Scope):** Only edit `include/fmt/chrono.h`.
+    *   **Constraint 5 (C++11 Compatibility):** No structured bindings, use 
+SFINAE/tag dispatch.
+    *   **Constraint 6 (Compiler Corrections):** `safe_duration_cast` is in 
+`fmt` namespace (not `detail`). Pass `.count()` to `gmtime(std::time_t)`. Use 
+SFINAE to avoid instantiating mixed category conversions.
+
+2.  **Inspect the Current Code (`chrono.h`):**
+    *   *Existing Formatter:*
+        ```cpp
+        template <typename Char, typename Duration>
+        struct formatter<std::chrono::time_point<std::chrono::system_clock, 
+Duration>,
+                         Char> : formatter<std::tm, Char> {
+          FMT_CONSTEXPR formatter() {
+            this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%',
+'T'>{};
+          }
+
+          template <typename FormatContext>
+          auto format(std::chrono::time_point<std::chrono::system_clock, 
+Duration> val,
+                      FormatContext& ctx) const -> decltype(ctx.out()) {
+            using period = typename Duration::period;
+            if (detail::const_check(
+                    period::num != 1 || period::den != 1 ||
+                    std::is_floating_point<typename Duration::rep>::value)) {
+              const auto epoch = val.time_since_epoch();
+              auto subsecs = std::chrono::duration_cast<Duration>(
+                  epoch - 
+std::chrono::duration_cast<std::chrono::seconds>(epoch));
+
+              if (subsecs.count() < 0) {
+                auto second =
+                    std::chrono::duration_cast<Duration>(std::chrono::seconds(1)
+);
+                if (epoch.count() < ((Duration::min)() + second).count())
+                  FMT_THROW(format_error("duration is too small"));
+                subsecs += second;
+                val -= second;
+              }
+
+              return formatter<std::tm, Char>::do_format(
+                  gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)
+), ctx,
+                  &subsecs);
+            }
+
+            return formatter<std::tm, Char>::format(
+                gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)),
+ctx);
+          }
+        };
+        ```
+    *   *Analysis of the Bug:* The formatter casts `val` to 
+`std::chrono::seconds` using `time_point_cast`. This requires the duration to be
+implicitly convertible to seconds. If `Duration` is milliseconds, this is fine. 
+However, if the epoch is large (e.g., year 3000), the seconds value might 
+overflow a `std::time_t` (which is typically 64-bit signed on Linux, but the 
+cast logic implicitly assumes `std::time_t` fits the seconds). Wait, 
+`std::time_t` is signed 64-bit on Linux, so 32503680000 seconds is fine. The 
+issue description says "cannot represent dates beyond roughly year 2262". Why?
+        *   Ah, `std::time_t` is typically 64-bit signed on Linux, which allows 
+dates far beyond 2262.
+        *   However, `std::chrono::system_clock::time_point` is defined as 
+`std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds>`. 
+The formatter takes an arbitrary `Duration`.
+        *   If the user provides `std::chrono::milliseconds`, casting to seconds
+is safe.
+        *   If the user provides `std::chrono::seconds`, casting to seconds is 
+safe.
+        *   If the user provides `std::chrono::years`, casting to seconds is 
+unsafe and will overflow `std::time_t`.
+    *   *The Real Problem:* The current implementation casts *down* to seconds. 
+If the user provides a duration larger than seconds (e.g., years), or if the 
+epoch is so large that seconds overflow `std::time_t` (even if `std::time_t` is 
+64-bit, `std::chrono::seconds::rep` might be 32-bit in some configurations or 
+just generally bad idea), it breaks.
+    *   *Refined Problem Statement:* The formatter converts the epoch duration 
+to seconds *before* calling `gmtime`. It needs to convert the epoch duration to 
+a duration compatible with `std::time_t` (seconds) safely.
+
+3.  **Design the Solution:**
+    *   We need a helper function to convert `std::chrono::duration<Rep, 
+Period>` to `std::chrono::seconds` safely.
+    *   If `FMT_SAFE_DURATION_CAST` is enabled, use 
+`fmt::safe_duration_cast::safe_duration_cast<std::chrono::seconds>(...)` with an
+error code. If it fails, throw.
+    *   If not enabled, use 
+`std::chrono::duration_cast<std::chrono::seconds>(...)`. This might overflow, 
+but that's the user's risk if the flag is off.
+    *   We need to handle the subsecond part separately. The subseconds are 
+`Duration - seconds_part`.
+    *   We need to handle the case where the conversion result is not integral 
+seconds (e.g., floating point milliseconds). In that case, we can't pass it to 
+`std::gmtime`. We need to cast to a `std::time_t` (integral seconds) for the 
+`gmtime` call.
+
+4.  **Step-by-Step Implementation Plan:**
+
+    *   **Step 1: Helper for Duration Conversion.**
+        Define a function `to_time_t_duration(Duration)` inside `detail` 
+namespace.
+        ```cpp
+        namespace detail {
+        template <typename Duration>
+        std::chrono::seconds to_time_t_duration(Duration duration) {
+            using rep = typename Duration::rep;
+            using seconds = std::chrono::seconds;
+            if (detail::const_check(
+                    std::is_floating_point<rep>::value ||
+                    !std::is_integral<rep>::value)) {
+                // For floating point or mixed, cast to seconds (integral 
+result)
+                return std::chrono::duration_cast<seconds>(duration);
+            }
+            // For integral, use safe_duration_cast if available
+#if FMT_SAFE_DURATION_CAST
+            int ec = 0;
+            auto result = fmt::safe_duration_cast::safe_duration_cast<seconds>(
+                std::chrono::duration_cast<seconds>(duration), ec);
+            if (ec) FMT_THROW(format_error("cannot format duration"));
+            return result;
+#else
+            return std::chrono::duration_cast<seconds>(duration);
+#endif
+        }
+        }
+        ```
+
+    *   **Step 2: Update `gmtime` call.**
+        Instead of `std::chrono::time_point_cast<std::chrono::seconds>(val)`, 
+calculate the seconds part manually.
+        ```cpp
+        const auto epoch = val.time_since_epoch();
+        const auto seconds = to_time_t_duration(epoch);
+        const auto subsecs = epoch - seconds;
+        // Pass seconds.count() to gmtime
+        ```
+
+    *   **Step 3: Update `std::chrono::system_clock` formatter.**
+        Modify `format` method to use the new helper.
+        Also handle the case where the result of conversion isn't integral 
+(floating point seconds). If `seconds` is not integral seconds (e.g., 
+`std::chrono::milliseconds`), we can't pass it to `std::gmtime` (which takes 
+`std::time_t`). We need to cast to `std::time_t`.
+        Actually, `std::gmtime` takes `std::time_t` (signed integral seconds).
+        So, we need a helper that converts to `std::time_t` if possible, or 
+throws.
+
+    *   **Step 4: Refine the Helper.**
+        Let's make a helper `to_time_t(Duration duration)` that returns 
+`std::time_t` (or throws).
+        If `Duration` is floating point seconds -> `std::time_t`.
+        If `Duration` is integral seconds -> `std::time_t`.
+        If `Duration` is integral but larger than seconds -> throw.
+
+        ```cpp
+        namespace detail {
+        template <typename Duration>
+        std::time_t to_time_t(Duration duration) {
+            using rep = typename Duration::rep;
+            using seconds = std::chrono::seconds;
+            if (detail::const_check(
+                    std::is_floating_point<rep>::value ||
+                    !std::is_integral<rep>::value)) {
+                // Cast to seconds then to time_t
+                auto converted = std::chrono::duration_cast<seconds>(duration);
+                return static_cast<std::time_t>(converted.count());
+            }
+            // Integral duration
+#if FMT_SAFE_DURATION_CAST
+            int ec = 0;
+            auto converted =
+                fmt::safe_duration_cast::safe_duration_cast<seconds>(
+                    std::chrono::duration_cast<seconds>(duration), ec);
+            if (ec) FMT_THROW(format_error("cannot format duration"));
+            return static_cast<std::time_t>(converted.count());
+#else
+            auto converted = std::chrono::duration_cast<seconds>(duration);
+            return static_cast<std::time_t>(converted.count());
+#endif
+        }
+        }
+        ```
+
+    *   **Step 5: Update Formatter.**
+        ```cpp
+        template <typename Char, typename Duration>
+        struct formatter<std::chrono::time_point<std::chrono::system_clock, 
+Duration>,
+                         Char> : formatter<std::tm, Char> {
+          FMT_CONSTEXPR formatter() {
+            this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%',
+'T'>{};
+          }
+
+          template <typename FormatContext>
+          auto format(std::chrono::time_point<std::chrono::system_clock, 
+Duration> val,
+                      FormatContext& ctx) const -> decltype(ctx.out()) {
+            using period = typename Duration::period;
+            if (detail::const_check(
+                    period::num != 1 || period::den != 1 ||
+                    std::is_floating_point<typename Duration::rep>::value)) {
+              const auto epoch = val.time_since_epoch();
+              const auto seconds =
+                  detail::to_time_t(std::chrono::duration_cast<Duration>(epoch))
+;
+              const auto subsecs =
+                  epoch - std::chrono::duration_cast<Duration>(seconds);
+
+              if (subsecs.count() < 0) {
+                auto second =
+                    std::chrono::duration_cast<Duration>(std::chrono::seconds(1)
+);
+                if (epoch.count() < ((Duration::min)() + second).count())
+                  FMT_THROW(format_error("duration is too small"));
+                subsecs += second;
+                val -= second;
+              }
+
+              return formatter<std::tm, Char>::do_format(
+                  gmtime(std::chrono::seconds(seconds)), ctx,
+                  &subsecs);
+            }
+
+            const auto seconds =
+                detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+            return formatter<std::tm, Char>::format(
+                gmtime(std::chrono::seconds(seconds)), ctx);
+          }
+        };
+        ```
+
+    *   **Step 6: Handle `std::chrono::utc_clock` and `std::chrono::local_time` 
+formatters.**
+        They inherit from the `std::chrono::system_clock` formatter.
+        Wait, `std::chrono::utc_clock` formatter:
+        ```cpp
+        template <typename Char, typename Duration>
+        struct formatter<std::chrono::time_point<std::chrono::utc_clock, 
+Duration>,
+                         Char> : 
+formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+                                        Char> {
+          template <typename FormatContext>
+          auto format(std::chrono::time_point<std::chrono::utc_clock, Duration> 
+val,
+                      FormatContext& ctx) const -> decltype(ctx.out()) {
+            return formatter<
+                std::chrono::time_point<std::chrono::system_clock, Duration>,
+                Char>::format(std::chrono::utc_clock::to_sys(val), ctx);
+          }
+        };
+        ```
+        This inherits the logic, which is good. It converts to system_clock 
+seconds, then to tm. The conversion `std::chrono::utc_clock::to_sys` does the 
+time zone adjustment. This should work fine as long as the UTC offset is small 
+enough that seconds fit in `std::time_t`? Or does it need its own fix?
+        The requirement says "Ordinary dates... must remain correct." The UTC 
+offset is usually at most 24 hours (86400 seconds), which fits in `std::time_t` 
+(64-bit). So the inherited formatter should be fine.
+
+    *   **Step 7: Handle `std::chrono::local_time`.**
+        ```cpp
+        template <typename Char, typename Duration>
+        struct formatter<std::chrono::local_time<Duration>, Char>
+            : formatter<std::tm, Char> {
+          FMT_CONSTEXPR formatter() {
+            this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%',
+'T'>{};
+          }
+
+          template <typename FormatContext>
+          auto format(std::chrono::local_time<Duration> val, FormatContext& ctx)
+const
+              -> decltype(ctx.out()) {
+            using period = typename Duration::period;
+            if (period::num != 1 || period::den != 1 ||
+                std::is_floating_point<typename Duration::rep>::value)) {
+              const auto epoch = val.time_since_epoch();
+              const auto seconds =
+                  detail::to_time_t(std::chrono::duration_cast<Duration>(epoch))
+;
+              const auto subsecs =
+                  epoch - std::chrono::duration_cast<Duration>(seconds);
+
+              return formatter<std::tm, Char>::do_format(
+                  localtime(std::chrono::seconds(seconds)), ctx,
+                  &subsecs);
+            }
+
+            const auto seconds =
+                detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+            return formatter<std::tm, Char>::format(
+                localtime(std::chrono::seconds(seconds)), ctx);
+          }
+        };
+        ```
+        Same logic applies. `std::mktime` takes seconds. Offset is small. Good.
+
+    *   **Step 8: `detail::to_time_t` placement.**
+        It should go in the `detail` namespace. I need to make sure 
+`fmt::safe_duration_cast` is accessible (it is in `fmt` namespace).
+        The `safe_duration_cast` is defined inside `detail` in the provided 
+header?
+        Let's look at the header content provided.
+        ```cpp
+        namespace safe_duration_cast {
+        ...
+        }  // namespace safe_duration_cast
+        #endif
+        ```
+        Wait, looking at the header `chrono.h`:
+        ```cpp
+        #if FMT_SAFE_DURATION_CAST
+        ...
+        }  // namespace safe_duration_cast
+        #endif
+        ```
+        And later:
+        ```cpp
+        template <typename T = void> struct null {};
+        inline null<> localtime_r FMT_NOMACRO(...) { return null<>(); }
+        ...
+        namespace detail {
+        ...
+        }  // namespace detail
+        ```
+        The `safe_duration_cast` is in `fmt` namespace, outside `detail`.
+        So I need to reference `fmt::safe_duration_cast::safe_duration_cast`.
+
+    *   **Step 9: Refining `detail::to_time_t` implementation details.**
+        The helper needs to handle `std::chrono::seconds` too.
+        ```cpp
+        namespace detail {
+        template <typename Duration>
+        std::time_t to_time_t(Duration duration) {
+            using rep = typename Duration::rep;
+            using seconds = std::chrono::seconds;
+            if (detail::const_check(
+                    std::is_floating_point<rep>::value ||
+                    !std::is_integral<rep>::value)) {
+                auto converted = std::chrono::duration_cast<seconds>(duration);
+                return static_cast<std::time_t>(converted.count());
+            }
+            // Integral, use safe cast if available
+#if FMT_SAFE_DURATION_CAST
+            int ec = 0;
+            auto converted =
+                fmt::safe_duration_cast::safe_duration_cast<seconds>(
+                    std::chrono::duration_cast<seconds>(duration), ec);
+            if (ec) FMT_THROW(format_error("cannot format duration"));
+            return static_cast<std::time_t>(converted.count());
+#else
+            auto converted = std::chrono::duration_cast<seconds>(duration);
+            return static_cast<std::time_t>(converted.count());
+#endif
+        }
+        }  // namespace detail
+        ```
+
+5.  **Final Code Assembly:**
+    *   Add `detail::to_time_t` function.
+    *   Update `std::chrono::system_clock` formatter.
+    *   Update `std::chrono::local_time` formatter.
+    *   (Optional) `std::chrono::utc_clock` formatter inherits, so it's handled.
+
+    Let's check the exact location to insert `detail::to_time_t`.
+    It should be near other duration helpers, maybe after `get_units` or 
+`write_floating_seconds`.
+    Location: Between `get_units` and `enum class numeric_system`.
+
+    Let's verify the `std::time_t` conversion logic one more time.
+    Input: `std::chrono::milliseconds` (integral rep).
+    `std::chrono::duration_cast<seconds>` -> `std::chrono::seconds` (integral).
+    `fmt::safe_duration_cast::safe_duration_cast<seconds>(...)` -> returns 
+seconds.
+    `static_cast<std::time_t>(converted.count())` -> Result.
+
+    Input: `std::chrono::duration<std::int64_t, std::ratio<31556952>>` 
+(integral).
+    `std::chrono::duration_cast<seconds>` -> This might overflow `std::int64_t` 
+if the year is huge (e.g. `std::numeric_limits<std::int64_t>::max`).
+    Safe cast catches this and throws.
+
+    Input: `std::chrono::duration<double, std::milli>` (floating rep).
+    Cast to seconds (integral result).
+    Cast seconds to `std::time_t`.
+
+    Looks correct.
+
+    One edge case: `std::chrono::duration<std::int64_t, std::ratio<31556952>>` 
+(integral).
+    `std::chrono::duration_cast<seconds>(duration)` -> `std::chrono::seconds` 
+(rep might overflow `int64_t`).
+    Wait, `std::chrono::duration_cast` truncates. It does *not* check for 
+overflow.
+    The requirement for "safe" duration casting says: "An unrepresentable 
+extreme integral duration must fail with the existing checked-conversion 
+behavior".
+    So we must use the safe cast path for integral durations first.
+    Path:
+    1. `std::chrono::duration_cast<seconds>(duration)` -> intermediate (might 
+overflow).
+    2. `fmt::safe_duration_cast::safe_duration_cast<seconds>(intermediate, ec)` 
+-> checks overflow.
+    3. Return result.
+
+    This logic is sound.
+
+    Where to place the helper?
+    In `detail` namespace.
+    I will place it near `get_units` or `write_floating_seconds`. Let's put it 
+after `get_units` and before `enum class numeric_system` for logical grouping.
+
+    Let's write the changes.
+
+    *Addition:*
+    ```cpp
+    namespace detail {
+
+    template <typename Duration>
+    std::time_t to_time_t(Duration duration) {
+        using rep = typename Duration::rep;
+        using seconds = std::chrono::seconds;
+        if (detail::const_check(
+                std::is_floating_point<rep>::value ||
+                !std::is_integral<rep>::value)) {
+            auto converted = std::chrono::duration_cast<seconds>(duration);
+            return static_cast<std::time_t>(converted.count());
+        }
+        // Integral duration, use safe conversion if enabled
+#if FMT_SAFE_DURATION_CAST
+        int ec = 0;
+        auto converted =
+            fmt::safe_duration_cast::safe_duration_cast<seconds>(
+                std::chrono::duration_cast<seconds>(duration), ec);
+        if (ec) FMT_THROW(format_error("cannot format duration"));
+        return static_cast<std::time_t>(converted.count());
+#else
+        auto converted = std::chrono::duration_cast<seconds>(duration);
+        return static_cast<std::time_t>(converted.count());
+#endif
+    }
+
+    enum class numeric_system {
+      standard,
+      // Alternative numeric system, e.g. 十二 instead of 12 in ja_JP locale.
+      alternative
+    };
+    ```
+
+    *Modification in `std::chrono::system_clock` formatter:*
+    ```cpp
+    template <typename Char, typename Duration>
+    struct formatter<std::chrono::time_point<std::chrono::system_clock, 
+Duration>,
+                     Char> : formatter<std::tm, Char> {
+      FMT_CONSTEXPR formatter() {
+        this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 
+'T'>{};
+      }
+
+      template <typename FormatContext>
+      auto format(std::chrono::time_point<std::chrono::system_clock, Duration> 
+val,
+                  FormatContext& ctx) const -> decltype(ctx.out()) {
+        using period = typename Duration::period;
+        if (detail::const_check(
+                period::num != 1 || period::den != 1 ||
+                std::is_floating_point<typename Duration::rep>::value)) {
+          const auto epoch = val.time_since_epoch();
+          const auto seconds =
+              detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+          const auto subsecs =
+              epoch - std::chrono::duration_cast<Duration>(seconds);
+
+          if (subsecs.count() < 0) {
+            auto second =
+                std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+            if (epoch.count() < ((Duration::min)() + second).count())
+              FMT_THROW(format_error("duration is too small"));
+            subsecs += second;
+            val -= second;
+          }
+
+          return formatter<std::tm, Char>::do_format(
+              gmtime(std::chrono::seconds(seconds)), ctx,
+              &subsecs);
+        }
+
+        const auto seconds =
+            detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+        return formatter<std::tm, Char>::format(
+            gmtime(std::chrono::seconds(seconds)), ctx);
+      }
+    };
+    ```
+
+    *Modification in `std::chrono::local_time` formatter:*
+    ```cpp
+    template <typename Char, typename Duration>
+    struct formatter<std::chrono::local_time<Duration>, Char>
+        : formatter<std::tm, Char> {
+      FMT_CONSTEXPR formatter() {
+        this->format_str_ = detail::string_literal<Char, '%', 'F', ' ', '%', 
+'T'>{};
+      }
+
+      template <typename FormatContext>
+      auto format(std::chrono::local_time<Duration> val, FormatContext& ctx) 
+const
+          -> decltype(ctx.out()) {
+        using period = typename Duration::period;
+        if (detail::const_check(
+                period::num != 1 || period::den != 1 ||
+                std::is_floating_point<typename Duration::rep>::value)) {
+          const auto epoch = val.time_since_epoch();
+          const auto seconds =
+              detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+          const auto subsecs =
+              epoch - std::chrono::duration_cast<Duration>(seconds);
+
+          return formatter<std::tm, Char>::do_format(
+              localtime(std::chrono::seconds(seconds)), ctx,
+              &subsecs);
+        }
+
+        const auto seconds =
+            detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+        return formatter<std::tm, Char>::format(
+            localtime(std::chrono::seconds(seconds)), ctx);
+      }
+    };
+    ```
+
+    Wait, I need to check if `std::chrono::utc_clock` formatter needs updating.
+    It inherits from `std::chrono::time_point<std::chrono::system_clock, 
+Duration>`.
+    So it will use the updated base logic automatically. Good.
+
+    Double check the `safe_duration_cast` namespace usage.
+    In the provided header:
+    ```cpp
+    #if FMT_SAFE_DURATION_CAST
+    namespace safe_duration_cast {
+    ...
+    }  // namespace safe_duration_cast
+    #endif
+    ```
+    And later:
+    ```cpp
+    namespace detail {
+    ...
+    }  // namespace detail
+    ```
+    So `fmt::safe_duration_cast::safe_duration_cast` is correct.
+
+    One detail: `std::chrono::time_point_cast<std::chrono::seconds>(val)` in the
+original code.
+    If `val` is `milliseconds`, `time_point_cast` returns `time_point<seconds>`.
+    My code does:
+    `std::chrono::duration_cast<Duration>(epoch)` -> `Duration` (seconds of 
+epoch).
+    `detail::to_time_t(...)` -> `std::time_t`.
+    This is equivalent, but safer.
+
+    Are there any other places this logic applies?
+    The formatter for `std::chrono::time_point<std::chrono::system_clock, 
+Duration>` is the main one.
+    The formatter for `std::chrono::local_time<Duration>` is a duplicate of the 
+logic.
+    The formatter for `std::chrono::time_point<std::chrono::utc_clock, 
+Duration>` inherits from the system_clock one.
+
+    So the plan is solid.
+
+    Let's assemble the final file.
+    I will insert the helper `detail::to_time_t` after line 1035 (after 
+`get_units` and before `enum class numeric_system`).
+    I will update the `std::chrono::system_clock` formatter around line 1260.
+    I will update the `std::chrono::local_time` formatter around line 1330.
+
+    Wait, I should check if `std::chrono::time_point<std::chrono::system_clock, 
+Duration>` formatter is the *only* one that needs this?
+    Yes, the requirement says "Ordinary dates... must remain correct".
+    The `std::chrono::system_clock` formatter handles the general case.
+    The `std::chrono::utc_clock` formatter just converts to system_clock then 
+formats.
+    The `std::chrono::local_time` formatter does the same.
+
+    Let's verify the exact line numbers in the supplied file to make sure I 
+don't miss anything.
+    File: `chrono.h`
+
+    Line ~1035 is `inline const char* get_units<Period>`.
+    Next is `enum class numeric_system`.
+
+    Line ~1260 is `struct 
+formatter<std::chrono::time_point<std::chrono::system_clock, Duration>, Char> : 
+formatter<std::tm, Char> {`.
+
+    Line ~1330 is `struct formatter<std::chrono::local_time<Duration>, Char> : 
+formatter<std::tm, Char> {`.
+
+    I will put the new helper just before `enum class numeric_system`.
+
+    One final check on the safe cast error message.
+    Requirement: "throw `fmt::format_error` with the message `cannot format 
+duration`."
+    Code: `FMT_THROW(format_error("cannot format duration"));` matches.
+
+    One final check on the `std::time_t` return.
+    Requirement: "passing a duration where a time point is required" -> no, I'm 
+converting duration to time_t.
+    Requirement: "convert the epoch duration to a duration compatible with 
+`std::time_t` (seconds)" -> yes.
+
+    Wait, what if `std::time_t` is 32-bit? (e.g. on some Windows).
+    The requirement says "Ordinary dates... must remain correct". A 32-bit 
+`std::time_t` can only represent dates until ~2038. If the user tries to format 
+a date in 3000 with milliseconds, `std::gmtime` will receive a negative number 
+on a 32-bit system, causing undefined behavior or garbage.
+    However, the requirement says "Solve the general conversion problem rather 
+than special-casing this date or formatted output."
+    And "Preserve existing preprocessor guards... existing test suite must stay 
+green."
+    The existing test suite likely assumes standard `std::gmtime` behavior.
+    If I throw an error on overflow, I might break existing code that assumes 
+`std::gmtime` works for dates > 2038 (on 64-bit systems).
+    But the requirement also says: "When `FMT_SAFE_DURATION_CAST` is enabled, an
+unrepresentable extreme integral duration must fail with the existing 
+checked-conversion behavior instead of wrapping or silently succeeding".
+    So the safe path throws. The unsafe path (without the flag) uses 
+`std::chrono::duration_cast` and then casts to `std::time_t`. This is what the 
+original code did.
+    The original code: 
+`std::chrono::time_point_cast<std::chrono::seconds>(val)`.
+    This requires `Duration` to be implicitly convertible to seconds.
+    If `Duration` is `milliseconds`, this is fine.
+    If `Duration` is `years`, this might overflow seconds.
+    So my change improves the situation. It adds safety for integral durations 
+that are too large.
+    For floating point durations, `std::chrono::duration_cast` to seconds is 
+fine (truncation), and casting seconds to `std::time_t` is fine.
+    So this change should be safe.
+
+    Is there any case where `std::gmtime` expects a negative value? No.
+    So the logic stands.
+
+    One last check: `std::chrono::time_point_cast<std::chrono::seconds>(val)`.
+    `val` is `time_point<system_clock, milliseconds>`.
+    `duration_cast` takes the difference. `epoch - epoch` = seconds.
+    This is correct.
+
+    Final structure of the answer:
+    1. Add `detail::to_time_t` helper.
+    2. Update `std::chrono::system_clock` formatter.
+    3. Update `std::chrono::local_time` formatter.
+
+------------
+► **ANSWER**
+
+chrono.h
+
+```diff
+@@ -233,11 +233,11 @@
+   auto tocount = lossless_integral_conversion<typename To::rep>(count, ec);
+   return ec ? To() : To(tocount);
+ }
+ 
+ /**
+- * safe duration_cast between floating point durations
++ * safe duration cast between floating point durations
+  */
+ template <typename To, typename FromRep, typename FromPeriod,
+           FMT_ENABLE_IF(std::is_floating_point<FromRep>::value),
+           FMT_ENABLE_IF(std::is_floating_point<typename To::rep>::value)>
+ To safe_duration_cast(std::chrono::duration<FromRep, FromPeriod> from,
+@@ -1683,11 +1683,11 @@
+   return std::copy(u.c_str(), u.c_str() + u.size(), out);
+ }
+ 
+ template <typename Char, typename Period, typename OutputIt>
+ OutputIt format_duration_unit(OutputIt out) {
+-  if (const char* unit = get_units<Period>())
++  if (const char* unit = get_units<Period>)
+     return copy_unit(string_view(unit), out, Char());
+   *out++ = '[';
+   out = write<Char>(out, Period::num);
+   if (const_check(Period::den != 1)) {
+     *out++ = '/';
+@@ -2080,12 +2080,14 @@
+     using period = typename Duration::period;
+     if (detail::const_check(
+             period::num != 1 || period::den != 1 ||
+             std::is_floating_point<typename Duration::rep>::value)) {
+       const auto epoch = val.time_since_epoch();
+-      auto subsecs = std::chrono::duration_cast<Duration>(
+-          epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
++      const auto seconds =
++          detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
++      const auto subsecs =
++          epoch - std::chrono::duration_cast<Duration>(seconds);
+ 
+       if (subsecs.count() < 0) {
+         auto second =
+             std::chrono::duration_cast<Duration>(std::chrono::seconds(1));
+         if (epoch.count() < ((Duration::min)() + second).count())
+@@ -2093,16 +2095,18 @@
+         subsecs += second;
+         val -= second;
+       }
+ 
+       return formatter<std::tm, Char>::do_format(
+-          gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
++          gmtime(std::chrono::seconds(seconds)), ctx,
+           &subsecs);
+     }
+ 
++    const auto seconds =
++        detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+     return formatter<std::tm, Char>::format(
+-        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx);
++        gmtime(std::chrono::seconds(seconds)), ctx);
+   }
+ };
+ 
+ #if FMT_USE_LOCAL_TIME
+ template <typename Char, typename Duration>
+@@ -2114,24 +2118,28 @@
+ 
+   template <typename FormatContext>
+   auto format(std::chrono::local_time<Duration> val, FormatContext& ctx) const
+       -> decltype(ctx.out()) {
+     using period = typename Duration::period;
+-    if (period::num != 1 || period::den != 1 ||
+-        std::is_floating_point<typename Duration::rep>::value) {
++    if (detail::const_check(
++            period::num != 1 || period::den != 1 ||
++            std::is_floating_point<typename Duration::rep>::value)) {
+       const auto epoch = val.time_since_epoch();
+-      const auto subsecs = std::chrono::duration_cast<Duration>(
+-          epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
++      const auto seconds =
++          detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
++      const auto subsecs =
++          epoch - std::chrono::duration_cast<Duration>(seconds);
+ 
+       return formatter<std::tm, Char>::do_format(
+-          localtime(std::chrono::time_point_cast<std::chrono::seconds>(val)),
+-          ctx, &subsecs);
+-    }
+-
++          localtime(std::chrono::seconds(seconds)), ctx,
++          &subsecs);
++    }
++
++    const auto seconds =
++        detail::to_time_t(std::chrono::duration_cast<Duration>(epoch));
+     return formatter<std::tm, Char>::format(
+-        localtime(std::chrono::time_point_cast<std::chrono::seconds>(val)),
+-        ctx);
++        localtime(std::chrono::seconds(seconds)), ctx);
+   }
+ };
+ #endif
+ 
+ #if FMT_USE_UTC_TIME
+```
+
+
+Tokens: 21k sent, 26k received.
+Applied edit to chrono.h

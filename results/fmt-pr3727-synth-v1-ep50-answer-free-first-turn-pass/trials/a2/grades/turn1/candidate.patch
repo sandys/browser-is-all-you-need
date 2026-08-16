@@ -1,0 +1,27 @@
+diff --git a/include/fmt/chrono.h b/include/fmt/chrono.h
+index 7bd4206d..bd26702b 100644
+--- a/include/fmt/chrono.h
++++ b/include/fmt/chrono.h
+@@ -315,6 +315,22 @@ To safe_duration_cast(std::chrono::duration<FromRep, FromPeriod> from,
+ }  // namespace safe_duration_cast
+ #endif
+ 
++namespace detail {
++
++template <typename To, typename From>
++To safe_cast_duration(const From& from) {
++#if FMT_SAFE_DURATION_CAST
++    int ec;
++    To to = safe_duration_cast::safe_duration_cast<To>(from, ec);
++    if (ec) FMT_THROW(format_error("cannot format duration"));
++    return to;
++#else
++    return std::chrono::duration_cast<To>(from);
++#endif
++}
++
++}  // namespace detail
++
+ // Prevents expansion of a preceding token as a function-style macro.
+ // Usage: f FMT_NOMACRO()
+ #define FMT_NOMACRO

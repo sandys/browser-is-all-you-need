@@ -1,0 +1,11 @@
+{
+  "base_commit": "06f1c0d725855861535e9e65cd4d502aca7c61ed",
+  "candidate_header_sha256": "f86ec17c1491ca0766e910a50c7e0aa118e7cc7957bfc45fb5e6372c0ce3fcb9",
+  "candidate_patch_sha256": "6b376eb22063ba36f718ac7505326b07dd6aae94d88c5b8bf05331a07574982c",
+  "grader_log_sha256": "9ef618f70cadf17360e5fe8a5a479e60d278a510242d3802b3a2909fa453c71d",
+  "official_image_id": "sha256:855d772196ea6554f59c98415689d73f91dcaf47df484bcf0fbcce9aad884a6a",
+  "passed": true,
+  "return_code": 0,
+  "schema_version": 1,
+  "test_patch_sha256": "76eac48ef70cf13f40a9d99390ec7decc840451c0bae1aedaa93dd2ba7b77002"
+}

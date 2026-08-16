@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "parent_prompt_sha256": "3b0423917a6a4f88719a11d2c498eef7806ca1705cd166abd6c18a3d868ad3f0",
+  "prompt_sha256": "3996e9f3068b4319cc0f5c89797337500b3ebcfc5c0f78c4125fb94d46a05a49",
+  "prompt_bytes": 4297,
+  "prompt_words": 543,
+  "basis": "Observed first-trial compiler and Aider application failures only",
+  "added_guidance": [
+    "enforce C++11 syntax",
+    "qualify helpers across namespace boundaries",
+    "avoid duplicate formatter overloads",
+    "keep all edits in the single supplied header",
+    "use exact unique Aider search blocks",
+    "audit unresolved names, duplicate declarations, narrowing, and affected conversion paths"
+  ],
+  "accepted_patch_or_reference_code_used": false
+}

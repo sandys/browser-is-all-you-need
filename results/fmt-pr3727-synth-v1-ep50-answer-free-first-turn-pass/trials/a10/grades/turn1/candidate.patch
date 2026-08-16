@@ -1,0 +1,83 @@
+diff --git a/include/fmt/chrono.h b/include/fmt/chrono.h
+index 7bd4206d..279cc6b5 100644
+--- a/include/fmt/chrono.h
++++ b/include/fmt/chrono.h
+@@ -315,6 +315,32 @@ To safe_duration_cast(std::chrono::duration<FromRep, FromPeriod> from,
+ }  // namespace safe_duration_cast
+ #endif
+ 
++namespace detail {
++template <typename To, typename From,
++          FMT_ENABLE_IF(std::is_same<From, To>::value)>
++To convert_duration(From from, int& ec) {
++  ec = 0;
++  return from;
++}
++
++template <typename To, typename From,
++          FMT_ENABLE_IF(!std::is_same<From, To>::value)>
++To convert_duration(From from, int& ec) {
++  using FromRep = typename From::rep;
++  using ToRep = typename To::rep;
++  if (std::is_floating_point<FromRep>::value !=
++      std::is_floating_point<ToRep>::value) {
++    ec = 1;
++    return To();
++  }
++#if FMT_SAFE_DURATION_CAST
++  return safe_duration_cast::safe_duration_cast<To>(from, ec);
++#else
++  return std::chrono::duration_cast<To>(from);
++#endif
++}
++}  // namespace detail
++
+ // Prevents expansion of a preceding token as a function-style macro.
+ // Usage: f FMT_NOMACRO()
+ #define FMT_NOMACRO
+@@ -528,6 +554,15 @@ inline std::tm gmtime(
+   return gmtime(std::chrono::system_clock::to_time_t(time_point));
+ }
+ 
++template <typename Duration>
++inline std::tm gmtime(
++    std::chrono::time_point<std::chrono::system_clock, Duration> time_point) {
++  using seconds = std::chrono::seconds;
++  seconds value =
++      std::chrono::duration_cast<seconds>(time_point.time_since_epoch());
++  return gmtime(value.count());
++}
++
+ namespace detail {
+ 
+ // Writes two-digit numbers a, b and c separated by sep to buf.
+@@ -2082,8 +2117,9 @@ struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+             period::num != 1 || period::den != 1 ||
+             std::is_floating_point<typename Duration::rep>::value)) {
+       const auto epoch = val.time_since_epoch();
+-      auto subsecs = std::chrono::duration_cast<Duration>(
+-          epoch - std::chrono::duration_cast<std::chrono::seconds>(epoch));
++      auto subsecs =
++          std::chrono::duration<Rep>(epoch -
++                                      std::chrono::duration_cast<seconds>(epoch));
+ 
+       if (subsecs.count() < 0) {
+         auto second =
+@@ -2094,13 +2130,12 @@ struct formatter<std::chrono::time_point<std::chrono::system_clock, Duration>,
+         val -= second;
+       }
+ 
+-      return formatter<std::tm, Char>::do_format(
+-          gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx,
+-          &subsecs);
++      seconds value = std::chrono::duration_cast<seconds>(epoch);
++      return formatter<std::tm, Char>::do_format(gmtime(val), ctx, &subsecs);
+     }
+ 
+-    return formatter<std::tm, Char>::format(
+-        gmtime(std::chrono::time_point_cast<std::chrono::seconds>(val)), ctx);
++    seconds value = std::chrono::duration_cast<seconds>(epoch);
++    return formatter<std::tm, Char>::do_format(gmtime(val), ctx, nullptr);
+   }
+ };
+ 
