@@ -15,6 +15,18 @@ EXPECTED_SAMPLES = 8
 EXPECTED_GROUPS = 40
 MINIMUM_MIXED_FRACTION = 0.30
 HIGH_LOAD_RATE_DELTA = 0.10
+# Mirrors THREAD_EXHAUSTION_MARKERS in glm47_posttraining.aider_polyglot.harness;
+# this script stays stdlib-only so it can audit pulled JSONLs anywhere.
+THREAD_EXHAUSTION_MARKERS = (
+    "resource temporarily unavailable",
+    "thread constructor failed",
+    "pthread_create failed",
+)
+
+
+def _is_thread_exhaustion(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in THREAD_EXHAUSTION_MARKERS)
 
 
 def _reward_record(row: dict[str, Any]) -> dict[str, Any]:
@@ -84,17 +96,29 @@ def evaluate_gate(
         if not isinstance(load, int) or load < 1:
             raise ValueError("reward_worker_load is missing from a reward record")
         text = _log_text(row)
-        concurrency_failure = "FAILED: concurrent_transactions" in text
+        # A concurrency failure is either the named assertion or a pthread
+        # EAGAIN abort, which kills the grader before any FAILED line can
+        # print (issue #110 r3: the assertion-only grep saw 0 of 121 deaths).
+        concurrency_failure = (
+            "FAILED: concurrent_transactions" in text or _is_thread_exhaustion(text)
+        )
         concurrency_rows.append((load, concurrency_failure))
 
     loads = [load for load, _ in concurrency_rows]
     load_threshold = statistics.median(loads)
-    low = [failed for load, failed in concurrency_rows if load <= load_threshold]
-    high = [failed for load, failed in concurrency_rows if load > load_threshold]
+    # Bucket with >= / < so a modal maximum load cannot empty the high bucket
+    # (r3: median 32 was also the max, leaving 0 high-load records and making
+    # the correlation check vacuous). The check is computable only when both
+    # buckets are populated; all-equal loads are surfaced, not silently passed.
+    low = [failed for load, failed in concurrency_rows if load < load_threshold]
+    high = [failed for load, failed in concurrency_rows if load >= load_threshold]
+    load_check_computable = bool(low) and bool(high)
     low_rate = sum(low) / len(low) if low else 0.0
     high_rate = sum(high) / len(high) if high else 0.0
     load_correlated = (
-        sum(high) >= 2 and bool(low) and high_rate >= low_rate + HIGH_LOAD_RATE_DELTA
+        load_check_computable
+        and sum(high) >= 2
+        and high_rate >= low_rate + HIGH_LOAD_RATE_DELTA
     )
 
     reasons: list[str] = []
@@ -152,9 +176,12 @@ def evaluate_gate(
             "low_load_failure_rate": low_rate,
             "high_load_records": len(high),
             "high_load_failure_rate": high_rate,
+            "computable": load_check_computable,
             "correlated": load_correlated,
             "correlation_rule": (
-                "at least two high-load failures and high-load rate exceeds "
+                "failure is the named concurrency assertion or a thread-exhaustion "
+                "abort; buckets split at load >= median vs < median; requires at "
+                "least two high-load failures and high-load rate exceeding "
                 "low-load rate by at least 0.10"
             ),
         },
