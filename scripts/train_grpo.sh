@@ -418,32 +418,27 @@ LORA_ARGS=(
 # SFT adapter): point at an iter_*/adapter dir with Megatron-native shards.
 LORA_ADAPTER_PATH="${MILES_LORA_ADAPTER_PATH:-}"
 if [ -n "${LORA_ADAPTER_PATH}" ]; then
-  # The warm-start loader is only proven to resolve tp{r}_pp0.pt shard names.
-  # The r3 run staged ep-suffixed shards, the loader matched nothing, and one
-  # optimizer update was silently applied to a fresh LoRA init. Refuse to
-  # launch on any naming the loader has not been proven against.
-  if [ "${GLM47_ALLOW_EP_SHARDED_NATIVE:-0}" != "1" ]; then
-    "${PYTHON_BIN}" - "${LORA_ADAPTER_PATH}" <<'PY'
-import json, pathlib, re, sys
+  # Three shard namings exist across Miles generations: legacy tp{t}_pp0.pt,
+  # the synth-v1 era's tp{t}_pp0_ep{e}.pt, and mainline rank{r}.pt. The r3 run
+  # staged ep-suffixed shards into a loader that knew neither newer naming and
+  # silently trained from a fresh LoRA init. The bridge now resolves all three
+  # per rank; refuse to launch only on names nothing is known to load.
+  "${PYTHON_BIN}" - "${LORA_ADAPTER_PATH}" <<'PY'
+import pathlib, re, sys
 
 adapter = pathlib.Path(sys.argv[1])
-names = sorted(p.name for p in adapter.glob("adapter_megatron_tp*_pp*.pt"))
+names = sorted(p.name for p in adapter.glob("adapter_megatron_*.pt"))
 if not names:
     sys.exit(f"warm-start adapter has no Megatron-native shards: {adapter}")
-bad = [n for n in names if not re.fullmatch(r"adapter_megatron_tp\d+_pp0\.pt", n)]
+known = re.compile(r"adapter_megatron_(rank\d+|tp\d+_pp0(_ep\d+)?)\.pt")
+bad = [n for n in names if not known.fullmatch(n)]
 if bad:
     sys.exit(
-        f"warm-start adapter {adapter} contains native shards the Miles loader "
-        f"is not proven to resolve: {bad}. Re-shard to tp-only naming or set "
-        "GLM47_ALLOW_EP_SHARDED_NATIVE=1 after proving the load in-image."
+        f"warm-start adapter {adapter} contains native shards no known Miles "
+        f"loader or bridge shim resolves: {bad}. Refusing to launch a warm "
+        "start that would silently fall back to fresh init."
     )
-manifest = adapter / "mtp_strip_manifest.json"
-if manifest.is_file():
-    layout = json.loads(manifest.read_text()).get("native_layout")
-    if layout not in (None, "tp-only"):
-        sys.exit(f"hybrid manifest declares native_layout={layout}; loader proven for tp-only")
 PY
-  fi
   LORA_ARGS+=(--lora-adapter-path "${LORA_ADAPTER_PATH}")
 fi
 if [ "${EXPERTS_SHARED_OUTER_LORAS}" = "1" ]; then
