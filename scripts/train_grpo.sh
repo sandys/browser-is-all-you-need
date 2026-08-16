@@ -233,6 +233,9 @@ monitor_vram() {
 monitor_vram &
 VRAM_MONITOR_PID=$!
 cleanup() {
+  if declare -F cleanup_ray_session >/dev/null 2>&1; then
+    cleanup_ray_session
+  fi
   if [ -n "${VRAM_MONITOR_PID:-}" ]; then
     kill "${VRAM_MONITOR_PID}" >/dev/null 2>&1 || true
     wait "${VRAM_MONITOR_PID}" >/dev/null 2>&1 || true
@@ -384,10 +387,21 @@ RAY_AGENT_LISTEN_PORT="${MILES_RAY_AGENT_LISTEN_PORT:-}"
 RAY_AGENT_GRPC_PORT="${MILES_RAY_AGENT_GRPC_PORT:-}"
 RAY_RUNTIME_ENV_AGENT_PORT="${MILES_RAY_RUNTIME_ENV_AGENT_PORT:-}"
 RAY_METRICS_EXPORT_PORT="${MILES_RAY_METRICS_EXPORT_PORT:-}"
+cleanup_ray_session() {
+  if [ "${RAY_SCOPED_CLEANUP}" = "1" ]; then
+    # A multi-stage launch reuses the infra-owned ports. Stop only this
+    # stage's private Ray before the next stage starts, and clear its
+    # persisted session metadata so retries cannot attach to stale Redis.
+    pkill -9 -f "ray-g47-${RAY_SESSION_TAG}" >/dev/null 2>&1 || true
+    if [ -n "${RAY_TMPDIR}" ]; then
+      rm -rf -- "${RAY_TMPDIR}"
+    fi
+  fi
+}
 pkill -9 sglang >/dev/null 2>&1 || true
 if [ "${RAY_SCOPED_CLEANUP}" = "1" ]; then
   # Shared machine: only ever touch processes bound to this run's session.
-  pkill -9 -f "ray-g47-${RAY_SESSION_TAG}" >/dev/null 2>&1 || true
+  cleanup_ray_session
 else
   # Sole owner of the machine: legacy broadcast cleanup.
   ray stop --force >/dev/null 2>&1 || true
