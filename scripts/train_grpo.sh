@@ -379,6 +379,12 @@ finalize_wandb() {
 RAY_SESSION_TAG="$(printf %s "${RUN_ID}" | sha256sum | cut -c1-8)"
 RAY_TMPDIR="${MILES_RAY_TMPDIR:-/tmp/ray-g47-${RAY_SESSION_TAG}}"
 RAY_PORT="${MILES_RAY_PORT:-6479}"
+# The dashboard/runtime-env agents also bind fixed default ports (52365 etc.)
+# that a host Ray already owns; every fixed port must move off default.
+RAY_AGENT_LISTEN_PORT="${MILES_RAY_AGENT_LISTEN_PORT:-52415}"
+RAY_AGENT_GRPC_PORT="${MILES_RAY_AGENT_GRPC_PORT:-52416}"
+RAY_RUNTIME_ENV_AGENT_PORT="${MILES_RAY_RUNTIME_ENV_AGENT_PORT:-52417}"
+RAY_METRICS_EXPORT_PORT="${MILES_RAY_METRICS_EXPORT_PORT:-52418}"
 pkill -9 sglang >/dev/null 2>&1 || true
 pkill -9 -f "ray-g47-${RAY_SESSION_TAG}" >/dev/null 2>&1 || true
 mkdir -p "${RAY_TMPDIR}"
@@ -649,6 +655,10 @@ ray start --head \
   --disable-usage-stats \
   --temp-dir "${RAY_TMPDIR}" \
   --port "${RAY_PORT}" \
+  --dashboard-agent-listen-port "${RAY_AGENT_LISTEN_PORT}" \
+  --dashboard-agent-grpc-port "${RAY_AGENT_GRPC_PORT}" \
+  --runtime-env-agent-port "${RAY_RUNTIME_ENV_AGENT_PORT}" \
+  --metrics-export-port "${RAY_METRICS_EXPORT_PORT}" \
   --dashboard-host="${RAY_DASHBOARD_HOST}" \
   --dashboard-port="${RAY_DASHBOARD_PORT}"
 
