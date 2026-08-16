@@ -309,6 +309,7 @@ def _apply_warm_start_optimizer_reload(module) -> None:
         loaded, iteration = original_load(
             model, adapter_path, optimizer=optimizer, opt_param_scheduler=opt_param_scheduler
         )
+        _assert_warm_start_took(model, adapter_path, loaded)
         if loaded and optimizer is not None and hasattr(optimizer, "reload_model_params"):
             optimizer.reload_model_params()
             print(
@@ -320,6 +321,54 @@ def _apply_warm_start_optimizer_reload(module) -> None:
 
     module.load_lora_adapter = load_lora_adapter
     module._glm47_opt_reload_patched = True
+
+
+def _assert_warm_start_took(model, adapter_path, loaded) -> None:
+    """Fail closed when a requested warm start leaves the actor at fresh init.
+
+    The r3 bank-account run staged an adapter whose native shards used a
+    naming the loader did not resolve; nothing loaded, nothing failed, and one
+    optimizer update was applied to a fresh LoRA. A fresh LoRA is detectable:
+    its B ("linear_out") matrices are all exactly at their zero init, so the
+    adapter contributes nothing to the network. Any warm start that requests
+    an adapter and ends in that state is an error, not a fallback. Opt out for
+    deliberate cold starts with GLM47_ALLOW_COLD_LORA_START=1.
+    """
+
+    if not adapter_path:
+        return
+    if os.environ.get("GLM47_ALLOW_COLD_LORA_START", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return
+    if not loaded:
+        raise RuntimeError(
+            f"warm start requested from {adapter_path} but the loader reported nothing "
+            "loaded; refusing to train from a fresh LoRA init "
+            "(set GLM47_ALLOW_COLD_LORA_START=1 for a deliberate cold start)"
+        )
+    chunks = model if isinstance(model, (list, tuple)) else [model]
+    in_count = out_count = 0
+    in_norm = out_norm = 0.0
+    for chunk in chunks:
+        for name, param in chunk.named_parameters():
+            if "adapter.linear_in" in name:
+                in_count += 1
+                in_norm += float(param.detach().float().norm())
+            elif "adapter.linear_out" in name:
+                out_count += 1
+                out_norm += float(param.detach().float().norm())
+    print(
+        "GLM-4.7 warm start receipt: "
+        f'{{"adapter_path": "{adapter_path}", "linear_in_tensors": {in_count}, '
+        f'"linear_out_tensors": {out_count}, "linear_in_norm_sum": {in_norm:.6f}, '
+        f'"linear_out_norm_sum": {out_norm:.6f}}}',
+        flush=True,
+    )
+    if out_count and out_norm == 0.0:
+        raise RuntimeError(
+            f"warm start from {adapter_path} left every adapter linear_out (LoRA B) "
+            "tensor at zero init on this rank: the adapter file was not actually "
+            "restored and the policy is the base model. Refusing to train."
+        )
 
 
 def _patch_colocate_lora_tms_regions() -> None:

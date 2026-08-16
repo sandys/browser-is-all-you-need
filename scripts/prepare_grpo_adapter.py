@@ -78,15 +78,46 @@ def copy_native_state(
     return native_files, training_state_files
 
 
-def validate_native_shards(paths: list[Path], expected_count: int | None) -> None:
+_TP_ONLY_SHARD_RE = re.compile(r"^adapter_megatron_tp(\d+)_pp0\.pt$")
+_EP_SHARDED_SHARD_RE = re.compile(r"^adapter_megatron_tp(\d+)_pp0_ep(\d+)\.pt$")
+
+
+def classify_native_layout(paths: list[Path]) -> str:
+    """Classify shard naming and reject anything the warm-start loader may skip.
+
+    The Miles warm-start loader has only ever been proven to resolve the
+    ``tp{r}_pp0.pt`` naming. The synth-v1 SFT saved per-rank
+    ``tp{r}_pp0_ep{e}.pt`` shards instead; the r3 GRPO run staged those, the
+    loader matched nothing, and training silently proceeded from a fresh LoRA
+    init. Every layout must therefore be identified here and acknowledged
+    explicitly before it can ship in a hybrid adapter.
+    """
+
+    names = sorted(path.name for path in paths)
+    tp_only = [_TP_ONLY_SHARD_RE.fullmatch(name) for name in names]
+    if all(tp_only):
+        ranks = sorted(int(match.group(1)) for match in tp_only)
+        if ranks != list(range(len(ranks))):
+            raise ValueError(f"tp-only native shard set has rank gaps: {names}")
+        return "tp-only"
+    ep_sharded = [_EP_SHARDED_SHARD_RE.fullmatch(name) for name in names]
+    if all(ep_sharded):
+        pairs = [(int(match.group(1)), int(match.group(2))) for match in ep_sharded]
+        if len(set(pairs)) != len(pairs):
+            raise ValueError(f"ep-sharded native shard set has duplicate ranks: {names}")
+        return "ep-sharded"
+    raise ValueError(f"unrecognized native shard naming: {names}")
+
+
+def validate_native_shards(paths: list[Path], expected_count: int | None) -> str:
     if not paths:
         raise ValueError("--include-native requires Megatron-native adapter shards")
-    if expected_count is None:
-        return
-    names = {path.name for path in paths}
-    expected = {f"adapter_megatron_tp{index}_pp0.pt" for index in range(expected_count)}
-    if names != expected:
-        raise ValueError(f"native shard set mismatch: {sorted(names)} != {sorted(expected)}")
+    layout = classify_native_layout(paths)
+    if expected_count is not None and len(paths) != expected_count:
+        raise ValueError(
+            f"native shard count mismatch: {len(paths)} files != expected {expected_count}"
+        )
+    return layout
 
 
 def _sha256(path: Path) -> str:
@@ -104,6 +135,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--num-layers", type=int, default=47)
     parser.add_argument("--include-native", action="store_true")
     parser.add_argument("--include-training-state", action="store_true")
+    parser.add_argument(
+        "--allow-ep-sharded-native",
+        action="store_true",
+        help=(
+            "Permit ep-sharded native shard naming (tp{r}_pp0_ep{e}.pt) in the hybrid. "
+            "Only after proving in-image that the warm-start loader restores it."
+        ),
+    )
     parser.add_argument("--expected-native-shards", type=int)
     parser.add_argument("--expected-source-sha256")
     parser.add_argument("--expected-source-tensors", type=int)
@@ -150,18 +189,29 @@ def main(argv: list[str] | None = None) -> None:
         output_model = staging / "adapter_model.bin"
         torch.save(kept, output_model)
         shutil.copy2(source_config, staging / "adapter_config.json")
+        native_layout = None
         if args.include_native:
             native_files, training_state_files = copy_native_state(
                 src,
                 staging,
                 include_training_state=args.include_training_state,
             )
-            validate_native_shards(native_files, args.expected_native_shards)
+            native_layout = validate_native_shards(native_files, args.expected_native_shards)
+            if native_layout != "tp-only" and not args.allow_ep_sharded_native:
+                raise SystemExit(
+                    f"source adapter native shards use the '{native_layout}' naming, which "
+                    "the Miles warm-start loader has never been proven to resolve — the r3 "
+                    "GRPO run silently trained from a fresh LoRA init on exactly this "
+                    "layout. Re-shard the source to tp-only naming, or pass "
+                    "--allow-ep-sharded-native after proving in-image that the loader "
+                    "restores every adapter tensor."
+                )
         else:
             native_files, training_state_files = [], []
 
         manifest = {
             "source": str(src),
+            "native_layout": native_layout,
             "num_layers": args.num_layers,
             "source_tensor_count": len(state_dict),
             "kept_tensor_count": len(kept),
