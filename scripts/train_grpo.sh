@@ -367,16 +367,23 @@ finalize_wandb() {
     "${REPO_ROOT}/scripts/publish_results.py" "${finalize_args[@]}"
 }
 
+# Tenant-safe Ray lifecycle. This script can run under a supervisor that is
+# itself a Ray cluster (SkyPilot jobs are children of sky's Ray); a broadcast
+# `ray stop --force` / `pkill ray` kills that supervisor, the job dies with it,
+# and the idle autostop then deletes the VM out from under any surviving work
+# (issue #110 diag50 launch). Our Ray gets a private session dir and
+# non-default ports, and only processes bound to that session dir are killed.
+RAY_TMPDIR="${MILES_RAY_TMPDIR:-/tmp/ray-glm47-${RUN_ID}}"
+RAY_PORT="${MILES_RAY_PORT:-6479}"
 pkill -9 sglang >/dev/null 2>&1 || true
-ray stop --force >/dev/null 2>&1 || true
-pkill -9 ray >/dev/null 2>&1 || true
-pkill -9 redis >/dev/null 2>&1 || true
+pkill -9 -f "ray-glm47-${RUN_ID}" >/dev/null 2>&1 || true
+mkdir -p "${RAY_TMPDIR}"
 
 export PYTHONBUFFERED=16
 export MASTER_ADDR="${MILES_MASTER_ADDR:-${MASTER_ADDR:-127.0.0.1}}"
 RAY_NODE_IP_ADDRESS="${MILES_RAY_NODE_IP_ADDRESS:-127.0.0.1}"
 RAY_DASHBOARD_HOST="${MILES_RAY_DASHBOARD_HOST:-127.0.0.1}"
-RAY_DASHBOARD_PORT="${MILES_RAY_DASHBOARD_PORT:-8265}"
+RAY_DASHBOARD_PORT="${MILES_RAY_DASHBOARD_PORT:-8280}"
 export no_proxy="127.0.0.1,${MASTER_ADDR},${RAY_NODE_IP_ADDRESS},${RAY_DASHBOARD_HOST}"
 export GLM47_DATA_DIR="${DATA_DIR}"
 export GLM47_CPP_SANDBOX_IMAGE="${GLM47_CPP_SANDBOX_IMAGE:-glm47-cpp-perf:latest}"
@@ -636,6 +643,8 @@ ray start --head \
   --node-ip-address "${RAY_NODE_IP_ADDRESS}" \
   --num-gpus "${GPUS_PER_NODE}" \
   --disable-usage-stats \
+  --temp-dir "${RAY_TMPDIR}" \
+  --port "${RAY_PORT}" \
   --dashboard-host="${RAY_DASHBOARD_HOST}" \
   --dashboard-port="${RAY_DASHBOARD_PORT}"
 
