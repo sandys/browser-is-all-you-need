@@ -32,6 +32,7 @@ envs:
   MILES_REF_LOAD_DIR: /workspace/local-checkpoints/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8
   MILES_LORA_SOURCE_ADAPTER_PATH: /workspace/assets/checkpoints/glm47-synth-v1-100ep/checkpoints/iter_0000649/adapter
   MILES_LORA_ADAPTER_PATH: /workspace/local-checkpoints/synth-v1-ep50-hybrid
+  MILES_AUTO_PREPARE_GRPO_ADAPTER: "0"
   MILES_EXPECTED_SOURCE_ADAPTER_SHA256: 4acb7f23c295f45380155c5d9ee6bc59422262f0cb51f0c02f7e550d405b575a
   MILES_EXPECTED_SOURCE_TENSORS: "9741"
   MILES_EXPECTED_STRIPPED_TENSORS: "207"
