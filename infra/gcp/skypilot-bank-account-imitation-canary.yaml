@@ -125,11 +125,23 @@ setup: |
 
 run: |
   set -euo pipefail
+  mapfile -t gpu_names < <(nvidia-smi --query-gpu=name --format=csv,noheader)
+  test "${#gpu_names[@]}" -eq 8
+  for gpu_name in "${gpu_names[@]}"; do [[ "${gpu_name}" == *H100* ]]; done
+  test "$(sha256sum "${MILES_LORA_SOURCE_ADAPTER_PATH}/adapter_model.bin" | awk '{print $1}')" = "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}"
+  grep -q "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" "${MILES_LORA_ADAPTER_PATH}/mtp_strip_manifest.json"
+  test -f "${MILES_HF_CHECKPOINT}/config.json"
+  test -f "${MILES_REF_LOAD_DIR}/latest_checkpointed_iteration.txt"
+
   run_root="/workspace/local-runs/${MILES_RUN_ID}"
   artifact_root="/workspace/runs/${MILES_RUN_ID}"
   test ! -e "${run_root}"
   test ! -e "${artifact_root}"
   mkdir -p "${run_root}" "${artifact_root}"
+  preserve_artifacts() {
+    rsync -a "${run_root}/" "${artifact_root}/" || true
+  }
+  trap preserve_artifacts EXIT
   export MILES_RUN_ROOT="${run_root}"
   export MILES_CPP_DATA_DIR="${run_root}/data"
   export GLM47_EXPERIMENT_ID="${MILES_RUN_ID}"
@@ -161,10 +173,26 @@ run: |
   limit = int(os.environ["SEQ_LENGTH"])
   lengths = []
   target_lengths = []
+
+  def input_ids(rendered):
+      if hasattr(rendered, "keys") and "input_ids" in rendered:
+          rendered = rendered["input_ids"]
+      if rendered and isinstance(rendered[0], list):
+          if len(rendered) != 1:
+              raise SystemExit(f"unexpected token batch size: {len(rendered)}")
+          rendered = rendered[0]
+      return rendered
+
   for row in rows:
       messages = row["messages"]
-      full = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
-      prompt = tokenizer.apply_chat_template(messages[:-1], tokenize=True, add_generation_prompt=True)
+      full = input_ids(
+          tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
+      )
+      prompt = input_ids(
+          tokenizer.apply_chat_template(
+              messages[:-1], tokenize=True, add_generation_prompt=True
+          )
+      )
       lengths.append(len(full))
       target_lengths.append(max(0, len(full) - len(prompt)))
   if max(lengths) > limit or min(target_lengths) <= 0:
@@ -253,4 +281,5 @@ run: |
   echo "source_commit=${GLM47_SOURCE_COMMIT}" >> "${artifact_root}/canary_status.txt"
   echo "source_adapter_sha256=${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" >> "${artifact_root}/canary_status.txt"
   echo "ISSUE111_CANARY_ARTIFACTS_PRESERVED ${artifact_root}"
+  trap - EXIT
   exit "${train_status}"
