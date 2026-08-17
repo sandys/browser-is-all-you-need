@@ -24,6 +24,8 @@ envs:
   GLM47_GCP_ASSETS_BUCKET: transformer-tales-glm47-assets
   GLM47_GCP_RUNS_BUCKET: transformer-tales-glm47-runs
   GLM47_STAGE: null
+  GLM47_SFT_PROFILE: ""
+  GLM47_GRPO_PROFILE: ""
   MILES_RUN_ID: null
   GLM47_SOURCE_COMMIT: null
   GLM47_RUNTIME_IMAGE: null
@@ -35,6 +37,16 @@ envs:
   MILES_LORA_ADAPTER_PATH: ""
   GLM47_CPP_SANDBOX_BACKEND: local
   GLM47_CPP_SANDBOX_UNSHARE_NET: "1"
+  # SkyPilot's supervisor uses its own Ray cluster on the same host. Training
+  # gets a private session and non-default ports so cleanup cannot kill it.
+  MILES_RAY_SCOPED_CLEANUP: "1"
+  MILES_RAY_PORT: "6479"
+  MILES_RAY_DASHBOARD_PORT: "8280"
+  MILES_RAY_AGENT_LISTEN_PORT: "52415"
+  MILES_RAY_AGENT_GRPC_PORT: "52416"
+  MILES_RAY_RUNTIME_ENV_AGENT_PORT: "52417"
+  MILES_RAY_METRICS_EXPORT_PORT: "52418"
+  MILES_RAY_SUBMIT_RETRIES: "5"
 
 secrets:
   WANDB_API_KEY: null

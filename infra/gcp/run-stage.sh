@@ -57,6 +57,7 @@ write_launch_receipt() {
 status=${status}
 exit_code=${exit_code}
 stage=${GLM47_STAGE}
+sft_profile=${GLM47_SFT_PROFILE:-default}
 grpo_profile=${GLM47_GRPO_PROFILE:-default}
 run_id=${MILES_RUN_ID}
 run_root=${RUN_ROOT}
@@ -74,11 +75,23 @@ write_launch_receipt running 0
 set +e
 case "${GLM47_STAGE}" in
   sft)
-    export MILES_SEQ_LENGTH="${MILES_SEQ_LENGTH:-3072}"
-    export MILES_GLOBAL_BATCH_SIZE="${MILES_GLOBAL_BATCH_SIZE:-20}"
-    export MILES_ROLLOUT_BATCH_SIZE="${MILES_ROLLOUT_BATCH_SIZE:-20}"
-    bash examples/sft.sh
-    STAGE_STATUS=$?
+    case "${GLM47_SFT_PROFILE:-}" in
+      "")
+        export MILES_SEQ_LENGTH="${MILES_SEQ_LENGTH:-3072}"
+        export MILES_GLOBAL_BATCH_SIZE="${MILES_GLOBAL_BATCH_SIZE:-20}"
+        export MILES_ROLLOUT_BATCH_SIZE="${MILES_ROLLOUT_BATCH_SIZE:-20}"
+        bash examples/sft.sh
+        STAGE_STATUS=$?
+        ;;
+      bank-account-official-imitation)
+        bash examples/sft_bank_account_official_drill.sh
+        STAGE_STATUS=$?
+        ;;
+      *)
+        echo "Unsupported GLM47_SFT_PROFILE: ${GLM47_SFT_PROFILE}" >&2
+        STAGE_STATUS=2
+        ;;
+    esac
     ;;
   grpo)
     export MILES_LORA_ADAPTER_PATH="${MILES_LORA_ADAPTER_PATH:-${GLM47_GRPO_ADAPTER_PATH}}"
@@ -93,6 +106,10 @@ case "${GLM47_STAGE}" in
           ;;
         bank-account-v1)
           bash examples/grpo_bank_account.sh
+          STAGE_STATUS=$?
+          ;;
+        bank-account-official-drill-v1)
+          bash examples/grpo_bank_account_official_drill.sh
           STAGE_STATUS=$?
           ;;
         *)
