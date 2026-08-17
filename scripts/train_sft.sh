@@ -14,6 +14,8 @@ STAGE_STARTED_AT="${SECONDS}"
 RUN_ROOT="${MILES_RUN_ROOT:-${REPO_ROOT}/.glm47-posttraining/miles/glm47-h100-cpp-perf/runs/${RUN_ID}}"
 DATA_DIR="${MILES_CPP_DATA_DIR:-${RUN_ROOT}/data}"
 TASKS_DIR="${MILES_CPP_TASKS_DIR:-${REPO_ROOT}/.glm47-posttraining/data/tasks-small}"
+DATA_BUILD_MODULE="${MILES_DATA_BUILD_MODULE:-glm47_posttraining.integrations.miles_cpp_perf}"
+DATA_CURRICULUM="${MILES_DATA_CURRICULUM:-}"
 TRAIN_LIMIT="${MILES_CPP_TRAIN_LIMIT:-}"
 EVAL_LIMIT="${MILES_CPP_EVAL_LIMIT:-}"
 EVAL_SPLITS="${MILES_CPP_EVAL_SPLITS:-validation,test}"
@@ -53,6 +55,7 @@ TRAIN_MODULE="${MILES_TRAIN_MODULE:-}"
 
 LORA_RANK="${MILES_LORA_RANK:-16}"
 LORA_ALPHA="${MILES_LORA_ALPHA:-32}"
+LORA_ADAPTER_PATH="${MILES_LORA_ADAPTER_PATH:-}"
 LORA_TARGET_MODULES="${MILES_LORA_TARGET_MODULES:-q_a_proj,kv_a_proj_with_mqa,o_proj,gate_proj,up_proj,down_proj}"
 SGLANG_LORA_TARGET_MODULES="${MILES_SGLANG_LORA_TARGET_MODULES:-${LORA_TARGET_MODULES}}"
 read -r -a SGLANG_LORA_TARGET_MODULE_ARGS <<< "${SGLANG_LORA_TARGET_MODULES//,/ }"
@@ -93,6 +96,8 @@ exec > >(tee -a "${LOG_FILE}") 2>&1
 echo "run_id=${RUN_ID}"
 echo "run_root=${RUN_ROOT}"
 echo "tasks_dir=${TASKS_DIR}"
+echo "data_build_module=${DATA_BUILD_MODULE}"
+echo "data_curriculum=${DATA_CURRICULUM}"
 echo "data_dir=${DATA_DIR}"
 echo "hf_checkpoint=${HF_CHECKPOINT}"
 echo "model_args_path=${MODEL_ARGS_PATH}"
@@ -103,6 +108,7 @@ echo "global_batch_size=${GLOBAL_BATCH_SIZE}"
 echo "rollout_batch_size=${ROLLOUT_BATCH_SIZE}"
 echo "sft_rollout_shuffle=${SFT_ROLLOUT_SHUFFLE}"
 echo "lora_rank=${LORA_RANK}"
+echo "lora_adapter_path=${LORA_ADAPTER_PATH}"
 
 if [ ! -d "${MILES_ROOT}" ]; then
   echo "Missing Miles root: ${MILES_ROOT}" >&2
@@ -140,7 +146,7 @@ prepare_data() {
   fi
 
   BUILD_DATA_ARGS=(
-    -m glm47_posttraining.integrations.miles_cpp_perf build-data
+    -m "${DATA_BUILD_MODULE}" build-data
     --tasks-dir "${TASKS_DIR}"
     --out "${DATA_DIR}"
     --eval-splits "${EVAL_SPLITS}"
@@ -148,6 +154,12 @@ prepare_data() {
     --run-id "${RUN_ID}"
     --force
   )
+  if [ -n "${DATA_CURRICULUM}" ]; then
+    BUILD_DATA_ARGS+=(--curriculum "${DATA_CURRICULUM}")
+  fi
+  if [ "${MILES_ALLOW_NON_GCC_CURRICULUM:-0}" = "1" ]; then
+    BUILD_DATA_ARGS+=(--allow-non-gcc-curriculum)
+  fi
   if [ -n "${TRAIN_LIMIT}" ]; then
     BUILD_DATA_ARGS+=(--train-limit "${TRAIN_LIMIT}")
   fi
@@ -164,7 +176,7 @@ prepare_data() {
   PYTHONPATH="${REPO_ROOT}/src:${PYTHONPATH:-}" "${PYTHON_BIN}" "${BUILD_DATA_ARGS[@]}"
 }
 
-if [ ! -f "${DATA_DIR}/manifest.json" ]; then
+if [ ! -f "${DATA_DIR}/manifest.json" ] || [ ! -f "${DATA_DIR}/sft/train.jsonl" ]; then
   if [ "${AUTO_PREPARE_DATA}" != "1" ]; then
     echo "Missing Miles C++ data manifest: ${DATA_DIR}/manifest.json" >&2
     exit 2
@@ -205,6 +217,8 @@ vram_peak_file=${VRAM_PEAK_FILE}
 max_memory_used_mib=${max_memory_used_mib}
 data_dir=${DATA_DIR}
 tasks_dir=${TASKS_DIR}
+data_build_module=${DATA_BUILD_MODULE}
+data_curriculum=${DATA_CURRICULUM}
 hf_checkpoint=${HF_CHECKPOINT}
 model_args_path=${MODEL_ARGS_PATH}
 ref_load=${REF_LOAD_DIR}
@@ -226,6 +240,7 @@ rollout_batch_size=${ROLLOUT_BATCH_SIZE}
 global_batch_size=${GLOBAL_BATCH_SIZE}
 lora_rank=${LORA_RANK}
 lora_alpha=${LORA_ALPHA}
+lora_adapter_path=${LORA_ADAPTER_PATH}
 lora_base_cpu_backup=${LORA_BASE_CPU_BACKUP}
 no_gradient_accumulation_fusion=${NO_GRADIENT_ACCUMULATION_FUSION}
 sft_rollout_function_path=${SFT_ROLLOUT_FUNCTION_PATH}
@@ -286,6 +301,9 @@ finalize_wandb() {
 monitor_vram &
 VRAM_MONITOR_PID=$!
 cleanup() {
+  if declare -F cleanup_ray_session >/dev/null 2>&1; then
+    cleanup_ray_session
+  fi
   if [ -n "${VRAM_MONITOR_PID:-}" ]; then
     kill "${VRAM_MONITOR_PID}" >/dev/null 2>&1 || true
     wait "${VRAM_MONITOR_PID}" >/dev/null 2>&1 || true
@@ -294,10 +312,40 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Share SkyPilot-managed hosts without touching the supervisor's Ray process.
+# Infra owns the private directory and port policy through MILES_RAY_*; an
+# unset policy preserves the legacy sole-owner behavior.
+RAY_SESSION_TAG="$(printf %s "${RUN_ID}" | sha256sum | cut -c1-8)"
+RAY_SCOPED_CLEANUP="${MILES_RAY_SCOPED_CLEANUP:-0}"
+RAY_TMPDIR="${MILES_RAY_TMPDIR:-}"
+if [ "${RAY_SCOPED_CLEANUP}" = "1" ] && [ -z "${RAY_TMPDIR}" ]; then
+  RAY_TMPDIR="/tmp/ray-g47-${RAY_SESSION_TAG}"
+fi
+RAY_PORT="${MILES_RAY_PORT:-}"
+RAY_AGENT_LISTEN_PORT="${MILES_RAY_AGENT_LISTEN_PORT:-}"
+RAY_AGENT_GRPC_PORT="${MILES_RAY_AGENT_GRPC_PORT:-}"
+RAY_RUNTIME_ENV_AGENT_PORT="${MILES_RAY_RUNTIME_ENV_AGENT_PORT:-}"
+RAY_METRICS_EXPORT_PORT="${MILES_RAY_METRICS_EXPORT_PORT:-}"
+cleanup_ray_session() {
+  if [ "${RAY_SCOPED_CLEANUP}" = "1" ]; then
+    pkill -9 -f "ray-g47-${RAY_SESSION_TAG}" >/dev/null 2>&1 || true
+    if [ -n "${RAY_TMPDIR}" ]; then
+      rm -rf -- "${RAY_TMPDIR}"
+    fi
+  fi
+}
+
 pkill -9 sglang >/dev/null 2>&1 || true
-ray stop --force >/dev/null 2>&1 || true
-pkill -9 ray >/dev/null 2>&1 || true
-pkill -9 redis >/dev/null 2>&1 || true
+if [ "${RAY_SCOPED_CLEANUP}" = "1" ]; then
+  cleanup_ray_session
+else
+  ray stop --force >/dev/null 2>&1 || true
+  pkill -9 ray >/dev/null 2>&1 || true
+  pkill -9 redis >/dev/null 2>&1 || true
+fi
+if [ -n "${RAY_TMPDIR}" ]; then
+  mkdir -p "${RAY_TMPDIR}"
+fi
 
 export PYTHONBUFFERED=16
 export MASTER_ADDR="${MILES_MASTER_ADDR:-${MASTER_ADDR:-127.0.0.1}}"
@@ -340,6 +388,13 @@ LORA_ARGS=(
   --sglang-max-lora-rank "${LORA_RANK}"
   --sglang-lora-target-modules "${SGLANG_LORA_TARGET_MODULE_ARGS[@]}"
 )
+if [ -n "${LORA_ADAPTER_PATH}" ]; then
+  if [ ! -d "${LORA_ADAPTER_PATH}" ]; then
+    echo "Missing SFT warm-start adapter: ${LORA_ADAPTER_PATH}" >&2
+    exit 2
+  fi
+  LORA_ARGS+=(--lora-adapter-path "${LORA_ADAPTER_PATH}")
+fi
 if [ "${EXPERTS_SHARED_OUTER_LORAS}" = "1" ]; then
   LORA_ARGS+=(--experts-shared-outer-loras)
 fi
@@ -476,12 +531,21 @@ if [ -n "${MILES_EXTRA_ARGS:-}" ]; then
   MISC_ARGS+=("${EXTRA_ARGS[@]}")
 fi
 
-ray start --head \
-  --node-ip-address "${RAY_NODE_IP_ADDRESS}" \
-  --num-gpus "${GPUS_PER_NODE}" \
-  --disable-usage-stats \
-  --dashboard-host="${RAY_DASHBOARD_HOST}" \
+RAY_START_ARGS=(
+  --head
+  --node-ip-address "${RAY_NODE_IP_ADDRESS}"
+  --num-gpus "${GPUS_PER_NODE}"
+  --disable-usage-stats
+  --dashboard-host="${RAY_DASHBOARD_HOST}"
   --dashboard-port="${RAY_DASHBOARD_PORT}"
+)
+[ -n "${RAY_TMPDIR}" ] && RAY_START_ARGS+=(--temp-dir "${RAY_TMPDIR}")
+[ -n "${RAY_PORT}" ] && RAY_START_ARGS+=(--port "${RAY_PORT}")
+[ -n "${RAY_AGENT_LISTEN_PORT}" ] && RAY_START_ARGS+=(--dashboard-agent-listen-port "${RAY_AGENT_LISTEN_PORT}")
+[ -n "${RAY_AGENT_GRPC_PORT}" ] && RAY_START_ARGS+=(--dashboard-agent-grpc-port "${RAY_AGENT_GRPC_PORT}")
+[ -n "${RAY_RUNTIME_ENV_AGENT_PORT}" ] && RAY_START_ARGS+=(--runtime-env-agent-port "${RAY_RUNTIME_ENV_AGENT_PORT}")
+[ -n "${RAY_METRICS_EXPORT_PORT}" ] && RAY_START_ARGS+=(--metrics-export-port "${RAY_METRICS_EXPORT_PORT}")
+ray start "${RAY_START_ARGS[@]}"
 
 RUNTIME_ENV_JSON="$("${PYTHON_BIN}" - <<PY
 import json
@@ -529,22 +593,31 @@ TRAIN_ENTRYPOINT=(python3 train.py)
 if [ -n "${TRAIN_MODULE}" ]; then
   TRAIN_ENTRYPOINT=(python3 -m "${TRAIN_MODULE}")
 fi
-ray job submit --address="http://${RAY_DASHBOARD_HOST}:${RAY_DASHBOARD_PORT}" \
-  --runtime-env-json="${RUNTIME_ENV_JSON}" \
-  -- "${TRAIN_ENTRYPOINT[@]}" \
-  --actor-num-nodes 1 \
-  --actor-num-gpus-per-node "${GPUS_PER_NODE}" \
-  --colocate \
-  "${MODEL_ARGS[@]}" \
-  "${CKPT_ARGS[@]}" \
-  "${SFT_ARGS[@]}" \
-  "${OPTIMIZER_ARGS[@]}" \
-  "${WANDB_ARGS[@]}" \
-  "${PERF_ARGS[@]}" \
-  "${SGLANG_ARGS[@]}" \
-  "${MISC_ARGS[@]}" \
-  "${LORA_ARGS[@]}"
-RAY_STATUS=$?
+RAY_STATUS=1
+for submit_attempt in $(seq 1 "${MILES_RAY_SUBMIT_RETRIES:-1}"); do
+  SUBMIT_STARTED_AT=${SECONDS}
+  ray job submit --address="http://${RAY_DASHBOARD_HOST}:${RAY_DASHBOARD_PORT}" \
+    --runtime-env-json="${RUNTIME_ENV_JSON}" \
+    -- "${TRAIN_ENTRYPOINT[@]}" \
+    --actor-num-nodes 1 \
+    --actor-num-gpus-per-node "${GPUS_PER_NODE}" \
+    --colocate \
+    "${MODEL_ARGS[@]}" \
+    "${CKPT_ARGS[@]}" \
+    "${SFT_ARGS[@]}" \
+    "${OPTIMIZER_ARGS[@]}" \
+    "${WANDB_ARGS[@]}" \
+    "${PERF_ARGS[@]}" \
+    "${SGLANG_ARGS[@]}" \
+    "${MISC_ARGS[@]}" \
+    "${LORA_ARGS[@]}"
+  RAY_STATUS=$?
+  if [ "${RAY_STATUS}" -eq 0 ] || [ $((SECONDS - SUBMIT_STARTED_AT)) -ge 60 ]; then
+    break
+  fi
+  echo "ray job submit failed within 60s (attempt ${submit_attempt}); waiting for the dashboard job agent" >&2
+  sleep 10
+done
 set -e
 
 cleanup
