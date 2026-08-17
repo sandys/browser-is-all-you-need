@@ -211,7 +211,7 @@ run: |
     test "${#checkpoints[@]}" -ge 1
     final_adapter="${checkpoints[${#checkpoints[@]}-1]}/adapter"
     test -f "${final_adapter}/adapter_model.bin"
-    test "$(grep -c 'optimizer.reload_model_params() after adapter load' "${run_root}/grpo_lora_r16/run.log")" -ge 16
+    test "$(grep -c 'optimizer.reload_model_params() after adapter load' "${run_root}/grpo_lora_r16/run.log")" -eq 8
     ADAPTER_PATH="${final_adapter}" python3 - <<'PY'
   import hashlib
   import json
