@@ -19,6 +19,13 @@ from glm47_posttraining.aider_polyglot.bank_account_curriculum import (
 from glm47_posttraining.aider_polyglot.bank_account_curriculum import (
     build_bank_account_curriculum,
 )
+from glm47_posttraining.aider_polyglot.bank_account_official_drill import (
+    CURRICULUM_NAME as BANK_ACCOUNT_OFFICIAL_DRILL,
+)
+from glm47_posttraining.aider_polyglot.bank_account_official_drill import (
+    build_bank_account_official_drill,
+    imitation_targets,
+)
 from glm47_posttraining.aider_polyglot.dataset import build_aider_polyglot_datasets
 from glm47_posttraining.aider_polyglot.harness import (
     DEFAULT_AIDER_DOCKER_IMAGE,
@@ -151,7 +158,11 @@ def _score_sample(sample: Any, *, reward_worker_load: int = 1) -> dict[str, Any]
             return harness_runner(path, files, **kwargs)
 
         breakdown = compute_aider_reward(
-            task, exercise_dir, _sample_response(sample), runner=runner
+            task,
+            exercise_dir,
+            _sample_response(sample),
+            runner=runner,
+            strict_binary="strict-binary-reward" in task.tags,
         )
         return reward_record(
             sample, task, breakdown, reward_worker_load=reward_worker_load
@@ -197,6 +208,9 @@ def reward_record(
         "reward_worker_load": reward_worker_load,
         "hidden_test_sha256": task.hidden_test_sha256,
         "verification_gate": task.verification_gate,
+        "objective_group": task.objective_group,
+        "failure_signature": task.failure_signature,
+        "strict_binary_reward": "strict-binary-reward" in task.tags,
     }
     if harness and _include_logs():
         record["logs"] = harness.logs
@@ -290,7 +304,10 @@ def _parser() -> argparse.ArgumentParser:
     build = subparsers.add_parser("build-data")
     build.add_argument("--tasks-dir", required=True, help="checked-in Aider shadow rubric tree")
     build.add_argument("--out", required=True)
-    build.add_argument("--curriculum", choices=[BANK_ACCOUNT_CURRICULUM])
+    build.add_argument(
+        "--curriculum",
+        choices=[BANK_ACCOUNT_CURRICULUM, BANK_ACCOUNT_OFFICIAL_DRILL],
+    )
     build.add_argument("--allow-non-gcc-curriculum", action="store_true")
     build.add_argument("--train-limit", type=int)
     build.add_argument("--eval-limit", type=int, help="training-task monitor size")
@@ -323,6 +340,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.filter_train_oracle_full_marks:
         raise ValueError("the packaged shadow corpus is already restricted to terminal oracle passes")
     tasks_dir = args.tasks_dir
+    sft_targets: dict[str, str] | None = None
     temporary: TemporaryDirectory[str] | None = None
     if args.curriculum == BANK_ACCOUNT_CURRICULUM:
         temporary = TemporaryDirectory(prefix="glm47-bank-account-rubrics-")
@@ -333,6 +351,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             compiler=os.environ.get("CXX", "c++"),
             require_gcc=not args.allow_non_gcc_curriculum,
         )
+    elif args.curriculum == BANK_ACCOUNT_OFFICIAL_DRILL:
+        temporary = TemporaryDirectory(prefix="glm47-bank-account-official-rubrics-")
+        tasks_dir = temporary.name
+        build_bank_account_official_drill(
+            tasks_dir,
+            compiler=os.environ.get("CXX", "g++"),
+            require_gcc=not args.allow_non_gcc_curriculum,
+        )
+        sft_targets = imitation_targets()
     try:
         paths = build_aider_polyglot_datasets(
             tasks_dir,
@@ -343,6 +370,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             run_id=args.run_id,
             sort_by_size=args.sort_by_size,
             force=args.force,
+            imitation_targets=sft_targets,
         )
     finally:
         if temporary is not None:

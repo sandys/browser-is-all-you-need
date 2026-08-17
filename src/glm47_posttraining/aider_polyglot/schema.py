@@ -37,6 +37,8 @@ class AiderPolyglotTask(BaseModel):
     category: str | None = None
     lineage_id: str | None = None
     episode_kind: str | None = None
+    objective_group: str | None = None
+    failure_signature: str | None = None
     tags: list[str] = Field(default_factory=list)
     hidden_test_sha256: str | None = None
     source_prompt_sha256: str | None = None
@@ -136,6 +138,8 @@ class AiderShadowRubric(BaseModel):
     category: str
     lineage_id: str | None = None
     episode_kind: str | None = None
+    objective_group: str | None = None
+    failure_signature: str | None = None
     tags: list[str] = Field(default_factory=list)
 
     @field_validator("editable_files")

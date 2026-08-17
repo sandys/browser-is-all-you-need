@@ -31,18 +31,27 @@ def compute_aider_reward(
     model_output: str,
     *,
     runner: Runner | None = None,
+    strict_binary: bool = False,
 ) -> AiderRewardBreakdown:
     """Score correctness first and use formatting only as a small tie-breaker."""
 
     try:
         parsed = parse_whole_file_response(model_output, task.editable_files)
     except AiderResponseError as exc:
+        if strict_binary:
+            return AiderRewardBreakdown(reward=0.0, reason=exc.reason)
         reward = -1.0 if exc.reason == "forbidden_file" else -0.8
         return AiderRewardBreakdown(reward=reward, reason=exc.reason)
 
     try:
         harness = (runner or run_aider_tests)(exercise_dir, parsed.files)
     except CandidatePolicyError:
+        if strict_binary:
+            return AiderRewardBreakdown(
+                reward=0.0,
+                reason="forbidden_runtime_primitive",
+                parsed=parsed,
+            )
         return AiderRewardBreakdown(
             reward=-1.0,
             reason="forbidden_runtime_primitive",
@@ -55,6 +64,18 @@ def compute_aider_reward(
             parsed=parsed,
             harness=AiderTestResult(status="infrastructure_error", logs={"error": str(exc)}),
             infrastructure_error=True,
+        )
+
+    if strict_binary:
+        passed = parsed.format_valid and harness.all_tests_pass
+        reason = "passed" if passed else harness.status
+        if not parsed.format_valid:
+            reason = f"recoverable_format_{reason}"
+        return AiderRewardBreakdown(
+            reward=1.0 if passed else 0.0,
+            reason=reason,
+            parsed=parsed,
+            harness=harness,
         )
 
     semantic = {

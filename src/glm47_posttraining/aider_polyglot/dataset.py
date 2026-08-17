@@ -9,7 +9,7 @@ import shutil
 from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from .schema import AiderPolyglotTask, AiderShadowRubric
 
@@ -177,8 +177,13 @@ def _validate_source_manifest(tasks_root: Path) -> tuple[Path, dict[str, object]
     if not isinstance(expected_tasks, int) or expected_tasks < 1:
         raise ValueError("shadow manifest task count must be a positive integer")
     contract = manifest.get("contract")
-    if not isinstance(contract, dict) or contract.get("official_task_id_overlap") != []:
-        raise ValueError("shadow manifest does not prove zero official task-ID overlap")
+    if not isinstance(contract, dict):
+        raise ValueError("shadow manifest is missing its contract")
+    official_overlap = contract.get("official_task_id_overlap")
+    if not isinstance(official_overlap, list):
+        raise ValueError("shadow manifest does not declare official task-ID overlap")
+    if official_overlap and contract.get("official_training_authorized") is not True:
+        raise ValueError("official task overlap requires explicit training authorization")
     if contract.get("reference_answers_packaged") is not False:
         raise ValueError("shadow manifest must exclude reference answers")
     return manifest_path, manifest
@@ -281,6 +286,8 @@ def _materialize_task(
         category=rubric.category,
         lineage_id=rubric.lineage_id,
         episode_kind=rubric.episode_kind,
+        objective_group=rubric.objective_group,
+        failure_signature=rubric.failure_signature,
         tags=rubric.tags,
         hidden_test_sha256=rubric.hidden_test_sha256,
         source_prompt_sha256=rubric.source_prompt_sha256,
@@ -312,8 +319,35 @@ def _prompt_row(task: AiderPolyglotTask, task_path: str) -> dict[str, object]:
             "category": task.category,
             "lineage_id": task.lineage_id,
             "episode_kind": task.episode_kind,
+            "objective_group": task.objective_group,
+            "failure_signature": task.failure_signature,
             "tags": task.tags,
         },
+    }
+
+
+def _sft_row(
+    task: AiderPolyglotTask,
+    task_path: str,
+    imitation_target: str,
+) -> dict[str, object]:
+    row = _prompt_row(task, task_path)
+    metadata = row["metadata"]
+    assert isinstance(metadata, dict)
+    metadata["subset"] = "verified-imitation"
+    metadata["imitation_target_sha256"] = hashlib.sha256(
+        imitation_target.encode("utf-8")
+    ).hexdigest()
+    return {
+        "messages": [
+            *(message.model_dump() for message in task.prompt),
+            {"role": "assistant", "content": imitation_target},
+        ],
+        "label": row["label"],
+        "task_id": row["task_id"],
+        "problem_id": row["problem_id"],
+        "split": row["split"],
+        "metadata": metadata,
     }
 
 
@@ -379,6 +413,7 @@ def build_aider_polyglot_datasets(
     run_id: str | None = None,
     sort_by_size: bool = False,
     force: bool = False,
+    imitation_targets: Mapping[str, str] | None = None,
 ) -> dict[str, Path]:
     """Validate a manifest-bound task set, then materialize trainer-safe data."""
 
@@ -408,6 +443,23 @@ def build_aider_polyglot_datasets(
         raise ValueError("monitor_limit must be positive")
     selected_train = train_rubrics[:train_limit] if train_limit is not None else train_rubrics
     selected = [*selected_train, *validation_rubrics]
+    selected_train_ids = {rubric.task_id for _, rubric in selected_train}
+    if imitation_targets is not None:
+        source_contract = source_manifest.get("contract")
+        if not isinstance(source_contract, dict) or source_contract.get(
+            "official_training_authorized"
+        ) is not True:
+            raise ValueError("imitation targets require explicit official training authorization")
+        missing_targets = selected_train_ids - set(imitation_targets)
+        if missing_targets:
+            raise ValueError(
+                "missing imitation targets for: " + ", ".join(sorted(missing_targets))
+            )
+        empty_targets = [
+            task_id for task_id in selected_train_ids if not imitation_targets[task_id].strip()
+        ]
+        if empty_targets:
+            raise ValueError("empty imitation targets for: " + ", ".join(sorted(empty_targets)))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists() and any(output.iterdir()) and not force:
@@ -416,6 +468,7 @@ def build_aider_polyglot_datasets(
     with TemporaryDirectory(prefix=f".{output.name}-preparing-", dir=output.parent) as temporary:
         staging = Path(temporary)
         train_rows: list[dict[str, object]] = []
+        sft_rows: list[dict[str, object]] = []
         validation_rows: list[dict[str, object]] = []
         prompt_hashes: list[str] = []
         for exercise, rubric in selected:
@@ -423,6 +476,14 @@ def build_aider_polyglot_datasets(
             row = _prompt_row(task, descriptor.relative_to(staging).as_posix())
             if task.split == "train":
                 train_rows.append(row)
+                if imitation_targets is not None:
+                    sft_rows.append(
+                        _sft_row(
+                            task,
+                            descriptor.relative_to(staging).as_posix(),
+                            imitation_targets[rubric.task_id],
+                        )
+                    )
             else:
                 validation_rows.append(row)
             canonical_prompt = json.dumps(row["prompt"], sort_keys=True, ensure_ascii=False)
@@ -432,10 +493,15 @@ def build_aider_polyglot_datasets(
             validation_rows.sort(
                 key=lambda row: (len(str(row["prompt"])), str(row["problem_id"]))
             )
+            sft_rows.sort(
+                key=lambda row: (len(str(row["messages"])), str(row["problem_id"]))
+            )
         monitor_rows = _monitor_rows(train_rows, min(monitor_limit, len(train_rows)))
         effective_validation = validation_rows or monitor_rows
 
         write_jsonl(staging / "grpo" / "train.jsonl", train_rows)
+        if sft_rows:
+            write_jsonl(staging / "sft" / "train.jsonl", sft_rows)
         write_jsonl(staging / "eval" / "train_monitor.jsonl", monitor_rows)
         write_jsonl(staging / "eval" / "validation.jsonl", effective_validation)
         source_manifest_sha256 = sha256_path(manifest_path)
@@ -458,13 +524,24 @@ def build_aider_polyglot_datasets(
                     else "training-task monitor fallback; not checkpoint-selection evidence"
                 ),
                 "monitor": "training-task trend monitor only",
-                "official_26": "external fixed evaluation only",
+                "official_26": (
+                    "explicitly authorized training target"
+                    if source_contract["official_task_id_overlap"]
+                    else "external fixed evaluation only"
+                ),
                 "official_task_id_overlap": source_contract["official_task_id_overlap"],
-                "reference_answers_packaged": False,
+                "source_reference_answers_packaged": False,
+                "reference_answers_packaged": bool(sft_rows),
+                "imitation_role": (
+                    "exact authorized task overfit"
+                    if sft_rows
+                    else "none"
+                ),
             },
             "counts": {
                 "available_shadow": len(rubrics),
                 "train": len(train_rows),
+                **({"sft_train": len(sft_rows)} if sft_rows else {}),
                 "validation": len(validation_rows),
                 "monitor": len(monitor_rows),
             },
@@ -477,6 +554,7 @@ def build_aider_polyglot_datasets(
             "prompt_sha256": sorted(prompt_hashes),
             "files": {
                 "grpo_train": "grpo/train.jsonl",
+                **({"sft_train": "sft/train.jsonl"} if sft_rows else {}),
                 "validation": "eval/validation.jsonl",
                 "train_monitor": "eval/train_monitor.jsonl",
             },
@@ -491,8 +569,11 @@ def build_aider_polyglot_datasets(
             shutil.rmtree(output)
         os.replace(staging, output)
 
-    return {
+    paths = {
         "grpo_train": output / "grpo" / "train.jsonl",
         "eval": output / "eval" / "validation.jsonl",
         "manifest": output / "manifest.json",
     }
+    if imitation_targets is not None:
+        paths["sft_train"] = output / "sft" / "train.jsonl"
+    return paths
