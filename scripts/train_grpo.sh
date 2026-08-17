@@ -65,6 +65,9 @@ EVAL_N_SAMPLES_PER_PROMPT="${MILES_EVAL_N_SAMPLES_PER_PROMPT:-1}"
 EVAL_MAX_RESPONSE_LEN="${MILES_EVAL_MAX_RESPONSE_LEN:-1536}"
 EVAL_PROMPT_DATA="${MILES_EVAL_PROMPT_DATA:-}"
 KL_LOSS_COEF="${MILES_KL_LOSS_COEF:-0.00}"
+LR="${MILES_LR:-1e-5}"
+LR_DECAY_STYLE="${MILES_LR_DECAY_STYLE:-constant}"
+LR_WARMUP_FRACTION="${MILES_LR_WARMUP_FRACTION:-}"
 
 LORA_RANK="${MILES_LORA_RANK:-16}"
 LORA_ALPHA="${MILES_LORA_ALPHA:-32}"
@@ -124,6 +127,9 @@ echo "save_dir=${SAVE_DIR}"
 echo "seq_length=${SEQ_LENGTH}"
 echo "rollout_max_response_len=${ROLLOUT_MAX_RESPONSE_LEN}"
 echo "eval_max_response_len=${EVAL_MAX_RESPONSE_LEN}"
+echo "lr=${LR}"
+echo "lr_decay_style=${LR_DECAY_STYLE}"
+echo "lr_warmup_fraction=${LR_WARMUP_FRACTION}"
 
 if [ ! -d "${MILES_ROOT}" ]; then
   echo "Missing Miles root: ${MILES_ROOT}" >&2
@@ -330,6 +336,9 @@ wandb_job_type=${WANDB_JOB_TYPE}
 experiment_id=${EXPERIMENT_ID}
 eval_name=${EVAL_NAME}
 kl_loss_coef=${KL_LOSS_COEF}
+lr=${LR}
+lr_decay_style=${LR_DECAY_STYLE}
+lr_warmup_fraction=${LR_WARMUP_FRACTION}
 timing_status=${GLM47_TIMING_STATUS:-unverified}
 training_gate=${TRAINING_GATE}
 training_gate_status=${TRAINING_GATE_STATUS:-not_requested}
@@ -604,12 +613,15 @@ fi
 
 OPTIMIZER_ARGS=(
   --optimizer adam
-  --lr "${MILES_LR:-1e-5}"
-  --lr-decay-style constant
+  --lr "${LR}"
+  --lr-decay-style "${LR_DECAY_STYLE}"
   --weight-decay 0.1
   --adam-beta1 0.9
   --adam-beta2 0.98
 )
+if [ -n "${LR_WARMUP_FRACTION}" ]; then
+  OPTIMIZER_ARGS+=(--lr-warmup-fraction "${LR_WARMUP_FRACTION}")
+fi
 
 WANDB_ARGS=(
   --use-wandb

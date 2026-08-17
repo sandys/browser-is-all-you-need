@@ -1,7 +1,7 @@
-# One-update, full-load SFT canary for issue #111. Infra owns provisioning,
-# local staging, preservation, and teardown; the experiment and trainer remain
-# in examples/ and scripts/.
-name: issue111-bank-imitation-canary
+# Twenty-update, high-KL exact-task GRPO run for issue #111. Infra owns
+# provisioning, local staging, preservation, and teardown; training and reward
+# semantics remain in examples/, scripts/, and src/.
+name: issue111-bank-official-grpo20
 
 workdir: .
 
@@ -21,7 +21,7 @@ resources:
     wait_for: jobs
   labels:
     managed-by: skypilot
-    workload: issue111-bank-imitation-canary
+    workload: issue111-bank-official-grpo20
 
 envs:
   MILES_RUN_ID: null
@@ -36,14 +36,29 @@ envs:
   MILES_EXPECTED_SOURCE_TENSORS: "9741"
   MILES_EXPECTED_STRIPPED_TENSORS: "207"
   MILES_EXPECTED_SOURCE_NATIVE_SHARDS: "8"
-  MILES_SFT_NUM_EPOCH: "1"
+  MILES_NUM_ROLLOUT: "20"
   MILES_ROLLOUT_BATCH_SIZE: "8"
-  MILES_GLOBAL_BATCH_SIZE: "8"
-  MILES_SAVE_INTERVAL: "1"
+  MILES_N_SAMPLES_PER_PROMPT: "32"
+  MILES_GLOBAL_BATCH_SIZE: "256"
+  MILES_SAVE_INTERVAL: "5"
+  MILES_EVAL_INTERVAL: "-1"
   MILES_SEQ_LENGTH: "6144"
   MILES_MAX_TOKENS_PER_GPU: "12288"
-  MILES_LR: "1e-5"
+  MILES_ROLLOUT_MAX_RESPONSE_LEN: "4096"
+  MILES_EVAL_MAX_RESPONSE_LEN: "4096"
+  MILES_ROLLOUT_TEMPERATURE: "0.7"
+  MILES_ROLLOUT_STOP_TOKEN_IDS: "154820 154827 154829"
+  MILES_ROLLOUT_SKIP_SPECIAL_TOKENS: "1"
+  MILES_LR: "3e-5"
+  MILES_LR_DECAY_STYLE: constant
+  MILES_LR_WARMUP_FRACTION: "0.1"
+  MILES_NO_REF: "0"
+  MILES_USE_KL_LOSS: "1"
+  MILES_KL_LOSS_COEF: "0.1"
   MILES_RECOMPUTE_GRANULARITY: full
+  MILES_LORA_BASE_CPU_BACKUP: "1"
+  MILES_CPP_INCLUDE_LOGS: "1"
+  GLM47_CPP_REWARD_WORKERS: "24"
   MILES_RAY_SCOPED_CLEANUP: "1"
   MILES_RAY_PORT: "6479"
   MILES_RAY_DASHBOARD_PORT: "8280"
@@ -53,10 +68,10 @@ envs:
   MILES_RAY_METRICS_EXPORT_PORT: "52418"
   MILES_RAY_SUBMIT_RETRIES: "5"
   WANDB_MODE: offline
-  MILES_WANDB_PROJECT: glm47-bank-account-official-imitation
-  MILES_WANDB_JOB_TYPE: sft-canary
-  WANDB_JOB_TYPE: sft-canary
-  WANDB_TAGS: bank-account,official-imitation,gcp,skypilot,8xh100,canary,issue-111
+  MILES_WANDB_PROJECT: glm47-bank-account-official-grpo
+  MILES_WANDB_JOB_TYPE: grpo20
+  WANDB_JOB_TYPE: grpo20
+  WANDB_TAGS: bank-account,official-grpo,gcp,skypilot,8xh100,kl-high,issue-111
 
 api_server_access: false
 
@@ -139,9 +154,26 @@ run: |
   test ! -e "${artifact_root}"
   mkdir -p "${run_root}" "${artifact_root}"
   preserve_artifacts() {
-    rsync -a "${run_root}/" "${artifact_root}/" || true
+    rsync -a --no-links "${run_root}/" "${artifact_root}/" || true
   }
-  trap preserve_artifacts EXIT
+  preserve_periodically() {
+    while true; do
+      sleep 60
+      preserve_artifacts
+    done
+  }
+  preserve_pid=""
+  cleanup() {
+    if [ -n "${preserve_pid}" ]; then
+      kill "${preserve_pid}" >/dev/null 2>&1 || true
+      wait "${preserve_pid}" >/dev/null 2>&1 || true
+      preserve_pid=""
+    fi
+    preserve_artifacts
+  }
+  trap cleanup EXIT
+  preserve_periodically &
+  preserve_pid=$!
   export MILES_RUN_ROOT="${run_root}"
   export MILES_CPP_DATA_DIR="${run_root}/data"
   export GLM47_EXPERIMENT_ID="${MILES_RUN_ID}"
@@ -154,78 +186,23 @@ run: |
     --tasks-dir benchmarks/cpp/bank-account-equivalent-v1 \
     --out "${MILES_CPP_DATA_DIR}" \
     --curriculum bank-account-official-drill-v1 \
-    --profile bank-account-official-imitation-canary \
+    --profile bank-account-official-grpo20 \
     --run-id "${MILES_RUN_ID}" \
     --sort-by-size \
     --force
 
-  DATA_PATH="${MILES_CPP_DATA_DIR}/sft/train.jsonl" MODEL_PATH="${MILES_HF_CHECKPOINT}" \
-    SEQ_LENGTH="${MILES_SEQ_LENGTH}" python3 - <<'PY'
-  import json
-  import os
-  from pathlib import Path
-  from transformers import AutoTokenizer
-
-  rows = [json.loads(line) for line in Path(os.environ["DATA_PATH"]).read_text().splitlines() if line]
-  if len(rows) != 8:
-      raise SystemExit(f"expected 8 SFT rows, got {len(rows)}")
-  tokenizer = AutoTokenizer.from_pretrained(os.environ["MODEL_PATH"], trust_remote_code=True)
-  limit = int(os.environ["SEQ_LENGTH"])
-  lengths = []
-  target_lengths = []
-
-  def input_ids(rendered):
-      if hasattr(rendered, "keys") and "input_ids" in rendered:
-          rendered = rendered["input_ids"]
-      if rendered and isinstance(rendered[0], list):
-          if len(rendered) != 1:
-              raise SystemExit(f"unexpected token batch size: {len(rendered)}")
-          rendered = rendered[0]
-      return rendered
-
-  for row in rows:
-      messages = row["messages"]
-      full = input_ids(
-          tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
-      )
-      prompt = input_ids(
-          tokenizer.apply_chat_template(
-              messages[:-1], tokenize=True, add_generation_prompt=True
-          )
-      )
-      lengths.append(len(full))
-      target_lengths.append(max(0, len(full) - len(prompt)))
-  if max(lengths) > limit or min(target_lengths) <= 0:
-      raise SystemExit(
-          f"serialization invalid max_tokens={max(lengths)} limit={limit} "
-          f"min_target_tokens={min(target_lengths)}"
-      )
-  receipt = {
-      "rows": len(rows),
-      "sequence_length": limit,
-      "min_tokens": min(lengths),
-      "max_tokens": max(lengths),
-      "min_target_tokens": min(target_lengths),
-      "max_target_tokens": max(target_lengths),
-  }
-  Path(os.environ["DATA_PATH"]).with_name("serialization_preflight.json").write_text(
-      json.dumps(receipt, indent=2, sort_keys=True) + "\n"
-  )
-  print("ISSUE111_SFT_SERIALIZATION_READY", json.dumps(receipt, sort_keys=True))
-  PY
-
   set +e
-  bash examples/sft_bank_account_official_drill.sh
+  bash examples/grpo_bank_account_official_drill.sh
   train_status=$?
   set -e
 
   final_adapter=""
   if [ "${train_status}" -eq 0 ]; then
-    mapfile -t checkpoints < <(find "${run_root}/checkpoints/sft_lora_r16" -maxdepth 1 -type d -name 'iter_*' | sort)
-    test "${#checkpoints[@]}" -eq 1
-    final_adapter="${checkpoints[0]}/adapter"
+    mapfile -t checkpoints < <(find "${run_root}/checkpoints/grpo_lora_r16" -maxdepth 1 -type d -name 'iter_*' | sort)
+    test "${#checkpoints[@]}" -ge 1
+    final_adapter="${checkpoints[${#checkpoints[@]}-1]}/adapter"
     test -f "${final_adapter}/adapter_model.bin"
-    test "$(grep -c 'optimizer.reload_model_params() after adapter load' "${run_root}/sft_lora_r16/run.log")" -ge 1
+    test "$(grep -c 'optimizer.reload_model_params() after adapter load' "${run_root}/grpo_lora_r16/run.log")" -ge 16
     ADAPTER_PATH="${final_adapter}" python3 - <<'PY'
   import hashlib
   import json
@@ -271,15 +248,20 @@ run: |
   PY
   fi
 
-  rsync -a "${run_root}/" "${artifact_root}/"
-  test -f "${artifact_root}/sft_lora_r16/run.log"
+  kill "${preserve_pid}" >/dev/null 2>&1 || true
+  wait "${preserve_pid}" >/dev/null 2>&1 || true
+  preserve_pid=""
+  rsync -a --no-links "${run_root}/" "${artifact_root}/"
+  test -f "${artifact_root}/grpo_lora_r16/run.log"
   if [ -n "${final_adapter}" ]; then
     relative_adapter="${final_adapter#${run_root}/}"
     test -f "${artifact_root}/${relative_adapter}/finiteness_receipt.json"
   fi
-  echo "train_status=${train_status}" > "${artifact_root}/canary_status.txt"
-  echo "source_commit=${GLM47_SOURCE_COMMIT}" >> "${artifact_root}/canary_status.txt"
-  echo "source_adapter_sha256=${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" >> "${artifact_root}/canary_status.txt"
-  echo "ISSUE111_CANARY_ARTIFACTS_PRESERVED ${artifact_root}"
+  echo "train_status=${train_status}" > "${artifact_root}/run_status.txt"
+  echo "source_commit=${GLM47_SOURCE_COMMIT}" >> "${artifact_root}/run_status.txt"
+  echo "source_adapter_sha256=${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" >> "${artifact_root}/run_status.txt"
+  echo "lr=${MILES_LR}" >> "${artifact_root}/run_status.txt"
+  echo "kl_loss_coef=${MILES_KL_LOSS_COEF}" >> "${artifact_root}/run_status.txt"
+  echo "ISSUE111_GRPO20_ARTIFACTS_PRESERVED ${artifact_root}"
   trap - EXIT
   exit "${train_status}"
