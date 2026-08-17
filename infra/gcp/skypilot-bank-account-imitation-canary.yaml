@@ -60,6 +60,9 @@ envs:
   MILES_LORA_BASE_CPU_BACKUP: "1"
   MILES_CPP_INCLUDE_LOGS: "1"
   GLM47_CPP_REWARD_WORKERS: "24"
+  GLM47_CPP_SANDBOX_BACKEND: docker
+  GLM47_CPP_SANDBOX_IMAGE: glm47-aider-polyglot-cpp:latest
+  GLM47_CPP_SANDBOX_UNSHARE_NET: "1"
   MILES_RAY_SCOPED_CLEANUP: "1"
   MILES_RAY_PORT: "6479"
   MILES_RAY_DASHBOARD_PORT: "8280"
@@ -79,6 +82,7 @@ api_server_access: false
 config:
   docker:
     run_options:
+    - --volume=/var/run/docker.sock:/var/run/docker.sock
     - --volume=/tmp:/tmp
 
 file_mounts:
@@ -111,11 +115,14 @@ setup: |
   python3 -m pip install --no-deps -e .
   python3 scripts/check_runtime.py
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::=--force-confold install -y --no-install-recommends rsync
+  DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::=--force-confold install -y --no-install-recommends docker.io rsync
 
   mapfile -t gpu_names < <(nvidia-smi --query-gpu=name --format=csv,noheader)
   test "${#gpu_names[@]}" -eq 8
   for gpu_name in "${gpu_names[@]}"; do [[ "${gpu_name}" == *H100* ]]; done
+  command -v docker >/dev/null
+  test -S /var/run/docker.sock
+  docker info >/dev/null
 
   mkdir -p /workspace/local-models /workspace/local-checkpoints /workspace/local-runs
   rsync -a /workspace/models/GLM-4.7-Flash/ "${MILES_HF_CHECKPOINT}/"
@@ -136,6 +143,7 @@ setup: |
       "${MILES_LORA_SOURCE_ADAPTER_PATH}" "${MILES_LORA_ADAPTER_PATH}"
   fi
   grep -q "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" "${MILES_LORA_ADAPTER_PATH}/mtp_strip_manifest.json"
+  python3 -m glm47_posttraining.integrations.miles_aider_polyglot build-image --image "${GLM47_CPP_SANDBOX_IMAGE}"
   test -w /workspace/runs
   echo ISSUE111_CANARY_SETUP_READY
 
