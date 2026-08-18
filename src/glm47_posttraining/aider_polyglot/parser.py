@@ -18,6 +18,7 @@ RECOVERABLE_LABEL_RE = re.compile(r"^(?:#{1,6}\s+|[-*]\s+)?`{0,2}(?P<label>[^`]+
 PROTECTED_NAMES = {"CMakeLists.txt"}
 PROTECTED_SUFFIXES = ("_test.cpp", "_test.cc", "_test.h", ".cmake")
 MAX_RESPONSE_BYTES = 1024 * 1024
+THINKING_END = "</think>"
 
 
 class AiderResponseError(ValueError):
@@ -45,6 +46,13 @@ def parse_whole_file_response(response: str, editable_files: Iterable[str]) -> P
 
     if len(response.encode("utf-8")) > MAX_RESPONSE_BYTES:
         raise AiderResponseError("response_too_large", "response exceeds the safe byte limit")
+
+    # Miles decodes the assistant continuation without GLM's opening <think>
+    # token, but retains the closing token and may glue it to the first filename.
+    # Reward only the final answer after that protocol boundary. Responses that
+    # never finish thinking remain unchanged and must satisfy the normal format.
+    if THINKING_END in response:
+        response = response.rsplit(THINKING_END, 1)[1].lstrip()
 
     # GLM-4.7's pinned generation config treats these chat-control tokens as
     # terminal EOS ids. Miles deliberately retains the stop token in decoded
