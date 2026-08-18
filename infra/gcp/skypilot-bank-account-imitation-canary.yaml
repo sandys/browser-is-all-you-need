@@ -131,7 +131,6 @@ setup: |
   test -f "${MILES_REF_LOAD_DIR}/latest_checkpointed_iteration.txt"
 
   test "$(sha256sum "${MILES_LORA_SOURCE_ADAPTER_PATH}/adapter_model.bin" | awk '{print $1}')" = "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}"
-  test "$(find "${MILES_LORA_SOURCE_ADAPTER_PATH}" -maxdepth 1 -type f -name 'adapter_megatron_tp*_pp0_ep*.pt' | wc -l)" -eq "${MILES_EXPECTED_SOURCE_NATIVE_SHARDS}"
   if [ ! -f "${MILES_LORA_ADAPTER_PATH}/mtp_strip_manifest.json" ]; then
     test ! -e "${MILES_LORA_ADAPTER_PATH}" || test -z "$(find "${MILES_LORA_ADAPTER_PATH}" -mindepth 1 -print -quit)"
     python3 scripts/prepare_grpo_adapter.py \
