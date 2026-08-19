@@ -1,0 +1,291 @@
+# Twenty-update, high-KL exact-task GRPO run for issue #111. Infra owns
+# provisioning, local staging, preservation, and teardown; training and reward
+# semantics remain in examples/, scripts/, and src/.
+name: execution-bank-RL-v2-think-eval64
+
+workdir: .
+
+num_nodes: 1
+
+resources:
+  infra: gcp/us-central1
+  instance_type: a3-highgpu-8g
+  accelerators: H100:8
+  image_id: docker:ghcr.io/tokenbender/glm47-runtime@sha256:b4f67ba1519bf276fe1dcb6fcb457600e4a256bc0d5c3011fcbd9cc05f240d43
+  use_spot: true
+  disk_size: 500
+  disk_tier: high
+  autostop:
+    idle_minutes: 30
+    down: true
+    wait_for: jobs
+  labels:
+    managed-by: skypilot
+    workload: execution-bank-rl-v2-think-eval64
+
+envs:
+  MILES_RUN_ID: execution-bank-RL-v2-think-iter19-eval64
+  GLM47_SOURCE_COMMIT: 7c70b963425d81ce1a3cd344524b87eb055c5852
+  GLM47_RUNTIME_IMAGE: docker:ghcr.io/tokenbender/glm47-runtime@sha256:b4f67ba1519bf276fe1dcb6fcb457600e4a256bc0d5c3011fcbd9cc05f240d43
+  GLM47_MODEL_REVISION: 7dd20894a642a0aa287e9827cb1a1f7f91386b67
+  MILES_HF_CHECKPOINT: /workspace/local-models/GLM-4.7-Flash
+  MILES_REF_LOAD_DIR: /workspace/local-checkpoints/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8
+  MILES_LORA_SOURCE_ADAPTER_PATH: /workspace/runs/execution-bank-RL-v2-think-r2/checkpoints/grpo_lora_r16/iter_0000019/adapter
+  MILES_LORA_ADAPTER_PATH: /workspace/local-checkpoints/execution-bank-RL-v2-think-iter19-eval64-hybrid
+  MILES_AUTO_PREPARE_GRPO_ADAPTER: "0"
+  MILES_EXPECTED_SOURCE_ADAPTER_SHA256: f5c298f5554c6f5fa4a27f3329e4a08c6c2fef76834c0f10147a270ede41148d
+  MILES_EXPECTED_SOURCE_TENSORS: "9741"
+  MILES_EXPECTED_STRIPPED_TENSORS: "207"
+  MILES_EXPECTED_SOURCE_NATIVE_SHARDS: "4"
+  MILES_ROLLOUT_ONLY: "1"
+  MILES_NUM_ROLLOUT: "1"
+  MILES_ROLLOUT_BATCH_SIZE: "1"
+  MILES_N_SAMPLES_PER_PROMPT: "64"
+  MILES_GLOBAL_BATCH_SIZE: "64"
+  MILES_SAVE_INTERVAL: "10"
+  MILES_EVAL_INTERVAL: "-1"
+  MILES_SEQ_LENGTH: "12288"
+  MILES_MAX_TOKENS_PER_GPU: "16384"
+  MILES_ROLLOUT_MAX_RESPONSE_LEN: "8192"
+  MILES_EVAL_MAX_RESPONSE_LEN: "8192"
+  MILES_ROLLOUT_TEMPERATURE: "0.7"
+  MILES_ROLLOUT_STOP_TOKEN_IDS: "154820 154827 154829"
+  MILES_ROLLOUT_SKIP_SPECIAL_TOKENS: "1"
+  MILES_APPLY_CHAT_TEMPLATE_KWARGS: '{"enable_thinking": true}'
+  MILES_LR: "2e-6"
+  MILES_LR_DECAY_STYLE: constant
+  MILES_LR_WARMUP_FRACTION: "0"
+  MILES_NO_REF: "1"
+  MILES_USE_KL_LOSS: "0"
+  MILES_KL_LOSS_COEF: "0.00"
+  MILES_RECOMPUTE_GRANULARITY: full
+  MILES_LORA_BASE_CPU_BACKUP: "1"
+  MILES_CPP_INCLUDE_LOGS: "1"
+  GLM47_CPP_REWARD_WORKERS: "24"
+  GLM47_CPP_SANDBOX_BACKEND: docker
+  GLM47_CPP_SANDBOX_IMAGE: glm47-aider-polyglot-cpp:latest
+  GLM47_CPP_SANDBOX_UNSHARE_NET: "1"
+  MILES_RAY_SCOPED_CLEANUP: "1"
+  MILES_RAY_PORT: "6479"
+  MILES_RAY_DASHBOARD_PORT: "8280"
+  MILES_RAY_AGENT_LISTEN_PORT: "52415"
+  MILES_RAY_AGENT_GRPC_PORT: "52416"
+  MILES_RAY_RUNTIME_ENV_AGENT_PORT: "52417"
+  MILES_RAY_METRICS_EXPORT_PORT: "52418"
+  MILES_RAY_SUBMIT_RETRIES: "5"
+  WANDB_MODE: online
+  WANDB_API_KEY: null
+  WANDB_ENTITY: ahm-rimer
+  MILES_WANDB_PROJECT: execution-bank-RL-v2-think
+  MILES_WANDB_JOB_TYPE: eval64
+  WANDB_JOB_TYPE: eval64
+  WANDB_TAGS: execution-bank-RL-v2-think,bank-account,official-eval64,gcp,skypilot,8xh100,thinking-enabled,issue-111
+
+api_server_access: false
+
+config:
+  docker:
+    run_options:
+    - --volume=/var/run/docker.sock:/var/run/docker.sock
+    - --volume=/tmp:/tmp
+
+file_mounts:
+  /workspace/models:
+    source: gs://skypilot-filemounts-ubuntu-f0048940-17eetwow
+    mode: MOUNT_CACHED
+    type: MODEL_CHECKPOINT_RO
+    config:
+      mount_cached:
+        vfs_cache_max_size: 100G
+  /workspace/assets:
+    source: gs://skypilot-filemounts-ubuntu-f0048940-4e9fav0c
+    mode: MOUNT_CACHED
+    type: DATASET_RO
+    config:
+      mount_cached:
+        vfs_cache_max_size: 25G
+  /workspace/runs:
+    source: gs://skypilot-filemounts-ubuntu-f0048940-88p8zkcq
+    mode: MOUNT_CACHED
+    type: MODEL_CHECKPOINT_RW
+    config:
+      mount_cached:
+        vfs_cache_max_size: 200G
+
+setup: |
+  set -euo pipefail
+  : "${MILES_RUN_ID:?MILES_RUN_ID is required}"
+  : "${GLM47_SOURCE_COMMIT:?GLM47_SOURCE_COMMIT is required}"
+  python3 -m pip install --no-deps -e .
+  python3 scripts/check_runtime.py
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::=--force-confold install -y --no-install-recommends docker.io rsync
+
+  mapfile -t gpu_names < <(nvidia-smi --query-gpu=name --format=csv,noheader)
+  test "${#gpu_names[@]}" -eq 8
+  for gpu_name in "${gpu_names[@]}"; do [[ "${gpu_name}" == *H100* ]]; done
+  command -v docker >/dev/null
+  test -S /var/run/docker.sock
+  docker info >/dev/null
+
+  mkdir -p /workspace/local-models /workspace/local-checkpoints /workspace/local-runs
+  rsync -a /workspace/models/GLM-4.7-Flash/ "${MILES_HF_CHECKPOINT}/"
+  test "$(tr -d '[:space:]' < "${MILES_HF_CHECKPOINT}/MODEL_REVISION")" = "${GLM47_MODEL_REVISION}"
+  rsync -a /workspace/runs/shared/GLM-4.7-Flash_torch_dist_tp4_pp1_ep8/ "${MILES_REF_LOAD_DIR}/"
+  test -f "${MILES_REF_LOAD_DIR}/latest_checkpointed_iteration.txt"
+
+  test "$(sha256sum "${MILES_LORA_SOURCE_ADAPTER_PATH}/adapter_model.bin" | awk '{print $1}')" = "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}"
+  test "$(find "${MILES_LORA_SOURCE_ADAPTER_PATH}" -maxdepth 1 -type f \( -name 'adapter_megatron_rank*.pt' -o -name 'adapter_megatron_tp*_pp0.pt' -o -name 'adapter_megatron_tp*_pp0_ep*.pt' \) | wc -l)" -eq "${MILES_EXPECTED_SOURCE_NATIVE_SHARDS}"
+  if [ ! -f "${MILES_LORA_ADAPTER_PATH}/mtp_strip_manifest.json" ]; then
+    test ! -e "${MILES_LORA_ADAPTER_PATH}" || test -z "$(find "${MILES_LORA_ADAPTER_PATH}" -mindepth 1 -print -quit)"
+    python3 scripts/prepare_grpo_adapter.py \
+      --include-native \
+      --expected-native-shards "${MILES_EXPECTED_SOURCE_NATIVE_SHARDS}" \
+      --expected-source-sha256 "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" \
+      --expected-source-tensors "${MILES_EXPECTED_SOURCE_TENSORS}" \
+      --expected-stripped-tensors "${MILES_EXPECTED_STRIPPED_TENSORS}" \
+      "${MILES_LORA_SOURCE_ADAPTER_PATH}" "${MILES_LORA_ADAPTER_PATH}"
+  fi
+  grep -q "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" "${MILES_LORA_ADAPTER_PATH}/mtp_strip_manifest.json"
+  python3 -m glm47_posttraining.integrations.miles_aider_polyglot build-image --image "${GLM47_CPP_SANDBOX_IMAGE}"
+  test -w /workspace/runs
+  echo ISSUE111_CANARY_SETUP_READY
+
+run: |
+  set -euo pipefail
+  mapfile -t gpu_names < <(nvidia-smi --query-gpu=name --format=csv,noheader)
+  test "${#gpu_names[@]}" -eq 8
+  for gpu_name in "${gpu_names[@]}"; do [[ "${gpu_name}" == *H100* ]]; done
+  test "$(sha256sum "${MILES_LORA_SOURCE_ADAPTER_PATH}/adapter_model.bin" | awk '{print $1}')" = "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}"
+  grep -q "${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" "${MILES_LORA_ADAPTER_PATH}/mtp_strip_manifest.json"
+  test -f "${MILES_HF_CHECKPOINT}/config.json"
+  test -f "${MILES_REF_LOAD_DIR}/latest_checkpointed_iteration.txt"
+
+  run_root="/workspace/local-runs/${MILES_RUN_ID}"
+  artifact_root="/workspace/runs/${MILES_RUN_ID}"
+  test ! -e "${run_root}"
+  test ! -e "${artifact_root}"
+  mkdir -p "${run_root}" "${artifact_root}"
+  preserve_artifacts() {
+    rsync -a --no-links "${run_root}/" "${artifact_root}/" || true
+  }
+  preserve_periodically() {
+    while true; do
+      sleep 60
+      preserve_artifacts
+    done
+  }
+  preserve_pid=""
+  cleanup() {
+    if [ -n "${preserve_pid}" ]; then
+      kill "${preserve_pid}" >/dev/null 2>&1 || true
+      wait "${preserve_pid}" >/dev/null 2>&1 || true
+      preserve_pid=""
+    fi
+    preserve_artifacts
+  }
+  trap cleanup EXIT
+  preserve_periodically &
+  preserve_pid=$!
+  export MILES_RUN_ROOT="${run_root}"
+  export MILES_CPP_DATA_DIR="${run_root}/data"
+  export GLM47_EXPERIMENT_ID="${MILES_RUN_ID}"
+  export MILES_WANDB_GROUP="execution-bank-RL-v2-think-r2"
+  export MILES_WANDB_RUN_ID="${MILES_RUN_ID}"
+  export WANDB_RUN_GROUP="execution-bank-RL-v2-think-r2"
+
+  CXX=g++ PYTHONPATH=src python3 -m glm47_posttraining.integrations.miles_aider_polyglot \
+    build-data \
+    --tasks-dir benchmarks/cpp/bank-account-equivalent-v1 \
+    --out "${MILES_CPP_DATA_DIR}" \
+    --curriculum bank-account-official-drill-v1 \
+    --profile bank-account-official-eval64 \
+    --run-id "${MILES_RUN_ID}" \
+    --force
+
+  DATA_PATH="${MILES_CPP_DATA_DIR}/grpo/train.jsonl" python3 - <<'PY'
+  import json
+  import os
+  from pathlib import Path
+
+  path = Path(os.environ["DATA_PATH"])
+  rows = [json.loads(line) for line in path.read_text().splitlines() if line]
+  selected = [row for row in rows if row["metadata"]["episode_kind"] == "full-solve"]
+  if len(selected) != 1:
+      raise SystemExit(f"expected one full-solve row, got {len(selected)}")
+  path.write_text(json.dumps(selected[0], sort_keys=True) + "\n")
+  print("ISSUE111_OFFICIAL_FULL_SOLVE_SELECTED")
+  PY
+
+  set +e
+  bash examples/grpo_bank_account_official_drill.sh
+  eval_status=$?
+  set -e
+
+  if [ "${eval_status}" -eq 0 ]; then
+    RUN_ROOT="${run_root}" ADAPTER_SHA="${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" python3 - <<'PY'
+  from collections import Counter
+  import json
+  import os
+  from pathlib import Path
+
+  from glm47_posttraining.integrations.miles_cpp_perf import (
+      load_miles_debug_samples,
+      record_from_debug_sample,
+  )
+
+  root = Path(os.environ["RUN_ROOT"])
+  dump = root / "rollout_dumps" / "grpo_0.pt"
+  records = [record_from_debug_sample(sample) for sample in load_miles_debug_samples(dump)]
+  selected = [
+      record
+      for record in records
+      if str(record.get("problem_id", "")).endswith("--full-solve")
+  ]
+  if len(selected) != 64:
+      raise SystemExit(f"expected 64 official samples, got {len(selected)}")
+  strict_passes = sum(float(record.get("reward") or 0.0) == 1.0 for record in selected)
+  reasons = Counter(str(record.get("reason")) for record in selected)
+  summary = {
+      "status": "completed",
+      "samples": 64,
+      "strict_passes": strict_passes,
+      "strict_failures": 64 - strict_passes,
+      "pass_rate": strict_passes / 64,
+      "task": "official-bank-account-full-solve",
+      "adapter_sha256": os.environ["ADAPTER_SHA"],
+      "source_dump": "grpo_0.pt",
+      "excluded_startup_monitor_records": 1,
+      "thinking_enabled": True,
+      "max_response_len": 8192,
+      "temperature": 0.7,
+      "failure_reasons": dict(sorted(reasons.items())),
+  }
+  (root / "official_eval64_summary.json").write_text(
+      json.dumps(summary, indent=2, sort_keys=True) + "\n"
+  )
+  (root / "official_eval64_records.jsonl").write_text(
+      "".join(json.dumps(record, sort_keys=True) + "\n" for record in selected)
+  )
+  print("ISSUE111_OFFICIAL_EVAL64", json.dumps(summary, sort_keys=True))
+  PY
+  fi
+
+  kill "${preserve_pid}" >/dev/null 2>&1 || true
+  wait "${preserve_pid}" >/dev/null 2>&1 || true
+  preserve_pid=""
+  rsync -a --no-links "${run_root}/" "${artifact_root}/"
+  test -f "${artifact_root}/grpo_lora_r16/run.log"
+  if [ "${eval_status}" -eq 0 ]; then
+    for relative in official_eval64_summary.json official_eval64_records.jsonl rollout_dumps/grpo_0.pt; do
+      test "$(sha256sum "${run_root}/${relative}" | awk '{print $1}')" = "$(sha256sum "${artifact_root}/${relative}" | awk '{print $1}')"
+    done
+  fi
+  echo "eval_status=${eval_status}" > "${artifact_root}/run_status.txt"
+  echo "source_commit=${GLM47_SOURCE_COMMIT}" >> "${artifact_root}/run_status.txt"
+  echo "source_adapter_sha256=${MILES_EXPECTED_SOURCE_ADAPTER_SHA256}" >> "${artifact_root}/run_status.txt"
+  echo "thinking_enabled=true" >> "${artifact_root}/run_status.txt"
+  echo "rollout_max_response_len=${MILES_ROLLOUT_MAX_RESPONSE_LEN}" >> "${artifact_root}/run_status.txt"
+  echo "ISSUE111_OFFICIAL_EVAL64_PRESERVED ${artifact_root}"
+  trap - EXIT
+  exit "${eval_status}"

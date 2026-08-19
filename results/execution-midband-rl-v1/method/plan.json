@@ -1,0 +1,15 @@
+[
+  {
+    "checkpoint_label": "issue111-grpo20-iter19-fixed26-mt2",
+    "adapter_path": "/runs/issue111-bank-official-grpo20-20260817T151213Z/checkpoints/grpo_lora_r16/iter_0000019/adapter",
+    "expected_adapter_sha256": "186b0fc5b200fb8bb55bf85ee4416f2682a470580f0231c6f3f2a4d414bd898e",
+    "expected_data_manifest_sha256": "b9c80354d4d05123f8a3768898379ff215251fdf3444e6e0f05d52b02b968299",
+    "expected_training_phase": "full",
+    "expected_training_task_count": 8,
+    "suite_run_id": "issue111-grpo20-iter19-fixed26-mt2-suite-20260817T193037Z",
+    "single_turn_run_id": "issue111-grpo20-iter19-fixed26-st-unused-20260817T193037Z",
+    "two_turn_run_id": "issue111-grpo20-iter19-fixed26-mt2-20260817T193037Z",
+    "single_turn_samples": 0,
+    "two_turn_samples": 4
+  }
+]

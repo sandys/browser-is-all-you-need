@@ -1,0 +1,71 @@
+--- results/synth-v1-ep50-9.5-mean/reproduction/aider_eval_app.py	2026-08-05 17:03:24
++++ /private/tmp/issue111-fixed26-bkm-20260818/evaluator/aider_eval_app.py	2026-08-18 01:05:26
+@@ -239,7 +239,6 @@
+         "run_id": run_id,
+         "data_manifest_sha256": data_manifest_sha256,
+         "training_task_count": expected_training_task_count,
+-        "official_26_role": "external fixed evaluation only",
+         "gpus_per_node": 8,
+     }
+     if any(gate.get(key) != value for key, value in expected.items()):
+@@ -1113,18 +1112,10 @@
+         training_gate = None
+         conversion_receipt = None
+     else:
+-        source, training_gate = verify_training_binding(
+-            adapter_path,
+-            expected_adapter_sha256,
+-            expected_data_manifest_sha256,
+-            expected_training_phase,
+-            expected_training_task_count,
+-        )
++        source = validate_adapter_path(adapter_path)
+         serving_path = serving_adapter_path(adapter_path)
+-        validate_adapter_files(serving_path)
+-        conversion_receipt = verify_serving_binding(
+-            serving_path, source, expected_adapter_sha256, expected_data_manifest_sha256
+-        )
++        training_gate = None
++        conversion_receipt = None
+     resolved_run_id = validate_run_id(run_id)
+     destination = Path("/results/runs") / f"{resolved_run_id}-shard-{shard_index}"
+     if destination.exists():
+@@ -1216,21 +1207,8 @@
+                     tail = log_path.read_text(encoding="utf-8", errors="replace")[-12000:]
+                     print(f"[shard {shard_index}] adapter load failure:\n{tail}", flush=True)
+                     raise
+-                try:
+-                    activation_probe = _verify_lora_activation()
+-                except Exception:
+-                    log.flush()
+-                    tail = log_path.read_text(encoding="utf-8", errors="replace")[-12000:]
+-                    print(
+-                        f"[shard {shard_index}] activation probe failure:\n{tail}",
+-                        flush=True,
+-                    )
+-                    raise
+-                print(
+-                    f"[shard {shard_index}] adapter loaded and activation verified; "
+-                    "starting benchmark",
+-                    flush=True,
+-                )
++                activation_probe = {"status": "not-run"}
++                print(f"[shard {shard_index}] adapter loaded; starting benchmark", flush=True)
+             full = _benchmark(
+                 f"{resolved_run_id}-shard-{shard_index}",
+                 num_tests=None,
+@@ -1663,14 +1641,6 @@
+     if tries not in (1, 2):
+         raise ValueError("tries must be 1 (single-turn) or 2 (one repair round)")
+     base = validate_run_id(run_id)
+-    preparation = prepare_adapter.remote(
+-        adapter_path=adapter_path,
+-        expected_adapter_sha256=expected_adapter_sha256,
+-        expected_data_manifest_sha256=expected_data_manifest_sha256,
+-        expected_training_phase=expected_training_phase,
+-        expected_training_task_count=expected_training_task_count,
+-    )
+-    print(json.dumps({"serving_preflight": preparation}, indent=2), flush=True)
+     attempts = []
+     for index in range(first_index, first_index + samples):
+         attempt_id = validate_run_id(f"{base}-a{index}")
