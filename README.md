@@ -54,3 +54,15 @@ cd results/luna-fixed26-20260805/reproduction
 export OPENROUTER_API_KEY=...
 ./run.sh
 ```
+
+```bash
+modal run results/execution-midband-rl-v1/method/aider_eval_app.py --parallel \
+  --adapter-path /runs/issue111-bank-official-grpo20-20260817T151213Z/checkpoints/grpo_lora_r16/iter_0000019/adapter \
+  --expected-adapter-sha256 186b0fc5b200fb8bb55bf85ee4416f2682a470580f0231c6f3f2a4d414bd898e \
+  --expected-data-manifest-sha256 b9c80354d4d05123f8a3768898379ff215251fdf3444e6e0f05d52b02b968299 \
+  --run-id <fresh-fixed26-run-id>
+```
+
+```bash
+sky launch -y -c fixed26-mt2-v2 results/execution-midband-rl-v2/method/skypilot-task.yaml
+```
